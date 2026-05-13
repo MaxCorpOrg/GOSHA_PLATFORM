@@ -1,0 +1,10 @@
+[Unit]
+Description=Run GOSHA observer every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Unit=gosha-observer.service
+
+[Install]
+WantedBy=timers.target

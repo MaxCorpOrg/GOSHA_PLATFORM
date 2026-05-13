@@ -1,0 +1,76 @@
+services:
+  xiaozhi-esp32-server:
+    image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
+    container_name: gosha-xiaozhi-server
+    restart: unless-stopped
+    depends_on:
+      xiaozhi-esp32-server-db:
+        condition: service_healthy
+      xiaozhi-esp32-server-redis:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
+    ports:
+      - "${SELFHOST_XIAOZHI_WS_BIND:-127.0.0.1}:${SELFHOST_XIAOZHI_WS_PORT:-8000}:8000"
+      - "${SELFHOST_XIAOZHI_HTTP_BIND:-127.0.0.1}:${SELFHOST_XIAOZHI_HTTP_PORT:-8003}:8003"
+    volumes:
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/data:/opt/xiaozhi-esp32-server/data
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models:/opt/xiaozhi-esp32-server/models
+
+  xiaozhi-esp32-server-web:
+    image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:web_latest
+    container_name: gosha-xiaozhi-web
+    restart: unless-stopped
+    depends_on:
+      xiaozhi-esp32-server-db:
+        condition: service_healthy
+      xiaozhi-esp32-server-redis:
+        condition: service_healthy
+    environment:
+      - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
+      - SPRING_DATASOURCE_DRUID_URL=jdbc:mysql://xiaozhi-esp32-server-db:3306/xiaozhi_esp32_server?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Europe/Moscow&nullCatalogMeansCurrent=true&connectTimeout=30000&socketTimeout=30000&autoReconnect=true&failOverReadOnly=false&maxReconnects=10
+      - SPRING_DATASOURCE_DRUID_USERNAME=${SELFHOST_XIAOZHI_DB_USER:-root}
+      - SPRING_DATASOURCE_DRUID_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:-change-me}
+      - SPRING_DATA_REDIS_HOST=xiaozhi-esp32-server-redis
+      - SPRING_DATA_REDIS_PASSWORD=${SELFHOST_XIAOZHI_REDIS_PASSWORD:-}
+      - SPRING_DATA_REDIS_PORT=6379
+    ports:
+      - "${SELFHOST_XIAOZHI_WEB_BIND:-127.0.0.1}:${SELFHOST_XIAOZHI_WEB_PORT:-8002}:8002"
+    volumes:
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/uploadfile:/uploadfile
+
+  xiaozhi-esp32-server-db:
+    image: mysql:latest
+    container_name: gosha-xiaozhi-db
+    restart: unless-stopped
+    environment:
+      - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
+      - MYSQL_ROOT_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:-change-me}
+      - MYSQL_DATABASE=xiaozhi_esp32_server
+      - MYSQL_INITDB_ARGS=--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 45s
+      retries: 10
+    expose:
+      - "3306"
+    volumes:
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/mysql:/var/lib/mysql
+
+  xiaozhi-esp32-server-redis:
+    image: redis:8.0
+    container_name: gosha-xiaozhi-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - "6379"
+    volumes:
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/redis:/data

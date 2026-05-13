@@ -1,0 +1,17 @@
+[Unit]
+Description=GOSHA self-hosted XiaoZhi backend
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/gosha_platform/app/backend
+ExecStart=/usr/bin/env docker compose --project-name gosha-platform --env-file /opt/gosha_platform/runtime/env/selfhost-backend.env -f /opt/gosha_platform/app/backend/selfhost-backend.compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/env docker compose --project-name gosha-platform --env-file /opt/gosha_platform/runtime/env/selfhost-backend.env -f /opt/gosha_platform/app/backend/selfhost-backend.compose.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+

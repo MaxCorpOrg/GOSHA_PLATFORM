@@ -1,0 +1,16 @@
+local_only/
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+tmp/
+
