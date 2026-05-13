@@ -6,6 +6,7 @@
 
 1. Прочитай `START_HERE_FOR_NEW_CHAT.md`.
 2. Затем прочитай:
+   - `docs/NEW_CHAT_CHECKPOINT_RU.md`
    - `docs/AGENT_CHECKPOINT_RU.md`
    - `docs/PROJECT_STATUS_RU.md`
 3. Если работа идёт по конкретной папке, открой и её локальный `AGENTS.md`.
@@ -22,6 +23,7 @@
 
 - `docs/PROJECT_STATUS_RU.md`
 - `docs/AGENT_CHECKPOINT_RU.md`
+- `docs/NEW_CHAT_CHECKPOINT_RU.md`, если изменилась короткая контрольная точка входа
 - локальный `AGENTS.md`, если изменилась зона ответственности папки
 
 ## Важные зоны
@@ -31,4 +33,3 @@
 - `ops/` — server install, observer и systemd units
 - `bin/` — локальные вспомогательные скрипты разработчика
 - `docs/` — checkpoint, runbook и handoff
-

@@ -7,6 +7,8 @@
 - Введено разделение на tracked-проект и `local_only/` для runtime, snapshots и откатных материалов.
 - Подготовлен отдельный server-ops слой под `/opt/gosha_platform`.
 - Инициализирован git-репозиторий и выполнен первый push в `origin/agent/bootstrap-gosha`.
+- Добавлена короткая каноническая точка входа для следующего агента:
+  - `docs/NEW_CHAT_CHECKPOINT_RU.md`
 - На сервере создан отдельный checkout:
   - `/opt/gosha_platform/app`
   - `/opt/gosha_platform/runtime/*`
