@@ -7,11 +7,15 @@
 ## Текущая точка
 
 - Локальный panel/gateway baseline уже существует.
-- Папка готовится к превращению в самостоятельный git-репозиторий.
+- Папка уже превращена в самостоятельный git-репозиторий.
+- Ветка публикации сейчас:
+  - `agent/bootstrap-gosha`
+- Первый push в GitHub уже сделан.
 - Для сервера выбран отдельный корень `/opt/gosha_platform`.
 - Для staging-подъёма выбраны:
   - panel/API: `151.241.228.232:18876`
   - websocket backend: `151.241.228.232:18080`
+- Server checkout уже существует в `/opt/gosha_platform/app`, но backend deploy сознательно paused из-за большого image pull и медленного канала.
 
 ## Главные ограничения
 
@@ -21,5 +25,8 @@
 
 ## Ближайший приоритет
 
-- Закрыть первый bootstrap: git, push, server deploy, observer timer, smoke.
-
+- При нормальном канале вернуться к server deploy:
+  - завершить pull backend image
+  - включить `gosha-backend.service`
+  - после этого включить `gosha-panel.service`
+  - затем включить `gosha-observer.timer`

@@ -35,3 +35,17 @@
 - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
 - `curl http://127.0.0.1:18876/api/mobile/plans`
 - наличие `/opt/gosha_platform/runtime/reports/LAST_REPORT_RU.md`
+
+## Если канал слишком медленный
+
+- `xinnan-tech/xiaozhi-esp32-server` тянет тяжёлые docker layers.
+- В этом случае безопасно:
+  - остановить `gosha-backend.service`
+  - снять его с автозапуска
+  - оставить checkout и runtime-папки как есть
+- После паузы deploy продолжается повторным запуском:
+
+```bash
+cd /opt/gosha_platform/app
+bash ops/install_server.sh
+```
