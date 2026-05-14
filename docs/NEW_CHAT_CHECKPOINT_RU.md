@@ -51,6 +51,7 @@
   - `/opt/gosha_platform/runtime/env`
   - `/opt/gosha_platform/runtime/reports`
 - Серверная рабочая копия `/opt/gosha_platform/app` уже выровнена с текущим состоянием ветки `agent/bootstrap-gosha`.
+- В серверной рабочей копии уже есть файлы новой службы `gosha-agent-gateway`, но сама служба ещё не установлена в `systemd`, потому что `ops/install_server.sh` после синхронизации не запускался.
 - Локально подтверждены:
   - `GET /api/mobile/plans`
   - `GET /api/operator/selfhost-xiaozhi`
@@ -71,7 +72,7 @@
 - Развёртывание на сервере остановлено сознательно, потому что получение образов совместимого серверного узла `backend` слишком тяжёлое для текущей скорости канала.
 - На сервере сейчас:
   - `gosha-backend.service` -> `failed/disabled`
-  - `gosha-agent-gateway.service` -> `inactive/disabled`
+  - `gosha-agent-gateway.service` -> `not-found` в `systemd`, потому что новая unit-конфигурация ещё не установлена
   - `gosha-panel.service` -> `inactive/disabled`
   - `gosha-observer.timer` -> `inactive/disabled`
 - Ничего не должно тянуться в фоне, но рабочая копия и рабочие каталоги уже готовы.
