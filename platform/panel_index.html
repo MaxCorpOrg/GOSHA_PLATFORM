@@ -406,6 +406,94 @@
       border-color: #9cdbbd;
       background: #f0fff7;
     }
+    .attention-item.pending-claim {
+      border-color: #f1cf9d;
+      background: linear-gradient(135deg, #fffaf1, #fff4dd);
+    }
+    @keyframes claimPulse {
+      0% {
+        box-shadow: 0 8px 22px rgba(196, 139, 28, .10);
+        border-color: #f1cf9d;
+      }
+      50% {
+        box-shadow: 0 14px 34px rgba(196, 139, 28, .24);
+        border-color: #e39a18;
+      }
+      100% {
+        box-shadow: 0 8px 22px rgba(196, 139, 28, .10);
+        border-color: #f1cf9d;
+      }
+    }
+    .claim-spotlight {
+      margin-top: 12px;
+      border: 2px solid #f1cf9d;
+      background:
+        radial-gradient(circle at 100% 0, rgba(255, 255, 255, .7), transparent 26%),
+        linear-gradient(135deg, #fffdf7, #fff3db);
+      box-shadow: 0 10px 28px rgba(196, 139, 28, .12);
+    }
+    .claim-spotlight[hidden] {
+      display: none;
+    }
+    .claim-spotlight.pending {
+      animation: claimPulse 1.8s ease-in-out infinite;
+    }
+    .claim-spotlight-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .claim-spotlight-text {
+      margin-top: 6px;
+      color: #5a470f;
+      line-height: 1.45;
+    }
+    .claim-spotlight-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .claim-spotlight-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .claim-spotlight-item {
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid #edcb94;
+      background: rgba(255,255,255,.92);
+      color: #27466f;
+    }
+    .claim-spotlight-item strong {
+      display: block;
+      color: #143862;
+      font-size: 15px;
+    }
+    .claim-spotlight-meta {
+      margin-top: 6px;
+      color: #566f8e;
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .claim-spotlight-note {
+      margin-top: 8px;
+      color: #704f07;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .claim-spotlight-controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      align-items: center;
+    }
     .quick-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -1285,6 +1373,28 @@
       Здесь будут показываться результаты действий: запуск моста, открытие подписки, сохранение карточки клиента и переключение сервисов.
     </div>
 
+    <div id="claimSpotlightCard" class="card claim-spotlight" hidden>
+      <div class="claim-spotlight-head">
+        <div>
+          <h2>Новый робот ждёт привязки</h2>
+          <div id="claimSpotlightText" class="claim-spotlight-text">
+            Как только устройство придёт на панель, здесь появится заметный блок привязки.
+          </div>
+        </div>
+        <div class="claim-spotlight-actions">
+          <span id="claimSpotlightPill" class="pill warn">Жду устройство</span>
+          <button class="btn primary" onclick="scrollToPanel('selfhostPanel')">Открыть весь список привязок</button>
+          <button class="btn" onclick="reloadSelfhostState()">Обновить привязки</button>
+        </div>
+      </div>
+      <div id="claimSpotlightList" class="claim-spotlight-list">
+        <div class="claim-spotlight-item">
+          <strong>Ожидаю первое устройство</strong>
+          <div class="claim-spotlight-note">После прихода устройства сюда попадёт карточка с выбором `robot_id` и кнопкой привязки.</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card operator-overview">
       <div class="operator-overview-head">
         <div>
@@ -1901,15 +2011,117 @@
       return currentRobots.filter((robot) => !isTemplateRobot(robot) && !isSupportRobot(robot));
     }
 
-    function renderSelfhostListItem(device, claimed = false) {
-      const safeId = domSafeId(device.device_id || "");
-      const robotOptions = selfhostRobotCandidates()
-        .map((robot) => `<option value="${escapeHtml(robot.robot_id)}" ${(robot.robot_id || "") === (device.robot_id || "") ? "selected" : ""}>${escapeHtml(robotDisplayName(robot))}</option>`)
+    function claimRobotOptions(selectedRobotId = "") {
+      return selfhostRobotCandidates()
+        .map((robot) => `<option value="${escapeHtml(robot.robot_id)}" ${(robot.robot_id || "") === String(selectedRobotId || "") ? "selected" : ""}>${escapeHtml(robotDisplayName(robot))}</option>`)
         .join("");
+    }
+
+    function renderClaimRobotSelect(device, idPrefix = "selfhostClaim") {
+      const safeId = domSafeId(device.device_id || "");
+      return `
+        <select
+          id="${idPrefix}_${safeId}"
+          data-claim-key="${safeId}"
+          class="mem-select"
+          onchange="syncClaimSelection('${escapeHtml(device.device_id || "")}', this.value)"
+          style="min-width:220px; flex:1;">
+          <option value="">Выберите robot_id</option>
+          ${claimRobotOptions(device.robot_id || "")}
+        </select>
+      `;
+    }
+
+    function syncClaimSelection(deviceId, value) {
+      const safeId = domSafeId(deviceId);
+      document.querySelectorAll(`[data-claim-key="${safeId}"]`).forEach((select) => {
+        if ((select.value || "") !== String(value || "")) {
+          select.value = String(value || "");
+        }
+      });
+    }
+
+    function selectedRobotIdForClaim(deviceId) {
+      const safeId = domSafeId(deviceId);
+      const select = Array.from(document.querySelectorAll(`[data-claim-key="${safeId}"]`))
+        .find((item) => (item.value || "").trim());
+      return (select?.value || "").trim();
+    }
+
+    function pendingDeviceMeta(device) {
+      const boardInfo = device?.payload?.board || {};
+      const bits = [
+        device.serial_number ? `серийный номер: ${escapeHtml(device.serial_number)}` : "",
+        device.client_id ? `client_id: ${escapeHtml(device.client_id)}` : "",
+        boardInfo.type ? `плата: ${escapeHtml(boardInfo.type)}` : "",
+        boardInfo.ip ? `IP: ${escapeHtml(boardInfo.ip)}` : "",
+        device.last_seen_iso ? `последний контакт: ${escapeHtml(formatIsoMoment(device.last_seen_iso))}` : "",
+      ].filter(Boolean);
+      return bits.join(" • ");
+    }
+
+    function renderClaimSpotlightItem(device) {
+      const candidates = selfhostRobotCandidates();
+      const noCandidates = !candidates.length;
+      return `
+        <div class="claim-spotlight-item">
+          <strong>${escapeHtml(device.device_id || "unknown-device")}</strong>
+          <div class="claim-spotlight-meta">${pendingDeviceMeta(device) || "Устройство уже пришло на панель и ждёт первой привязки."}</div>
+          <div class="claim-spotlight-note">
+            ${noCandidates
+              ? "Сначала создайте карточку робота, затем вернитесь сюда и выполните привязку."
+              : "Выберите нужный robot_id и нажмите «Привязать сейчас». После этого устройство уйдёт из ожидания и получит рабочую конфигурацию панели."}
+          </div>
+          <div class="claim-spotlight-controls">
+            ${renderClaimRobotSelect(device, "claimSpotlight")}
+            <button class="btn primary" onclick="claimPendingDevice('${escapeHtml(device.device_id || "")}', this)">Привязать сейчас</button>
+            <button class="btn" onclick="scrollToPanel('selfhostPanel')">Показать нижний журнал</button>
+            ${noCandidates ? '<button class="btn warn" onclick="scrollToPanel(\'newRobotId\')">Создать карточку робота</button>' : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderClaimSpotlight() {
+      const card = document.getElementById("claimSpotlightCard");
+      const pill = document.getElementById("claimSpotlightPill");
+      const text = document.getElementById("claimSpotlightText");
+      const list = document.getElementById("claimSpotlightList");
+      if (!card || !pill || !text || !list) return;
+
+      const state = currentSelfhostState || {};
+      const pending = Array.isArray(state.pending_devices) ? state.pending_devices : [];
+      const claimed = Array.isArray(state.claimed_devices) ? state.claimed_devices : [];
+
+      if (!pending.length) {
+        card.hidden = true;
+        card.classList.remove("pending");
+        pill.className = "pill ok";
+        pill.textContent = claimed.length ? `Уже привязаны: ${claimed.length}` : "Жду устройство";
+        text.textContent = claimed.length
+          ? "Сейчас новых устройств для привязки нет. Когда появится новый робот, этот блок автоматически выйдет наверх."
+          : "Как только устройство придёт на панель, здесь появится заметный блок привязки.";
+        list.innerHTML = "";
+        return;
+      }
+
+      const deviceWord = pending.length === 1 ? "устройство" : "устройства";
+      card.hidden = false;
+      card.classList.add("pending");
+      pill.className = "pill warn";
+      pill.textContent = `Ждут привязки: ${pending.length}`;
+      text.textContent = `Найдено ${pending.length} ${deviceWord}. Этот блок специально вынесен наверх и мигает, чтобы оператор сразу увидел новое устройство и не искал секцию привязки по всей панели.`;
+      list.innerHTML = pending.slice(0, 3).map((item) => renderClaimSpotlightItem(item)).join("");
+      if (pending.length > 3) {
+        list.innerHTML += `<div class="hint-box">Показаны первые 3 устройства. Полный список ожидающих привязки ниже в блоке «Платформа Гоша».</div>`;
+      }
+    }
+
+    function renderSelfhostListItem(device, claimed = false) {
       const meta = [
-        device.serial_number ? `serial: ${escapeHtml(device.serial_number)}` : "",
-        device.client_id ? `client: ${escapeHtml(device.client_id)}` : "",
-        device.last_seen_iso ? `last_seen: ${escapeHtml(formatIsoMoment(device.last_seen_iso))}` : "",
+        device.serial_number ? `серийный номер: ${escapeHtml(device.serial_number)}` : "",
+        device.client_id ? `client_id: ${escapeHtml(device.client_id)}` : "",
+        device.last_seen_iso ? `последний контакт: ${escapeHtml(formatIsoMoment(device.last_seen_iso))}` : "",
       ].filter(Boolean).join(" • ");
       if (claimed) {
         return `
@@ -1923,18 +2135,16 @@
         `;
       }
       return `
-        <div class="attention-item">
+        <div class="attention-item pending-claim">
           <span>
             <strong>${escapeHtml(device.device_id || "unknown-device")}</strong><br>
             ${meta || "Устройство ожидает первой привязки."}<br>
             Код привязки: ${escapeHtml(device.claim_code || "—")}
           </span>
           <div class="row" style="margin-top:8px; width:100%;">
-            <select id="selfhostClaim_${safeId}" class="mem-select" style="min-width:220px; flex:1;">
-              <option value="">Выберите robot_id</option>
-              ${robotOptions}
-            </select>
+            ${renderClaimRobotSelect(device, "selfhostClaim")}
             <button class="btn primary" onclick="claimPendingDevice('${escapeHtml(device.device_id || "")}', this)">Привязать</button>
+            <button class="btn" onclick="scrollToPanel('claimSpotlightCard')">Поднять верхнюю карточку</button>
           </div>
         </div>
       `;
@@ -1973,6 +2183,7 @@
       claimedEl.innerHTML = claimed.length
         ? claimed.slice(0, 8).map((item) => renderSelfhostListItem(item, true)).join("")
         : '<div class="attention-item"><span>Привязанные устройства пока не появились.</span></div>';
+      renderClaimSpotlight();
     }
 
     async function reloadSelfhostState(silent = false) {
@@ -4593,6 +4804,7 @@
       const smokeRisk = physicalRobots.filter(robotSmokeNeedsAttention);
       const cloudRisk = physicalRobots.filter(robotCloudNeedsAttention);
       const endpointRisk = physicalRobots.filter(robotNeedsEndpointOrToken);
+      const pendingSelfhost = Array.isArray(currentSelfhostState?.pending_devices) ? currentSelfhostState.pending_devices : [];
       const noEndpoint = physicalRobots.filter((robot) => !robot.endpoint_configured);
       const bridgeDown = physicalRobots.filter((robot) => robot.service_state !== "active");
       const linkBad = physicalRobots.filter((robot) => !robotTransportIsGood(robot));
@@ -4618,22 +4830,59 @@
       ].filter(([, items]) => items.length);
 
       if (!issues.length) {
+        if (pendingSelfhost.length) {
+          focus.textContent = `Есть новое устройство, которое уже пришло на панель и ждёт выбора robot_id. Используйте мигающий блок «Новый робот ждёт привязки» прямо над этим пультом.`;
+          pill.className = "pill warn";
+          pill.textContent = `Ждут привязку: ${pendingSelfhost.length}`;
+          list.innerHTML = `
+            <div class="attention-item pending-claim">
+              <div>
+                <strong>Новое устройство ждёт привязки</strong>
+                <div class="mini" style="max-width:none;">Выберите нужный robot_id в верхнем мигающем блоке и нажмите «Привязать сейчас». Полный список и журнал привязок остаются в секции «Платформа Гоша» ниже.</div>
+              </div>
+              <div class="row">
+                <button class="btn primary" onclick="scrollToPanel('claimSpotlightCard')">Открыть привязку</button>
+                <button class="btn" onclick="scrollToPanel('selfhostPanel')">Открыть журнал привязок</button>
+              </div>
+            </div>
+          ` + (templateRobots.length ? renderAttentionItem("Шаблоны отделены от активных роботов", templateRobots, "ok") : "");
+          renderClaimSpotlight();
+          return;
+        }
         focus.textContent = `Все основные проверки в порядке: ${physicalRobots.length} боевых роботов готовы к работе оператора.`;
         pill.className = "pill ok";
         pill.textContent = "Всё спокойно";
         const info = templateRobots.length ? renderAttentionItem("Шаблоны отделены от активных роботов", templateRobots, "ok") : "";
         list.innerHTML = renderAttentionItem("Критичных пунктов нет", physicalRobots, "ok", "Можно работать с подписками, памятью и клиентами.") + info;
+        renderClaimSpotlight();
         return;
       }
 
       const affected = new Set(issues.flatMap(([, items]) => items.map((robot) => robot.robot_id)));
-      focus.textContent = `Сначала разберите ${issues.length} пунктов внимания. Затронуто роботов: ${affected.size} из ${robots.length}.`;
+      focus.textContent = pendingSelfhost.length
+        ? `Есть новое устройство, которое ждёт привязки. Сначала завершите привязку в верхнем мигающем блоке, затем вернитесь к остальным ${issues.length} пунктам внимания.`
+        : `Сначала разберите ${issues.length} пунктов внимания. Затронуто роботов: ${affected.size} из ${robots.length}.`;
       pill.className = "pill warn";
-      pill.textContent = `Внимание: ${affected.size}`;
-      list.innerHTML = issues
+      pill.textContent = pendingSelfhost.length ? `Ждут привязку: ${pendingSelfhost.length}` : `Внимание: ${affected.size}`;
+      const pendingLead = pendingSelfhost.length
+        ? `
+          <div class="attention-item pending-claim">
+            <div>
+              <strong>Новое устройство ждёт привязки</strong>
+              <div class="mini" style="max-width:none;">Устройство уже пришло на панель. Откройте верхний мигающий блок и завершите выбор robot_id.</div>
+            </div>
+            <div class="row">
+              <button class="btn primary" onclick="scrollToPanel('claimSpotlightCard')">Открыть привязку</button>
+              <button class="btn" onclick="scrollToPanel('selfhostPanel')">Журнал привязок</button>
+            </div>
+          </div>
+        `
+        : "";
+      list.innerHTML = pendingLead + issues
         .slice(0, 6)
         .map(([title, items]) => renderAttentionItem(title, items))
         .join("") + (templateRobots.length ? renderAttentionItem("Шаблоны отделены от активных роботов", templateRobots, "ok") : "");
+      renderClaimSpotlight();
     }
 
     function renderRobotFilterControls() {
@@ -4769,10 +5018,9 @@
     }
 
     async function claimPendingDevice(deviceId, buttonEl = null) {
-      const select = document.getElementById(`selfhostClaim_${domSafeId(deviceId)}`);
-      const robotId = (select?.value || "").trim();
+      const robotId = selectedRobotIdForClaim(deviceId);
       if (!robotId) {
-        notify("Сначала выберите robot_id для claim", "warn");
+        notify("Сначала выберите robot_id для привязки", "warn");
         return;
       }
       if (buttonEl) buttonEl.disabled = true;
