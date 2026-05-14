@@ -46,6 +46,7 @@
   - `/opt/gosha_platform/runtime/app_root`
   - `/opt/gosha_platform/runtime/env`
   - `/opt/gosha_platform/runtime/reports`
+- Серверная рабочая копия `/opt/gosha_platform/app` уже выровнена с текущим состоянием ветки `agent/bootstrap-gosha`.
 - Локально подтверждены:
   - `GET /api/mobile/plans`
   - `GET /api/operator/selfhost-xiaozhi`
@@ -79,7 +80,6 @@ bash ops/install_server.sh
   - `systemctl status gosha-observer.timer`
   - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
   - `curl http://127.0.0.1:18876/api/mobile/plans`
-- Если серверная рабочая копия отстаёт от локального репозитория, сначала выровнять `/opt/gosha_platform/app` по текущему коммиту без запуска служб.
 - После любого заметного шага обновить:
   - `PROJECT_STATUS_RU.md`
   - `AGENT_CHECKPOINT_RU.md`
