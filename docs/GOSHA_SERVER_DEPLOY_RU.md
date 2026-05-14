@@ -20,18 +20,47 @@
 - внутренний веб-интерфейс серверного узла: `127.0.0.1:18082`
 - внутренний HTTP-интерфейс серверного узла: `127.0.0.1:18083`
 
-## Что делает `install_server.sh`
+## Режимы `install_server.sh`
 
-- создаёт рабочее дерево каталогов;
-- копирует unit-файлы `systemd`;
-- создаёт `panel.env`, `selfhost-backend.env` и `agent-gateway.env`, если их ещё нет;
-- генерирует локальный пароль оператора и пароль базы данных, если они ещё не заданы;
-- по возможности одноразово импортирует данные `robots/mobile/share` из `/opt/ai_robot` только в новый рабочий контур;
-- включает `gosha-agent-gateway.service`, `gosha-backend.service`, `gosha-panel.service` и `gosha-observer.timer`.
+- `bash ops/install_server.sh --phase panel`
+  - создаёт рабочее дерево каталогов;
+  - копирует unit-файлы `systemd`;
+  - создаёт и дополняет `panel.env`, `selfhost-backend.env` и `agent-gateway.env`;
+  - генерирует локальный пароль оператора и пароль базы данных, если они ещё не заданы;
+  - по возможности одноразово импортирует данные `robots/mobile/share` из `/opt/ai_robot` только в новый рабочий контур;
+  - включает:
+    - `gosha-agent-gateway.service`
+    - `gosha-panel.service`
+    - `gosha-observer.timer`
+  - не запускает `gosha-backend.service`
+- `bash ops/install_server.sh --phase backend`
+  - работает только с тяжёлой серверной частью;
+  - запускает или перезапускает `gosha-backend.service`;
+  - не требует повторной переустановки панели как обязательной части
+- `bash ops/install_server.sh --phase all`
+  - полный сценарий, совместимый со старым единым запуском;
+  - включает все службы
 
-## Что проверять после развёртывания
+## Текущее подтверждённое состояние
 
-- `systemctl status gosha-backend.service`
+- Серверная рабочая копия находится в `/opt/gosha_platform/app`.
+- Коммит, на котором был подтверждён живой лёгкий контур:
+  - `579c1ae`
+- Лёгкая фаза уже поднята и проверена:
+  - `gosha-agent-gateway.service` -> `active`
+  - `gosha-panel.service` -> `active`
+  - `gosha-observer.timer` -> `active`
+  - `gosha-backend.service` -> `failed`, но это допустимо до отдельного запуска `--phase backend`
+- Наблюдатель на сервере даёт итог `OK`; отсутствие `backend` и порта `18080` помечается как необязательное предупреждение текущей фазы.
+- Подтверждены:
+  - `curl http://127.0.0.1:18110/healthz` -> `200`
+  - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi` -> `200`
+  - `curl http://127.0.0.1:18876/api/mobile/plans` -> `200`
+  - серверный сценарий `pending -> claim -> activate`
+  - наследование профиля по умолчанию и явное переключение профиля робота без перепрошивки
+
+## Что проверять после `--phase panel`
+
 - `systemctl status gosha-agent-gateway.service`
 - `systemctl status gosha-panel.service`
 - `systemctl status gosha-observer.timer`
@@ -41,16 +70,30 @@
 - `curl http://127.0.0.1:18876/api/mobile/plans`
 - наличие `/opt/gosha_platform/runtime/reports/LAST_REPORT_RU.md`
 
+## Что проверять после `--phase backend`
+
+- `systemctl status gosha-backend.service`
+- доступность порта `18080`
+- повторную сводку наблюдателя
+- повторно операторский сценарий:
+  - `pending -> claim -> activate`
+  - наследование профиля по умолчанию
+  - явное переключение профиля робота без перепрошивки
+
 ## Если канал слишком медленный
 
 - Образы `xinnan-tech/xiaozhi-esp32-server` тянут тяжёлые слои `docker`.
-- В этом случае безопасно:
-  - остановить `gosha-backend.service`
-  - снять его с автозапуска
-  - оставить рабочую копию и рабочие каталоги как есть
-- После паузы развёртывание продолжается повторным запуском:
+- В этом случае безопасно остановиться на фазе `panel` и оставить работающими:
+  - `gosha-agent-gateway.service`
+  - `gosha-panel.service`
+  - `gosha-observer.timer`
+- При этом допустимо, что:
+  - `gosha-backend.service` находится в состоянии `failed`
+  - порт `18080` не слушается
+  - наблюдатель помечает эти два пункта как необязательные предупреждения
+- После паузы тяжёлая часть продолжается отдельно:
 
 ```bash
 cd /opt/gosha_platform/app
-bash ops/install_server.sh
+bash ops/install_server.sh --phase backend
 ```

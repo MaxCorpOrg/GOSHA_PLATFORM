@@ -50,8 +50,17 @@
   - `/opt/gosha_platform/runtime/app_root`
   - `/opt/gosha_platform/runtime/env`
   - `/opt/gosha_platform/runtime/reports`
-- Серверная рабочая копия `/opt/gosha_platform/app` уже выровнена с текущим состоянием ветки `agent/bootstrap-gosha`.
-- В серверной рабочей копии уже есть файлы новой службы `gosha-agent-gateway`, но сама служба ещё не установлена в `systemd`, потому что `ops/install_server.sh` после синхронизации не запускался.
+- Серверная рабочая копия `/opt/gosha_platform/app` уже выровнена с текущим состоянием ветки `agent/bootstrap-gosha`; на момент последней живой проверки она находилась на коммите `579c1ae`.
+- Серверное развёртывание работает по фазам:
+  - `--phase panel`
+  - `--phase backend`
+  - `--phase all`
+- На сервере уже поднята лёгкая фаза:
+  - `gosha-agent-gateway.service` -> `active`
+  - `gosha-panel.service` -> `active`
+  - `gosha-observer.timer` -> `active`
+  - `gosha-backend.service` -> `failed`, но это допустимо до отдельного запуска тяжёлой фазы
+- Наблюдатель на сервере даёт итог `OK`; `backend` и порт `18080` пока помечены как необязательные предупреждения текущей стадии.
 - Локально подтверждены:
   - `GET /api/mobile/plans`
   - `GET /api/operator/selfhost-xiaozhi`
@@ -66,35 +75,49 @@
   - создание двух профилей ИИ-агентов
   - наследование профиля по умолчанию для робота
   - явное переключение робота на другой профиль без перепрошивки
+- На сервере подтверждены:
+  - `GET /api/operator/selfhost-xiaozhi` -> `200`
+  - `GET /api/mobile/plans` -> `200`
+  - `GET http://127.0.0.1:18110/healthz` -> `200`
+  - сценарий `pending -> claim -> activate`
+  - наследование профиля по умолчанию
+  - явное переключение робота на другой профиль без перепрошивки
+- Создан отдельный локальный репозиторий `/home/max/GOSHA_FIRMWARE` для следующего собственного прошивочного этапа.
 
 ## Где остановились
 
-- Развёртывание на сервере остановлено сознательно, потому что получение образов совместимого серверного узла `backend` слишком тяжёлое для текущей скорости канала.
+- Лёгкий серверный контур уже поднят и подтверждён.
+- Развёртывание на сервере остановлено перед тяжёлой фазой `backend`, потому что получение образов совместимого серверного узла всё ещё слишком тяжёлое для текущей скорости канала.
 - На сервере сейчас:
-  - `gosha-backend.service` -> `failed/disabled`
-  - `gosha-agent-gateway.service` -> `not-found` в `systemd`, потому что новая unit-конфигурация ещё не установлена
-  - `gosha-panel.service` -> `inactive/disabled`
-  - `gosha-observer.timer` -> `inactive/disabled`
-- Ничего не должно тянуться в фоне, но рабочая копия и рабочие каталоги уже готовы.
+  - `gosha-backend.service` -> `failed`
+  - `gosha-agent-gateway.service` -> `active`
+  - `gosha-panel.service` -> `active`
+  - `gosha-observer.timer` -> `active`
+- Репозиторий `GOSHA_FIRMWARE` пока содержит только стартовую документацию и правила; исходники прошивки туда ещё не импортированы.
 
 ## Что делать следующим
 
-- Когда канал позволит, продолжить развёртывание командой:
+- Когда канал позволит, продолжить только тяжёлую серверную фазу командой:
 
 ```bash
 cd /opt/gosha_platform/app
-bash ops/install_server.sh
+bash ops/install_server.sh --phase backend
 ```
 
 - После завершения получения образов проверить:
-  - `systemctl status gosha-agent-gateway.service`
   - `systemctl status gosha-backend.service`
+  - `systemctl status gosha-agent-gateway.service`
   - `systemctl status gosha-panel.service`
   - `systemctl status gosha-observer.timer`
   - `curl http://127.0.0.1:18110/healthz`
   - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
   - `curl http://127.0.0.1:18876/api/operator/agent-profiles`
   - `curl http://127.0.0.1:18876/api/mobile/plans`
+- Затем перейти в `/home/max/GOSHA_FIRMWARE` и выполнить первый прошивочный этап:
+  - одноразовый импорт исходной базы
+  - создание `gosha-otto-v1`
+  - заполнение аппаратного манифеста и pin map
+  - первая сборка `merged-binary.bin`
 - После любого заметного шага обновить:
   - `PROJECT_STATUS_RU.md`
   - `AGENT_CHECKPOINT_RU.md`
