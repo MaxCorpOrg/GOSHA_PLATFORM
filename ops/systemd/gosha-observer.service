@@ -1,6 +1,6 @@
 [Unit]
 Description=GOSHA read-only observer report
-After=network-online.target gosha-panel.service gosha-backend.service gosha-agent-gateway.service
+After=network-online.target gosha-panel.service gosha-agent-gateway.service
 Wants=network-online.target
 
 [Service]

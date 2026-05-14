@@ -1,7 +1,7 @@
 [Unit]
 Description=GOSHA panel and self-hosted gateway
-After=network-online.target gosha-backend.service gosha-agent-gateway.service
-Wants=network-online.target gosha-backend.service gosha-agent-gateway.service
+After=network-online.target gosha-agent-gateway.service
+Wants=network-online.target gosha-agent-gateway.service
 
 [Service]
 Type=simple

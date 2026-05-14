@@ -17,6 +17,12 @@ PANEL_URL = os.environ.get("GOSHA_OBSERVER_PANEL_URL", "http://127.0.0.1:18876")
 WS_HOST = os.environ.get("GOSHA_OBSERVER_WS_HOST", "127.0.0.1")
 WS_PORT = int(os.environ.get("GOSHA_OBSERVER_WS_PORT", "18080"))
 AGENT_GATEWAY_URL = os.environ.get("GOSHA_OBSERVER_AGENT_GATEWAY_URL", "http://127.0.0.1:18110").rstrip("/")
+REQUIRE_BACKEND = str(os.environ.get("GOSHA_OBSERVER_REQUIRE_BACKEND", "0") or "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 NOW = int(time.time())
 
 
@@ -130,15 +136,18 @@ def write_reports(status):
         )
     lines.extend(["", "## Сервисы"])
     for item in status["services"]:
-        state = "OK" if item["active"] else "WARN"
-        lines.append(f"- [{state}] {item['name']} -> {item['state']}")
+        state = "OK" if item["ok"] else "WARN"
+        suffix = "" if item.get("required", True) else " | optional"
+        lines.append(f"- [{state}] {item['name']} -> {item['state']}{suffix}")
     lines.extend(["", "## HTTP"])
     for item in status["http"]:
         state = "OK" if item["ok"] else "WARN"
-        lines.append(f"- [{state}] {item['url']} -> {item.get('status', 0)}")
+        suffix = "" if item.get("required", True) else " | optional"
+        lines.append(f"- [{state}] {item['url']} -> {item.get('status', 0)}{suffix}")
     lines.extend(["", "## WebSocket"])
     ws = status["websocket"]
-    lines.append(f"- [{'OK' if ws['ok'] else 'WARN'}] tcp {ws['host']}:{ws['port']}")
+    suffix = "" if ws.get("required", True) else " | optional"
+    lines.append(f"- [{'OK' if ws['ok'] else 'WARN'}] tcp {ws['host']}:{ws['port']}{suffix}")
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -152,17 +161,17 @@ def main():
         check_doc("ops/AGENTS.md", 45),
     ]
     services = [
-        check_service("gosha-backend.service"),
-        check_service("gosha-agent-gateway.service"),
-        check_service("gosha-panel.service"),
-        check_service("gosha-observer.timer"),
+        {**check_service("gosha-backend.service"), "required": REQUIRE_BACKEND},
+        {**check_service("gosha-agent-gateway.service"), "required": True},
+        {**check_service("gosha-panel.service"), "required": True},
+        {**check_service("gosha-observer.timer"), "required": True},
     ]
     http = [
-        check_http("/api/operator/selfhost-xiaozhi"),
-        check_http("/api/mobile/plans"),
-        check_http_url(f"{AGENT_GATEWAY_URL}/healthz"),
+        {**check_http("/api/operator/selfhost-xiaozhi"), "required": True},
+        {**check_http("/api/mobile/plans"), "required": True},
+        {**check_http_url(f"{AGENT_GATEWAY_URL}/healthz"), "required": True},
     ]
-    websocket = check_tcp(WS_HOST, WS_PORT)
+    websocket = {**check_tcp(WS_HOST, WS_PORT), "required": REQUIRE_BACKEND}
     status = {
         "generated_at": NOW,
         "generated_at_iso": iso(NOW),
@@ -171,8 +180,14 @@ def main():
         "services": services,
         "http": http,
         "websocket": websocket,
+        "require_backend": REQUIRE_BACKEND,
     }
-    status["ok"] = all(item["ok"] for item in docs) and all(item["active"] for item in services) and all(item["ok"] for item in http) and websocket["ok"]
+    status["ok"] = (
+        all(item["ok"] for item in docs)
+        and all((item["active"] if item.get("required", True) else True) for item in services)
+        and all((item["ok"] if item.get("required", True) else True) for item in http)
+        and (websocket["ok"] if websocket.get("required", True) else True)
+    )
     write_reports(status)
     return 0 if status["ok"] else 1
 

@@ -6,6 +6,43 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
+PHASE="all"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase)
+      shift
+      [[ $# -gt 0 ]] || { echo "Missing value for --phase" >&2; exit 1; }
+      PHASE="$1"
+      ;;
+    --phase=*)
+      PHASE="${1#*=}"
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: bash ops/install_server.sh [--phase panel|backend|all]
+
+  --phase panel    install and start panel, agent gateway, observer
+  --phase backend  install and start only compatible backend
+  --phase all      full install, start all services
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+case "${PHASE}" in
+  panel|backend|all) ;;
+  *)
+    echo "Unsupported phase: ${PHASE}" >&2
+    exit 1
+    ;;
+esac
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_ROOT="${GOSHA_INSTALL_ROOT:-/opt/gosha_platform}"
 APP_DIR="${INSTALL_ROOT}/app"
@@ -25,6 +62,17 @@ MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
 PANEL_PASSWORD_FILE="${ENV_ROOT}/panel.password"
 DB_PASSWORD_FILE="${ENV_ROOT}/selfhost-db.password"
 BACKEND_STORAGE_ROOT="${APP_ROOT}/selfhost_xiaozhi/backend"
+
+ensure_env_key() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  [[ -f "${file}" ]] || touch "${file}"
+  if grep -E "^${key}=" "${file}" >/dev/null 2>&1; then
+    return 0
+  fi
+  printf '%s=%s\n' "${key}" "${value}" >> "${file}"
+}
 
 mkdir -p \
   "${INSTALL_ROOT}" \
@@ -120,6 +168,43 @@ GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=45
 EOF
 fi
 
+ensure_env_key "${ENV_ROOT}/panel.env" "APP_ROOT" "${APP_ROOT}"
+ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_HOST" "0.0.0.0"
+ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_PORT" "${PANEL_PORT}"
+ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_PANEL_URL" "${PANEL_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "ws://${PUBLIC_HOST}:18890"
+ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_USER" "operator"
+ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_PASSWORD_FILE" "${PANEL_PASSWORD_FILE}"
+ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"
+ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_URL" "http://127.0.0.1:${AGENT_GATEWAY_PORT}"
+ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "5"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE" "${PANEL_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_OTA_URL" "${PANEL_URL}/xiaozhi/ota/"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_ACTIVATE_URL" "${PANEL_URL}/xiaozhi/ota/activate"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_WS_URL" "${WS_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE" "${MCP_BASE}"
+ensure_env_key "${ENV_ROOT}/panel.env" "APK_SHARE_PATH" "${APP_ROOT}/share/maxcorp-connector-debug.apk"
+ensure_env_key "${ENV_ROOT}/panel.env" "ADMIN_APK_SHARE_PATH" "${APP_ROOT}/share/maxcorp-admin-connector-debug.apk"
+ensure_env_key "${ENV_ROOT}/panel.env" "PRIVACY_POLICY_SHARE_PATH" "${APP_ROOT}/share/legal/gosha-privacy-policy.html"
+ensure_env_key "${ENV_ROOT}/panel.env" "TERMS_OF_USE_SHARE_PATH" "${APP_ROOT}/share/legal/gosha-terms-of-use.html"
+
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_TZ" "Europe/Moscow"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WS_BIND" "0.0.0.0"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WS_PORT" "${WS_PORT}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_HTTP_BIND" "127.0.0.1"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_HTTP_PORT" "${HTTP_PORT}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WEB_BIND" "127.0.0.1"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WEB_PORT" "${WEB_PORT}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_USER" "root"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_PASSWORD" "${DB_PASSWORD}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_REDIS_PASSWORD" ""
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_STORAGE_ROOT" "${BACKEND_STORAGE_ROOT}"
+
+ensure_env_key "${ENV_ROOT}/agent-gateway.env" "APP_ROOT" "${APP_ROOT}"
+ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_HOST" "127.0.0.1"
+ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_PORT" "${AGENT_GATEWAY_PORT}"
+ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "45"
+
 copy_if_missing() {
   local src="$1"
   local dst="$2"
@@ -172,13 +257,23 @@ install -m 644 "${APP_DIR}/ops/systemd/gosha-observer.service" /etc/systemd/syst
 install -m 644 "${APP_DIR}/ops/systemd/gosha-observer.timer" /etc/systemd/system/gosha-observer.timer
 
 systemctl daemon-reload
-systemctl enable --now gosha-backend.service
-systemctl enable --now gosha-agent-gateway.service
-systemctl enable --now gosha-panel.service
-systemctl enable --now gosha-observer.timer
-systemctl start gosha-observer.service || true
 
-echo "GOSHA server install complete."
+if [[ "${PHASE}" == "panel" ]]; then
+  systemctl enable --now gosha-agent-gateway.service
+  systemctl enable --now gosha-panel.service
+  systemctl enable --now gosha-observer.timer
+  systemctl start gosha-observer.service || true
+elif [[ "${PHASE}" == "backend" ]]; then
+  systemctl enable --now gosha-backend.service
+else
+  systemctl enable --now gosha-backend.service
+  systemctl enable --now gosha-agent-gateway.service
+  systemctl enable --now gosha-panel.service
+  systemctl enable --now gosha-observer.timer
+  systemctl start gosha-observer.service || true
+fi
+
+echo "GOSHA server install complete. phase=${PHASE}"
 echo "Panel: ${PANEL_URL}"
 echo "WebSocket backend: ${WS_URL}"
 echo "Operator password file: ${PANEL_PASSWORD_FILE}"
