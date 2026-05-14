@@ -16,6 +16,7 @@ REPORTS_DIR = RUNTIME_ROOT / "reports"
 PANEL_URL = os.environ.get("GOSHA_OBSERVER_PANEL_URL", "http://127.0.0.1:18876")
 WS_HOST = os.environ.get("GOSHA_OBSERVER_WS_HOST", "127.0.0.1")
 WS_PORT = int(os.environ.get("GOSHA_OBSERVER_WS_PORT", "18080"))
+AGENT_GATEWAY_URL = os.environ.get("GOSHA_OBSERVER_AGENT_GATEWAY_URL", "http://127.0.0.1:18110").rstrip("/")
 NOW = int(time.time())
 
 
@@ -62,6 +63,10 @@ def check_service(name):
 
 def check_http(path):
     url = PANEL_URL.rstrip("/") + path
+    return check_http_url(url)
+
+
+def check_http_url(url):
     try:
         with urlopen(url, timeout=5) as resp:
             body = resp.read(256)
@@ -148,12 +153,14 @@ def main():
     ]
     services = [
         check_service("gosha-backend.service"),
+        check_service("gosha-agent-gateway.service"),
         check_service("gosha-panel.service"),
         check_service("gosha-observer.timer"),
     ]
     http = [
         check_http("/api/operator/selfhost-xiaozhi"),
         check_http("/api/mobile/plans"),
+        check_http_url(f"{AGENT_GATEWAY_URL}/healthz"),
     ]
     websocket = check_tcp(WS_HOST, WS_PORT)
     status = {

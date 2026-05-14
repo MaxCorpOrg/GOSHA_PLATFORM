@@ -1,7 +1,7 @@
 [Unit]
 Description=GOSHA panel and self-hosted gateway
-After=network-online.target gosha-backend.service
-Wants=network-online.target gosha-backend.service
+After=network-online.target gosha-backend.service gosha-agent-gateway.service
+Wants=network-online.target gosha-backend.service gosha-agent-gateway.service
 
 [Service]
 Type=simple
@@ -14,4 +14,3 @@ RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-

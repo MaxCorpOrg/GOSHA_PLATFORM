@@ -18,6 +18,7 @@ PANEL_PORT="${GOSHA_PANEL_PORT:-18876}"
 WS_PORT="${GOSHA_WS_PORT:-18080}"
 HTTP_PORT="${GOSHA_HTTP_PORT:-18083}"
 WEB_PORT="${GOSHA_WEB_PORT:-18082}"
+AGENT_GATEWAY_PORT="${GOSHA_AGENT_GATEWAY_PORT:-18110}"
 PANEL_URL="http://${PUBLIC_HOST}:${PANEL_PORT}"
 WS_URL="ws://${PUBLIC_HOST}:${WS_PORT}/xiaozhi/v1/"
 MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
@@ -31,6 +32,8 @@ mkdir -p \
   "${APP_ROOT}/memory" \
   "${APP_ROOT}/mobile" \
   "${APP_ROOT}/edge" \
+  "${APP_ROOT}/agents/profiles" \
+  "${APP_ROOT}/agents/bindings" \
   "${APP_ROOT}/share/legal" \
   "${APP_ROOT}/shared/kb" \
   "${APP_ROOT}/bin" \
@@ -78,6 +81,8 @@ PUBLIC_EDGE_HUB_URL=ws://${PUBLIC_HOST}:18890
 PANEL_OPERATOR_USER=operator
 PANEL_OPERATOR_PASSWORD_FILE=${PANEL_PASSWORD_FILE}
 PANEL_SESSION_TTL_SECONDS=43200
+GOSHA_AGENT_GATEWAY_URL=http://127.0.0.1:${AGENT_GATEWAY_PORT}
+GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=5
 SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE=${PANEL_URL}
 SELFHOST_XIAOZHI_OTA_URL=${PANEL_URL}/xiaozhi/ota/
 SELFHOST_XIAOZHI_ACTIVATE_URL=${PANEL_URL}/xiaozhi/ota/activate
@@ -103,6 +108,15 @@ SELFHOST_XIAOZHI_DB_USER=root
 SELFHOST_XIAOZHI_DB_PASSWORD=${DB_PASSWORD}
 SELFHOST_XIAOZHI_REDIS_PASSWORD=
 SELFHOST_XIAOZHI_STORAGE_ROOT=${BACKEND_STORAGE_ROOT}
+EOF
+fi
+
+if [[ ! -f "${ENV_ROOT}/agent-gateway.env" ]]; then
+  cat > "${ENV_ROOT}/agent-gateway.env" <<EOF
+APP_ROOT=${APP_ROOT}
+GOSHA_AGENT_GATEWAY_HOST=127.0.0.1
+GOSHA_AGENT_GATEWAY_PORT=${AGENT_GATEWAY_PORT}
+GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=45
 EOF
 fi
 
@@ -152,12 +166,14 @@ fi
 install -m 755 "${APP_DIR}/platform/add_robot.sh" "${APP_ROOT}/bin/add_robot.sh"
 
 install -m 644 "${APP_DIR}/ops/systemd/gosha-backend.service" /etc/systemd/system/gosha-backend.service
+install -m 644 "${APP_DIR}/ops/systemd/gosha-agent-gateway.service" /etc/systemd/system/gosha-agent-gateway.service
 install -m 644 "${APP_DIR}/ops/systemd/gosha-panel.service" /etc/systemd/system/gosha-panel.service
 install -m 644 "${APP_DIR}/ops/systemd/gosha-observer.service" /etc/systemd/system/gosha-observer.service
 install -m 644 "${APP_DIR}/ops/systemd/gosha-observer.timer" /etc/systemd/system/gosha-observer.timer
 
 systemctl daemon-reload
 systemctl enable --now gosha-backend.service
+systemctl enable --now gosha-agent-gateway.service
 systemctl enable --now gosha-panel.service
 systemctl enable --now gosha-observer.timer
 systemctl start gosha-observer.service || true

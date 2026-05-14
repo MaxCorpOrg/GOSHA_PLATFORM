@@ -16,6 +16,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+import gosha_agent_gateway_client as agent_gateway_client
+import gosha_agent_store as agent_store
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
 try:
@@ -1183,6 +1185,53 @@ def ensure_mobile_panel_token(robot_id):
     }
     save_mobile_panel_tokens(tokens)
     return token
+
+
+def agent_gateway_status():
+    return agent_gateway_client.health_snapshot()
+
+
+def list_agent_profiles():
+    return [agent_store.profile_public_view(item) for item in agent_store.list_agent_profiles()]
+
+
+def upsert_agent_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = agent_store.save_agent_profile(profile_id, payload)
+    return {"ok": True, "profile": agent_store.profile_public_view(profile)}
+
+
+def get_robot_agent_assignment(robot_id):
+    if not safe_robot_id(robot_id):
+        raise ValueError("invalid robot_id")
+    summary = agent_store.effective_robot_agent(robot_id)
+    return {
+        "ok": True,
+        "gateway": agent_gateway_status(),
+        "profiles": list_agent_profiles(),
+        "assignment": summary,
+    }
+
+
+def save_robot_agent_assignment(robot_id, active_profile_id, fallback_profile_id=""):
+    if not safe_robot_id(robot_id):
+        raise ValueError("invalid robot_id")
+    require_robot_dir(robot_id)
+    binding = agent_store.save_robot_binding(robot_id, active_profile_id, fallback_profile_id)
+    updates = {
+        "ROBOT_AGENT_PROFILE_ID": str(binding.get("active_profile_id", "") or "").strip(),
+        "ROBOT_AGENT_FALLBACK_PROFILE_ID": str(binding.get("fallback_profile_id", "") or "").strip(),
+    }
+    save_env_updates(robot_env_path(robot_id), updates)
+    return {
+        "ok": True,
+        "gateway": agent_gateway_status(),
+        "assignment": agent_store.effective_robot_agent(robot_id),
+    }
 
 
 def validate_mobile_panel_token(robot_id, token):
@@ -2433,6 +2482,7 @@ def build_robot_record(robot_id, edge_snapshot=None):
     detection = load_detection_snapshot(robot_id, fallback_mode=str(diagnostics.get("mode", "") or ""))
     mobile_presence = load_mobile_presence_snapshot(robot_id)
     activity_presence = summarize_activity_presence(activity)
+    agent_assignment = agent_store.effective_robot_agent(robot_id)
 
     return {
         "robot_id": robot_id,
@@ -2453,6 +2503,7 @@ def build_robot_record(robot_id, edge_snapshot=None):
         "mobile_presence": mobile_presence,
         "tools": tools,
         "control": control_cfg,
+        "agent": agent_assignment,
         "diagnostics": diagnostics,
         "subscription": subscription,
         "owner": owner,
@@ -2741,6 +2792,12 @@ def create_robot(robot_id, robot_name=None, plan_code="start", endpoint=None, ow
     save_subscription(robot_id, subscription)
     apply_subscription_to_config(robot_id, subscription)
     save_owner(robot_id, owner or default_owner())
+    default_profile = agent_store.default_profile()
+    if default_profile:
+        try:
+            save_robot_agent_assignment(robot_id, default_profile.get("profile_id", ""))
+        except Exception:
+            pass
     return {"ok": True, "robot_id": robot_id, "subscription": subscription}
 
 
@@ -3476,6 +3533,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "data": selfhost_gateway_state()})
             return
 
+        if effective_path == "/api/agent-gateway/status":
+            self._send_json(200, {"ok": True, "data": agent_gateway_status()})
+            return
+
+        if effective_path == "/api/agent-profiles":
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "data": {
+                        "gateway": agent_gateway_status(),
+                        "profiles": list_agent_profiles(),
+                        "providers": agent_store.supported_provider_catalog(),
+                    },
+                },
+            )
+            return
+
         if effective_path == "/api/subscription/plans":
             self._send_json(200, {"ok": True, "plans": list(PLAN_CATALOG.values())})
             return
@@ -3555,6 +3630,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "invalid robot_id"})
                 return
             self._send_json(200, {"ok": True, "data": get_control_config(robot_id)})
+            return
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "agent":
+            robot_id = effective_parts[2]
+            try:
+                self._send_json(200, {"ok": True, "data": get_robot_agent_assignment(robot_id)})
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if len(effective_parts) == 5 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "agent" and effective_parts[4] == "effective":
+            robot_id = effective_parts[2]
+            try:
+                self._send_json(200, {"ok": True, "data": agent_store.effective_robot_agent(robot_id)})
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
             return
 
         if effective_path == "/api/wifi/status":
@@ -3769,6 +3860,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
+        if effective_path == "/api/agent-profiles":
+            try:
+                self._send_json(200, upsert_agent_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "service":
             robot_id = effective_parts[2]
             if not safe_robot_id(robot_id):
@@ -3902,6 +4000,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": str(exc)})
                 return
             self._send_json(200, result)
+            return
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "agent":
+            robot_id = effective_parts[2]
+            active_profile_id = str(payload.get("active_profile_id", "") or "").strip()
+            fallback_profile_id = str(payload.get("fallback_profile_id", "") or "").strip()
+            try:
+                self._send_json(200, save_robot_agent_assignment(robot_id, active_profile_id, fallback_profile_id))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
             return
 
         if effective_path == "/api/wifi/connect":

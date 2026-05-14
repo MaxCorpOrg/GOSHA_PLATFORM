@@ -13,6 +13,8 @@ mkdir -p \
   "$APP_ROOT/shared/kb" \
   "$APP_ROOT/bin" \
   "$APP_ROOT/edge" \
+  "$APP_ROOT/agents/profiles" \
+  "$APP_ROOT/agents/bindings" \
   "$APP_ROOT/selfhost_xiaozhi/backend/data" \
   "$APP_ROOT/selfhost_xiaozhi/backend/models" \
   "$APP_ROOT/selfhost_xiaozhi/backend/mysql" \

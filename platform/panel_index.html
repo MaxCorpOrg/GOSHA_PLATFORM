@@ -1371,6 +1371,78 @@
       </div>
     </div>
 
+    <div id="agentProfilesPanel" class="card" style="margin-top:12px;">
+      <div class="operator-overview-head">
+        <div>
+          <h2>Масштабируемые профили ИИ-агентов</h2>
+          <div class="mini" style="max-width:none;">`Гоша` проектируется как масштабируемая платформа: много роботов, много профилей агентов, много OpenAI-совместимых провайдеров без жёсткой привязки к одному облаку.</div>
+        </div>
+        <span id="agentProfilesSummaryPill" class="pill warn">Жду данные</span>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <button class="btn primary" onclick="reloadAgentProfiles()">Обновить профили</button>
+      </div>
+      <div id="agentGatewayMeta" class="hint-box">Состояние внутреннего шлюза ИИ-агентов появится после первой загрузки панели.</div>
+      <div class="operator-grid">
+        <div>
+          <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые профили</div>
+          <div id="agentProfilesList" class="attention-list">
+            <div class="attention-item"><span>Список профилей ещё не загружен.</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="mini" style="max-width:none;margin-bottom:8px;">Создать или изменить профиль</div>
+          <div class="field-grid">
+            <div class="field">
+              <label for="agentProfileId">ID профиля</label>
+              <input id="agentProfileId" type="text" placeholder="openai-main" />
+            </div>
+            <div class="field">
+              <label for="agentDisplayName">Понятное имя</label>
+              <input id="agentDisplayName" type="text" placeholder="OpenAI основной" />
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label for="agentBaseUrl">OpenAI-совместимый `base_url`</label>
+              <input id="agentBaseUrl" type="text" placeholder="https://api.openai.com/v1" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="agentModel">Модель</label>
+              <input id="agentModel" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="agentApiKeyEnv">Имя переменной с ключом</label>
+              <input id="agentApiKeyEnv" type="text" placeholder="OPENAI_API_KEY" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="agentTemperature">Температура</label>
+              <input id="agentTemperature" type="number" step="0.1" min="0" max="2" value="0.7" />
+            </div>
+            <div class="field">
+              <label for="agentMaxTokens">Лимит ответа</label>
+              <input id="agentMaxTokens" type="number" min="1" value="800" />
+            </div>
+            <div class="field">
+              <label for="agentTimeoutSeconds">Тайм-аут, секунд</label>
+              <input id="agentTimeoutSeconds" type="number" min="1" value="30" />
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label for="agentSystemPrompt">Системная инструкция профиля</label>
+              <textarea id="agentSystemPrompt" placeholder="Необязательная системная инструкция для выбранного профиля"></textarea>
+            </div>
+            <label class="check-item"><input id="agentEnabled" type="checkbox" checked /> Профиль включён</label>
+            <label class="check-item"><input id="agentIsDefault" type="checkbox" /> Использовать по умолчанию</label>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn primary" onclick="saveAgentProfile()">Сохранить профиль</button>
+            <button class="btn" onclick="resetAgentProfileForm()">Очистить форму</button>
+          </div>
+          <div class="hint-box" style="margin-top:10px;">
+            Ключ доступа к ИИ-провайдеру в профиль не записывается. Здесь хранится только имя переменной окружения, например `OPENAI_API_KEY` или `DEEPSEEK_API_KEY`.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card" style="margin-top:12px;">
       <h2>Мобильные приложения</h2>
       <div class="row">
@@ -1427,8 +1499,8 @@
         <div class="robot-list-toolbar">
           <div class="robot-toolbar-row">
             <div class="segmented" aria-label="Режим отображения роботов">
-              <button id="viewCardsBtn" class="btn" onclick="setRobotViewMode('cards')">Карточки / cards</button>
-              <button id="viewTableBtn" class="btn" onclick="setRobotViewMode('compact')">Таблица / compact</button>
+              <button id="viewCardsBtn" class="btn" onclick="setRobotViewMode('cards')">Карточки</button>
+              <button id="viewTableBtn" class="btn" onclick="setRobotViewMode('compact')">Таблица</button>
             </div>
             <input id="robotSearchInput" class="robot-search" type="search" placeholder="Поиск по robot_id, имени или системному состоянию" oninput="setRobotSearch(this.value)" autocomplete="off" />
           </div>
@@ -1640,6 +1712,14 @@
             <option value="local-ws">Локальный WebSocket</option>
           </select>
         </div>
+        <div class="field">
+          <label for="ctrlAgentProfile">Активный профиль ИИ-агента</label>
+          <select id="ctrlAgentProfile"></select>
+        </div>
+        <div class="field">
+          <label for="ctrlAgentFallbackProfile">Резервный профиль</label>
+          <select id="ctrlAgentFallbackProfile"></select>
+        </div>
         <div class="field" style="grid-column: 1 / -1;">
           <label for="ctrlCloudEndpoint">Совместимый облачный MCP-адрес</label>
           <input id="ctrlCloudEndpoint" type="text" placeholder="Можно вставить позже, если робот временно работает через совместимый облачный контур" />
@@ -1651,6 +1731,9 @@
       </div>
       <div id="controlHintBox" class="hint-box">
         Если робот ещё не зарегистрирован во внешнем облачном контуре совместимости, поле совместимого облачного MCP-адреса можно оставить пустым и заполнить позже в закрытом режиме настройки.
+      </div>
+      <div id="controlAgentHintBox" class="hint-box" style="margin-top:10px;">
+        После загрузки карточки здесь появится итоговый активный профиль ИИ-агента и предупреждения по его готовности.
       </div>
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" onclick="saveControl()">Сохранить подключение</button>
@@ -1749,6 +1832,8 @@
   <script>
     let currentRobots = [];
     let currentSelfhostState = null;
+    let currentAgentProfiles = [];
+    let currentAgentGatewayState = null;
     let memRobot = null;
     let subscriptionRobot = null;
     let ownerRobot = null;
@@ -1842,14 +1927,14 @@
           <span>
             <strong>${escapeHtml(device.device_id || "unknown-device")}</strong><br>
             ${meta || "Устройство ожидает первой привязки."}<br>
-            Claim code: ${escapeHtml(device.claim_code || "—")}
+            Код привязки: ${escapeHtml(device.claim_code || "—")}
           </span>
           <div class="row" style="margin-top:8px; width:100%;">
             <select id="selfhostClaim_${safeId}" class="mem-select" style="min-width:220px; flex:1;">
               <option value="">Выберите robot_id</option>
               ${robotOptions}
             </select>
-            <button class="btn primary" onclick="claimPendingDevice('${escapeHtml(device.device_id || "")}', this)">Claim</button>
+            <button class="btn primary" onclick="claimPendingDevice('${escapeHtml(device.device_id || "")}', this)">Привязать</button>
           </div>
         </div>
       `;
@@ -1870,21 +1955,21 @@
         backend.mcp_endpoint_base ? `MCP: ${backend.mcp_endpoint_base}` : "",
       ].filter(Boolean);
       metaEl.textContent = backendBits.length
-        ? `Backend настроен. ${backendBits.join(" • ")}`
-        : "Backend еще не настроен. Проверьте `SELFHOST_XIAOZHI_*` переменные окружения панели.";
+        ? `Серверный узел настроен. ${backendBits.join(" • ")}`
+        : "Серверный узел ещё не настроен. Проверьте `SELFHOST_XIAOZHI_*` переменные окружения панели.";
       if (pending.length) {
         summaryEl.className = "pill warn";
-        summaryEl.textContent = `pending: ${pending.length}, claimed: ${claimed.length}`;
+        summaryEl.textContent = `ожидают: ${pending.length}, привязаны: ${claimed.length}`;
       } else if (claimed.length) {
         summaryEl.className = "pill ok";
-        summaryEl.textContent = `claimed: ${claimed.length}`;
+        summaryEl.textContent = `привязаны: ${claimed.length}`;
       } else {
         summaryEl.className = "pill warn";
         summaryEl.textContent = "нет устройств";
       }
       pendingEl.innerHTML = pending.length
         ? pending.map((item) => renderSelfhostListItem(item, false)).join("")
-        : '<div class="attention-item"><span>Сейчас нет устройств в pending state.</span></div>';
+        : '<div class="attention-item"><span>Сейчас нет устройств, ожидающих привязки.</span></div>';
       claimedEl.innerHTML = claimed.length
         ? claimed.slice(0, 8).map((item) => renderSelfhostListItem(item, true)).join("")
         : '<div class="attention-item"><span>Привязанные устройства пока не появились.</span></div>';
@@ -1900,6 +1985,211 @@
       }
       currentSelfhostState = res.data || {};
       renderSelfhostState();
+    }
+
+    function agentAssignmentStateLabel(state) {
+      const value = String(state || "").trim().toLowerCase();
+      if (value === "ready") return "активный профиль готов";
+      if (value === "default_inherited") return "используется профиль по умолчанию";
+      if (value === "fallback") return "используется резервный профиль";
+      return "профиль не выбран";
+    }
+
+    function agentAssignmentStateClass(state) {
+      const value = String(state || "").trim().toLowerCase();
+      if (value === "ready" || value === "default_inherited" || value === "fallback") return "ok";
+      return "warn";
+    }
+
+    function agentProfileLabel(profile) {
+      const item = profile || {};
+      const display = String(item.display_name || item.profile_id || "без имени");
+      const model = String(item.model || "");
+      return model ? `${display} • ${model}` : display;
+    }
+
+    function fillAgentProfileSelect(selectId, selectedValue = "", emptyLabel = "Без явной привязки") {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+      for (const profile of currentAgentProfiles || []) {
+        const labelBits = [agentProfileLabel(profile)];
+        if (profile.is_default) labelBits.push("по умолчанию");
+        if (!profile.enabled) labelBits.push("выключен");
+        const value = String(profile.profile_id || "");
+        const selected = value === String(selectedValue || "") ? "selected" : "";
+        options.push(`<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(labelBits.join(" — "))}</option>`);
+      }
+      select.innerHTML = options.join("");
+    }
+
+    function renderAgentAssignmentHint(assignment) {
+      const data = assignment || {};
+      const effective = data.effective_profile || null;
+      const active = data.active_profile || null;
+      const fallback = data.fallback_profile || null;
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      const pills = [
+        `<span class="pill ${agentAssignmentStateClass(data.state)}">${escapeHtml(agentAssignmentStateLabel(data.state))}</span>`
+      ];
+      if (effective?.display_name || effective?.profile_id) {
+        pills.push(`<span class="pill ok">итоговый профиль: ${escapeHtml(agentProfileLabel(effective))}</span>`);
+      }
+      if (active?.profile_id) {
+        pills.push(`<span class="pill">явно задан: ${escapeHtml(agentProfileLabel(active))}</span>`);
+      }
+      if (fallback?.profile_id) {
+        pills.push(`<span class="pill">резерв: ${escapeHtml(agentProfileLabel(fallback))}</span>`);
+      }
+      const warningHtml = warnings.length
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(warnings.join(" • "))}</div>`
+        : '<div class="mini" style="max-width:none; margin-top:8px;">Профиль ИИ-агента можно менять без перепрошивки робота.</div>';
+      return `${pills.join("")}${warningHtml}`;
+    }
+
+    function resetAgentProfileForm() {
+      document.getElementById("agentProfileId").value = "";
+      document.getElementById("agentDisplayName").value = "";
+      document.getElementById("agentBaseUrl").value = "";
+      document.getElementById("agentModel").value = "";
+      document.getElementById("agentApiKeyEnv").value = "";
+      document.getElementById("agentTemperature").value = "0.7";
+      document.getElementById("agentMaxTokens").value = "800";
+      document.getElementById("agentTimeoutSeconds").value = "30";
+      document.getElementById("agentSystemPrompt").value = "";
+      document.getElementById("agentEnabled").checked = true;
+      document.getElementById("agentIsDefault").checked = false;
+    }
+
+    function loadAgentProfileIntoForm(profileId) {
+      const profile = (currentAgentProfiles || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetAgentProfileForm();
+        document.getElementById("agentProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("agentProfileId").value = profile.profile_id || "";
+      document.getElementById("agentDisplayName").value = profile.display_name || "";
+      document.getElementById("agentBaseUrl").value = profile.base_url || "";
+      document.getElementById("agentModel").value = profile.model || "";
+      document.getElementById("agentApiKeyEnv").value = profile.api_key_env || "";
+      document.getElementById("agentTemperature").value = String(profile.temperature ?? 0.7);
+      document.getElementById("agentMaxTokens").value = String(profile.max_tokens ?? 800);
+      document.getElementById("agentTimeoutSeconds").value = String(profile.timeout_seconds ?? 30);
+      document.getElementById("agentSystemPrompt").value = profile.system_prompt || "";
+      document.getElementById("agentEnabled").checked = profile.enabled !== false;
+      document.getElementById("agentIsDefault").checked = !!profile.is_default;
+    }
+
+    function renderAgentProfileListItem(profile) {
+      const item = profile || {};
+      const pills = [
+        `<span class="pill ${item.enabled === false ? "warn" : "ok"}">${escapeHtml(item.enabled === false ? "выключен" : "включён")}</span>`,
+        `<span class="pill">${escapeHtml(item.provider_kind || "openai_compatible")}</span>`,
+        `<span class="pill ${item.secret_configured ? "ok" : "warn"}">${escapeHtml(item.secret_configured ? "ключ настроен" : "ключ не найден")}</span>`,
+      ];
+      if (item.is_default) pills.push('<span class="pill ok">по умолчанию</span>');
+      const meta = [
+        item.base_url ? `base_url: ${item.base_url}` : "",
+        item.model ? `model: ${item.model}` : "",
+        item.api_key_env ? `env: ${item.api_key_env}` : "",
+      ].filter(Boolean).join(" • ");
+      return `
+        <div class="attention-item">
+          <span>
+            <strong>${escapeHtml(agentProfileLabel(item))}</strong><br>
+            ${meta ? escapeHtml(meta) : "Профиль готов к заполнению."}
+          </span>
+          <div class="row" style="margin-top:8px; width:100%;">
+            ${pills.join("")}
+            <button class="btn" onclick="loadAgentProfileIntoForm('${escapeHtml(item.profile_id || "")}')">Открыть в форму</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAgentProfilesPanel() {
+      const gateway = currentAgentGatewayState || {};
+      const listEl = document.getElementById("agentProfilesList");
+      const metaEl = document.getElementById("agentGatewayMeta");
+      const summaryEl = document.getElementById("agentProfilesSummaryPill");
+      const providers = Array.isArray(gateway.supported_providers) ? gateway.supported_providers : [];
+      if (gateway.ok) {
+        summaryEl.className = "pill ok";
+        summaryEl.textContent = `профилей: ${currentAgentProfiles.length}, включено: ${gateway.enabled_profiles_count || 0}`;
+      } else {
+        summaryEl.className = "pill warn";
+        summaryEl.textContent = currentAgentProfiles.length ? `профилей: ${currentAgentProfiles.length}, шлюз недоступен` : "шлюз недоступен";
+      }
+      const providerText = providers.map((item) => item.name || item.provider_kind || "provider").join(" • ");
+      metaEl.textContent = gateway.ok
+        ? `Внутренний шлюз ИИ-агентов работает. Хранилище: ${gateway.storage_backend === "file" ? "файловый слой хранения" : (gateway.storage_backend || "не указано")}. Поддерживаемые провайдеры: ${providerText || "OpenAI-совместимые"}`
+        : `Внутренний шлюз ИИ-агентов пока недоступен. Сохранение профилей уже работает через файловый слой хранения, но проверку живости шлюза нужно поднять отдельно.`;
+      listEl.innerHTML = currentAgentProfiles.length
+        ? currentAgentProfiles.map((item) => renderAgentProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Профили ИИ-агентов ещё не созданы. Добавьте хотя бы один профиль и при необходимости отметьте его как профиль по умолчанию.</span></div>';
+      fillAgentProfileSelect("ctrlAgentProfile", document.getElementById("ctrlAgentProfile")?.value || "");
+      fillAgentProfileSelect("ctrlAgentFallbackProfile", document.getElementById("ctrlAgentFallbackProfile")?.value || "", "Без резервного профиля");
+    }
+
+    async function reloadAgentProfiles(silent = false) {
+      const res = await apiGet(operatorUrl("/agent-profiles"));
+      if (!res.ok) {
+        currentAgentProfiles = [];
+        currentAgentGatewayState = { ok: false, error: res.error || "request_failed" };
+        renderAgentProfilesPanel();
+        if (!silent) notify("Не удалось загрузить профили ИИ-агентов", "bad");
+        return;
+      }
+      const payload = res.data || {};
+      currentAgentProfiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+      currentAgentGatewayState = payload.gateway || null;
+      renderAgentProfilesPanel();
+    }
+
+    async function saveAgentProfile() {
+      const profileId = document.getElementById("agentProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID профиля", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("agentDisplayName").value.trim(),
+        base_url: document.getElementById("agentBaseUrl").value.trim(),
+        model: document.getElementById("agentModel").value.trim(),
+        api_key_env: document.getElementById("agentApiKeyEnv").value.trim(),
+        temperature: Number(document.getElementById("agentTemperature").value || 0.7),
+        max_tokens: Number(document.getElementById("agentMaxTokens").value || 800),
+        timeout_seconds: Number(document.getElementById("agentTimeoutSeconds").value || 30),
+        system_prompt: document.getElementById("agentSystemPrompt").value.trim(),
+        enabled: !!document.getElementById("agentEnabled").checked,
+        is_default: !!document.getElementById("agentIsDefault").checked,
+      };
+      setStatus(`Сохраняю профиль ИИ-агента ${profileId}...`);
+      const res = await apiPost(operatorUrl("/agent-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить профиль ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAgentProfiles(true);
+      loadAgentProfileIntoForm(profileId);
+      await reloadRobots();
+      notify(`Профиль ИИ-агента ${profileId} сохранён`, "ok");
+    }
+
+    function renderRobotAgentPill(robot) {
+      const assignment = robot?.agent || {};
+      const effective = assignment.effective_profile || null;
+      if (effective?.display_name || effective?.profile_id) {
+        return `<span class="pill ok">агент: ${escapeHtml(agentProfileLabel(effective))}</span>`;
+      }
+      return `<span class="pill warn">агент: ${escapeHtml(agentAssignmentStateLabel(assignment.state))}</span>`;
+    }
+
+    function renderRobotAgentSnippet(robot) {
+      const assignment = robot?.agent || {};
+      return renderAgentAssignmentHint(assignment);
     }
 
     function applySessionState(session) {
@@ -4473,6 +4763,7 @@
       currentRobots = res.robots || [];
       syncRobotDetectionsFromRecords(currentRobots);
       await reloadSelfhostState(true);
+      await reloadAgentProfiles(true);
       renderRobots();
       await autoDetectLiveRobots();
     }
@@ -4488,7 +4779,7 @@
       setStatus(`Привязываю устройство ${deviceId} к роботу ${robotId}...`);
       const res = await apiPost(operatorUrl("/selfhost-xiaozhi/claim"), { device_id: deviceId, robot_id: robotId });
       if (!res.ok) {
-        notify(`Claim не выполнен: ${res.error || "неизвестная ошибка"}`, "bad");
+        notify(`Привязка не выполнена: ${res.error || "неизвестная ошибка"}`, "bad");
         if (buttonEl) buttonEl.disabled = false;
         return;
       }
@@ -4567,6 +4858,7 @@
                 ${endpointTokenPill(robot)}
                 ${detectionStatusPill(robot)}
                 ${cloudStatusPill(robot)}
+                ${renderRobotAgentPill(robot)}
                 ${isRuStoreModerationRobot(robot) ? `<span class="pill warn">связь: без железа</span>` : diagnostics.transport_state ? diagPill("связь", diagnostics.transport_state) : ""}
                 <span class="pill ${robot.memory_enabled ? "ok" : "warn"}">${memoryToggleLabel}</span>
               </div>
@@ -4593,6 +4885,10 @@
                     <span class="pill">${memory.files || 0} файлов</span>
                   </div>
                   <div class="mini">${memoryDescription}</div>
+                </div>
+                <div class="robot-summary-block">
+                  <h3>ИИ-агент</h3>
+                  <div>${renderRobotAgentSnippet(robot)}</div>
                 </div>
               </div>
             </div>
@@ -4746,7 +5042,7 @@
       }
       if (robotViewMode === "compact") {
         body.innerHTML = renderRobotTable(robots);
-        setStatus(`Роботов: ${currentRobots.length}. В таблице / compact показано: ${robots.length}.`);
+        setStatus(`Роботов: ${currentRobots.length}. В таблице показано: ${robots.length}.`);
         return;
       }
       for (const r of robots) {
@@ -5278,17 +5574,26 @@
       document.getElementById("controlPanel").style.display = "block";
       document.getElementById("controlRobotLabel").textContent = robotDisplayNameById(robotId);
       const robot = currentRobots.find(item => item.robot_id === robotId) || {};
+      await reloadAgentProfiles(true);
       const res = await apiGet(operatorUrl(`/robots/${robotId}/control/config`));
       if (!res.ok) {
         notify(`Не удалось загрузить настройки подключения для ${robotDisplayNameById(robotId)}`, "bad");
         return;
       }
+      const agentRes = await apiGet(operatorUrl(`/robots/${robotId}/agent`));
       const cfg = res.data || {};
       document.getElementById("ctrlRobotName").value = brandRobotText(cfg.robot_name || robot.robot_name || robotId);
       document.getElementById("ctrlBackendMode").value = cfg.backend_mode || robot.backend_mode || "xiaozhi_cloud";
       document.getElementById("ctrlTransport").value = cfg.transport || "cloud-mcp";
       document.getElementById("ctrlCloudEndpoint").value = cfg.cloud_endpoint || "";
       document.getElementById("ctrlWsUrl").value = cfg.fallback_ws_url || cfg.ws_url || "";
+      const assignment = agentRes.ok ? (agentRes.data || {}).assignment || {} : (robot.agent || {});
+      fillAgentProfileSelect("ctrlAgentProfile", assignment?.binding?.active_profile_id || "");
+      fillAgentProfileSelect("ctrlAgentFallbackProfile", assignment?.binding?.fallback_profile_id || "", "Без резервного профиля");
+      document.getElementById("controlAgentHintBox").innerHTML = renderAgentAssignmentHint(assignment);
+      if (!agentRes.ok) {
+        notify(`${robotDisplayNameById(robotId)}: профиль ИИ-агента временно не удалось прочитать`, "warn");
+      }
       notify(`${robotDisplayNameById(robotId)}: настройки подключения открыты`, "ok");
       scrollToPanel("controlPanel");
     }
@@ -5296,6 +5601,7 @@
     function hideControl() {
       controlRobot = null;
       document.getElementById("controlPanel").style.display = "none";
+      document.getElementById("controlAgentHintBox").innerHTML = "После загрузки карточки здесь появится итоговый активный профиль ИИ-агента и предупреждения по его готовности.";
     }
 
     async function saveControl() {
@@ -5311,13 +5617,23 @@
         cloud_endpoint: document.getElementById("ctrlCloudEndpoint").value.trim(),
         ws_url: document.getElementById("ctrlWsUrl").value.trim(),
       };
+      const agentPayload = {
+        active_profile_id: document.getElementById("ctrlAgentProfile").value || "",
+        fallback_profile_id: document.getElementById("ctrlAgentFallbackProfile").value || "",
+      };
       setStatus(`${robotLabel}: сохраняю настройки подключения...`);
       const res = await apiPost(operatorUrl(`/robots/${controlRobot}/control/config`), payload);
       if (!res.ok) {
         notify(`${robotLabel}: ошибка сохранения MCP/подключения`, "bad");
         return;
       }
-      notify(`${robotLabel}: настройки подключения сохранены`, "ok");
+      const agentRes = await apiPost(operatorUrl(`/robots/${controlRobot}/agent`), agentPayload);
+      if (!agentRes.ok) {
+        notify(`${robotLabel}: подключение сохранено, но профиль ИИ-агента не обновился`, "warn");
+        return;
+      }
+      notify(`${robotLabel}: настройки подключения и профиль ИИ-агента сохранены`, "ok");
+      await reloadAgentProfiles(true);
       await reloadRobots();
       await openControl(controlRobot);
     }
@@ -5355,6 +5671,7 @@
     }
 
     (async () => {
+      resetAgentProfileForm();
       const session = await loadOperatorSession();
       if (session?.auth_enabled && !session?.authenticated) {
         showLoginOverlay("Войдите как оператор, чтобы открыть панель управления роботами.");
