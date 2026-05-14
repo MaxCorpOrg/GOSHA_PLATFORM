@@ -11,29 +11,35 @@
 5. Если задача про сервер:
    - `GOSHA_SERVER_DEPLOY_RU.md`
    - `../ops/AGENTS.md`
-6. Если задача про панель и self-hosted gateway:
+6. Если задача про панель и совместимый шлюз платформы `Гоша`:
    - `GOSHA_LOCAL_SELFHOST_RUNBOOK_RU.md`
    - `../platform/AGENTS.md`
+
+## Как писать новые записи
+
+- Все новые контрольные точки, утренние брифы, планы и пояснения пиши русским техническим языком по правилам из `../AGENTS.md`.
+- Не используй необъяснённый английский жаргон в обычном тексте.
+- Английский оставляй только для команд, путей, имён файлов, веток, коммитов и кода.
 
 ## Последняя зафиксированная точка
 
 - Ветка: `agent/bootstrap-gosha`
-- Актуальный commit смотреть через:
+- Актуальный коммит смотреть через:
   - `git log --oneline -5`
 - GitHub-репозиторий: `git@github.com:MaxCorpOrg/GOSHA_PLATFORM.git`
 
 ## Что переделали с прошлой точки
 
 - Вынесли `GOSHA_PLATFORM` в отдельный самостоятельный git-репозиторий.
-- Разделили publishable слой и local-only слой:
-  - tracked: `platform/`, `backend/`, `ops/`, `docs/`, `bin/`
-  - local-only: `local_only/`
+- Разделили публикуемый слой и локальный слой:
+  - отслеживаемые каталоги: `platform/`, `backend/`, `ops/`, `docs/`, `bin/`
+  - локальный слой: `local_only/`
 - Добавили `AGENTS.md` по рабочим папкам и оформили отдельный маршрут входа для следующего агента.
-- Подготовили отдельный server deploy слой под `/opt/gosha_platform`, не смешивая его с `AI_ROBOT`.
+- Подготовили отдельный слой развёртывания на сервере под `/opt/gosha_platform`, не смешивая его с `AI_ROBOT`.
 
 ## Что уже сделано
 
-- Первый push в `origin/agent/bootstrap-gosha` выполнен.
+- Первая отправка изменений в `origin/agent/bootstrap-gosha` выполнена.
 - На сервере уже созданы:
   - `/opt/gosha_platform/app`
   - `/opt/gosha_platform/runtime/app_root`
@@ -44,26 +50,27 @@
   - `GET /api/operator/selfhost-xiaozhi`
   - `pending -> claim -> activate=200`
   - `python3 platform/check_gosha_mobile_contract.py --base-url http://127.0.0.1:18876`
+- В правилах проекта закреплён единый русский технический язык для отчётов, планов и контрольных точек.
 
 ## Где остановились
 
-- Server deploy остановлен сознательно, потому что backend pull слишком тяжёлый для текущей скорости канала.
+- Развёртывание на сервере остановлено сознательно, потому что получение образов `backend` слишком тяжёлое для текущей скорости канала.
 - На сервере сейчас:
   - `gosha-backend.service` -> `failed/disabled`
   - `gosha-panel.service` -> `inactive/disabled`
   - `gosha-observer.timer` -> `inactive/disabled`
-- Ничего не должно тянуться в фоне, но checkout и runtime-папки уже готовы.
+- Ничего не должно тянуться в фоне, но рабочая копия и рабочие каталоги уже готовы.
 
 ## Что делать следующим
 
-- Когда канал позволит, продолжить deploy командой:
+- Когда канал позволит, продолжить развёртывание командой:
 
 ```bash
 cd /opt/gosha_platform/app
 bash ops/install_server.sh
 ```
 
-- После завершения pull проверить:
+- После завершения получения образов проверить:
   - `systemctl status gosha-backend.service`
   - `systemctl status gosha-panel.service`
   - `systemctl status gosha-observer.timer`
