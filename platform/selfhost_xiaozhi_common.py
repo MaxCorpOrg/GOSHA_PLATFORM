@@ -382,7 +382,7 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
             "configured": False,
             "device_claimed": False,
             "state": "missing",
-            "detail": "self-hosted XiaoZhi еще не настроен",
+            "detail": "Платформа Гоша ещё не настроена",
         }
     return {
         "provider": BACKEND_MODE_SELF_HOSTED,
@@ -390,7 +390,7 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
         "configured": True,
         "device_claimed": bool(claim),
         "state": "claimed" if claim else "awaiting_claim",
-        "detail": "self-hosted XiaoZhi: устройство привязано к роботу" if claim else "self-hosted XiaoZhi: режим включен, устройство еще не привязано",
+        "detail": "Платформа Гоша: устройство привязано к роботу" if claim else "Платформа Гоша: режим включён, устройство ещё не привязано",
         "backend": backend,
         "device_id": (claim or {}).get("device_id", ""),
         "client_id": (claim or {}).get("client_id", ""),

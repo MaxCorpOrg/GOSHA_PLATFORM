@@ -1,5 +1,5 @@
 [Unit]
-Description=GOSHA self-hosted XiaoZhi backend
+Description=GOSHA compatible backend
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
@@ -14,4 +14,3 @@ TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
-

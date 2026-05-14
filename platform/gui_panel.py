@@ -837,20 +837,20 @@ def summarize_xiaozhi_console(robot_id):
             "available": False,
             "state": "missing",
             "agent_id": "",
-            "detail": "agentId не найден в xiaozhi MCP endpoint",
+            "detail": "Идентификатор агента не найден в совместимом облачном MCP-адресе",
         }
     devices = fetch_xiaozhi_agent_devices(meta.get("agent_id"))
     state = str(devices.get("state", "unknown") or "unknown")
     if state == "online":
-        detail = f"xiaozhi console: online {devices.get('online_count', 0)} из {devices.get('devices_count', 0)} устройств"
+        detail = f"Совместимый облачный контур: в сети {devices.get('online_count', 0)} из {devices.get('devices_count', 0)} устройств"
     elif state == "offline":
-        detail = f"xiaozhi console: ни одно устройство не помечено online ({devices.get('devices_count', 0)} всего)"
+        detail = f"Совместимый облачный контур: ни одно устройство не помечено как подключённое ({devices.get('devices_count', 0)} всего)"
     elif state == "auth_missing":
-        detail = "xiaozhi console token не настроен"
+        detail = "Токен совместимого облачного API не настроен"
     elif state == "error":
-        detail = str(devices.get("error", "") or "ошибка проверки xiaozhi console")
+        detail = str(devices.get("error", "") or "ошибка проверки совместимого облачного контура")
     else:
-        detail = str(devices.get("detail", "") or "xiaozhi console статус не определен")
+        detail = str(devices.get("detail", "") or "статус совместимого облачного контура не определён")
     return {
         "configured": True,
         "available": bool(devices.get("available")),
@@ -879,11 +879,11 @@ def summarize_selfhost_backend(robot_id, env=None):
     backend = summary.get("backend", {}) if isinstance(summary.get("backend"), dict) else {}
     state = str(summary.get("state", "") or "missing").strip().lower()
     if state == "claimed":
-        detail = "self-hosted XiaoZhi: устройство привязано к нашей платформе"
+        detail = "Платформа Гоша: устройство привязано к нашей платформе"
     elif state == "awaiting_claim":
-        detail = "self-hosted XiaoZhi: режим включен, но устройство еще не привязано"
+        detail = "Платформа Гоша: режим включён, но устройство ещё не привязано"
     else:
-        detail = "self-hosted XiaoZhi не настроен"
+        detail = "Платформа Гоша не настроена"
     return {
         "provider": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
         "configured": bool(summary.get("configured")),
@@ -1594,38 +1594,39 @@ def new_probe_request_id():
 
 def safe_unreachable_detail():
     return (
-        "Нет ответа / unreachable. Возможные причины: робот выключен, нет сети, "
-        "неправильный MCP-адрес / endpoint или ключ доступа / token, "
+        "Нет ответа. Возможные причины: робот выключен, нет сети, "
+        "неверно настроены MCP-адрес или ключ доступа, "
         "не запущен клиент робота."
     )
 
 
 def safe_auth_error_detail():
     return (
-        "Ошибка доступа / auth error. Панель не смогла выполнить MCP check: "
-        "проверьте авторизацию, MCP-адрес / endpoint и права доступа."
+        "Ошибка доступа. Панель не смогла выполнить безопасную проверку MCP: "
+        "проверьте авторизацию, MCP-адрес и права доступа."
     )
 
 
 def safe_mcp_client_missing_detail():
     return (
-        "MCP-клиент робота не подключён. Production bridge/runtime сейчас не держит "
-        "рабочую MCP-сессию для этого робота."
+        "MCP-клиент робота не подключён. Рабочий мост или среда выполнения сейчас "
+        "не держат активную сессию MCP для этого робота."
     )
 
 
 def safe_method_not_supported_detail(method_name):
     return (
-        f"Diagnostic method не поддерживается: {method_name}. "
-        "Нужен другой безопасный MCP method или обновление robot-side MCP."
+        f"Диагностический метод не поддерживается: {method_name}. "
+        "Нужен другой безопасный метод MCP только для чтения или обновление "
+        "MCP на стороне робота."
     )
 
 
 def mcp_bridge_not_robot_detail():
     return (
-        "Облачный MCP/bridge доступен, но физический робот не подтвердил ACK. "
-        "Для статуса «В сети / verified online» нужен полноценный MCP check с fresh "
-        "request_id и matching JSON-RPC result."
+        "Облачный мост MCP доступен, но физический робот не подтвердил ответ. "
+        "Для статуса «Подтверждённо в сети» нужна полноценная проверка MCP "
+        "с новым request_id и совпадающим результатом JSON-RPC."
     )
 
 
@@ -1639,7 +1640,7 @@ def base_probe(kind, request_id=None):
         "state": "unknown",
         "verified_now": False,
         "reached_robot": False,
-        "detail": "Проверка связи / MCP check пока не дала уверенного результата.",
+        "detail": "Проверка связи по MCP пока не дала уверенного результата.",
         "error": "",
         "error_type": "",
         "duration_ms": 0,
@@ -1767,10 +1768,10 @@ def apply_tools_list_response(probe, obj, request_id):
         probe["reached_robot"] = True
         probe["tools_count"] = len(tools) if isinstance(tools, list) else None
         probe["error_type"] = ""
-        probe["next_step"] = "Повторная проверка не нужна: робот ответил на безопасный MCP check."
-        suffix = f", сервисов / tools: {probe['tools_count']}" if probe["tools_count"] is not None else ""
+        probe["next_step"] = "Повторная проверка не нужна: робот ответил на безопасную проверку MCP."
+        suffix = f", сервисов: {probe['tools_count']}" if probe["tools_count"] is not None else ""
         probe["detail"] = (
-            f"В сети / verified online: робот ответил на прямой diagnostic ping / direct "
+            f"Подтверждённо в сети: робот ответил на прямую диагностическую проверку "
             f"с request_id={request_id}{suffix}."
         )
         return True
@@ -1780,14 +1781,14 @@ def apply_tools_list_response(probe, obj, request_id):
         probe["error"] = "jsonrpc_error"
         probe["error_type"] = "jsonrpc_error"
         probe["detail"] = safe_unreachable_detail()
-        probe["next_step"] = "Проверьте питание робота, сеть и MCP-настройку, затем повторите MCP check."
+        probe["next_step"] = "Проверьте питание робота, сеть и настройки MCP, затем повторите проверку."
         return True
 
     probe["state"] = "unreachable"
     probe["error"] = "invalid_jsonrpc_result"
     probe["error_type"] = "invalid_jsonrpc_result"
     probe["detail"] = safe_unreachable_detail()
-    probe["next_step"] = "Повторите MCP check. Если ответ снова невалидный, проверьте bridge/runtime."
+    probe["next_step"] = "Повторите проверку MCP. Если ответ снова некорректен, проверьте мост и среду выполнения."
     return True
 
 
@@ -1802,10 +1803,10 @@ def apply_tools_call_response(probe, obj, request_id):
         probe["reached_robot"] = True
         probe["error"] = ""
         probe["error_type"] = ""
-        probe["next_step"] = "Робот ответил на MCP check. Дополнительных действий не требуется."
+        probe["next_step"] = "Робот ответил на проверку MCP. Дополнительных действий не требуется."
         probe["detail"] = (
-            f"Робот на связи / verified online: MCP check вернул ACK с request_id={request_id} "
-            f"через безопасный method {probe.get('method') or 'tools/call'}."
+            f"Подтверждённо в сети: проверка MCP вернула подтверждение с request_id={request_id} "
+            f"через безопасный метод {probe.get('method') or 'tools/call'}."
         )
         return True
 
@@ -1817,27 +1818,27 @@ def apply_tools_call_response(probe, obj, request_id):
             probe["error"] = "auth_error"
             probe["error_type"] = "auth_error"
             probe["detail"] = safe_auth_error_detail()
-            probe["next_step"] = "Проверьте авторизацию и MCP endpoint, затем повторите MCP check."
+            probe["next_step"] = "Проверьте авторизацию и MCP-адрес, затем повторите проверку."
             return True
         if classify_method_not_supported(message):
             probe["state"] = "method_not_supported"
             probe["error"] = "method_not_supported"
             probe["error_type"] = "method_not_supported"
             probe["detail"] = safe_method_not_supported_detail(probe.get("method") or "tools/call")
-            probe["next_step"] = "Используйте другой безопасный diagnostic method или обновите robot-side MCP."
+            probe["next_step"] = "Используйте другой безопасный диагностический метод или обновите MCP на стороне робота."
             return True
         probe["state"] = "unreachable"
         probe["error"] = "jsonrpc_error"
         probe["error_type"] = "jsonrpc_error"
         probe["detail"] = safe_unreachable_detail()
-        probe["next_step"] = "Проверьте сеть и MCP-клиент робота, затем повторите MCP check."
+        probe["next_step"] = "Проверьте сеть и MCP-клиент робота, затем повторите проверку."
         return True
 
     probe["state"] = "unreachable"
     probe["error"] = "invalid_jsonrpc_result"
     probe["error_type"] = "invalid_jsonrpc_result"
     probe["detail"] = safe_unreachable_detail()
-    probe["next_step"] = "Повторите MCP check. Если ответ снова невалидный, проверьте bridge/runtime."
+    probe["next_step"] = "Повторите проверку MCP. Если ответ снова некорректен, проверьте мост и среду выполнения."
     return True
 
 
@@ -1849,17 +1850,17 @@ def mcp_tools_list_probe(ws_url, *, kind, timeout, envelope=False):
 
     if not ws_url:
         probe["state"] = "missing"
-        probe["detail"] = "Проверка недоступна: канал управления / control не настроен."
+        probe["detail"] = "Проверка недоступна: канал управления не настроен."
         probe["error_type"] = "missing"
-        probe["next_step"] = "Сначала настройте канал управления / control для этого робота."
+        probe["next_step"] = "Сначала настройте канал управления для этого робота."
         return finalize_probe(probe, started_at)
 
     if ws_connect is None:
         probe["state"] = "unknown"
         probe["error"] = "websockets_missing"
-        probe["detail"] = "Проверка недоступна: в panel runtime нет библиотеки websockets."
+        probe["detail"] = "Проверка недоступна: в среде выполнения панели нет библиотеки `websockets`."
         probe["error_type"] = "websockets_missing"
-        probe["next_step"] = "Проверьте panel runtime: библиотека websockets должна быть установлена."
+        probe["next_step"] = "Проверьте среду выполнения панели: библиотека `websockets` должна быть установлена."
         return finalize_probe(probe, started_at)
 
     payload = jsonrpc_tools_list_payload(request_id)
@@ -1892,7 +1893,7 @@ def mcp_tools_list_probe(ws_url, *, kind, timeout, envelope=False):
             state="unreachable",
             error="invalid_or_mismatched_ack" if saw_message else "timeout",
             detail=safe_unreachable_detail(),
-            next_step="Проверьте сеть и робот-side клиент, затем повторите MCP check.",
+            next_step="Проверьте сеть и клиент на стороне робота, затем повторите проверку MCP.",
         )
     except Exception as exc:
         text = str(exc or "")
@@ -1904,7 +1905,7 @@ def mcp_tools_list_probe(ws_url, *, kind, timeout, envelope=False):
                 error="auth_error",
                 error_type="auth_error",
                 detail=safe_auth_error_detail(),
-                next_step="Проверьте авторизацию и MCP endpoint, затем повторите MCP check.",
+                next_step="Проверьте авторизацию и MCP-адрес, затем повторите проверку MCP.",
             )
         return set_probe_failure(
             probe,
@@ -1912,7 +1913,7 @@ def mcp_tools_list_probe(ws_url, *, kind, timeout, envelope=False):
             state="unreachable",
             error="request_failed",
             detail=safe_unreachable_detail(),
-            next_step="Проверьте сеть и MCP-клиент робота, затем повторите MCP check.",
+            next_step="Проверьте сеть и MCP-клиент робота, затем повторите проверку MCP.",
         )
 
     return set_probe_failure(
@@ -1921,7 +1922,7 @@ def mcp_tools_list_probe(ws_url, *, kind, timeout, envelope=False):
         state="unreachable",
         error="invalid_or_mismatched_ack" if saw_message else "timeout",
         detail=safe_unreachable_detail(),
-        next_step="Повторите MCP check. Если ACK не приходит, проверьте runtime и авторизацию.",
+        next_step="Повторите проверку MCP. Если подтверждение не приходит, проверьте среду выполнения и авторизацию.",
     )
 
 
@@ -1973,8 +1974,8 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
             state="missing",
             error="missing",
             error_type="missing",
-            detail="Проверка недоступна: облачный MCP-адрес / endpoint не настроен.",
-            next_step="Сначала заполните рабочий MCP-адрес / endpoint для этого робота.",
+            detail="Проверка недоступна: облачный MCP-адрес не настроен.",
+            next_step="Сначала заполните рабочий MCP-адрес для этого робота.",
         )
         trace("cloud_probe_finish", state=failed.get("state"), error=failed.get("error"), error_type=failed.get("error_type"))
         return failed
@@ -1986,8 +1987,8 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
             state="unknown",
             error="websockets_missing",
             error_type="websockets_missing",
-            detail="Проверка недоступна: в panel runtime нет библиотеки websockets.",
-            next_step="Проверьте panel runtime: библиотека websockets должна быть установлена.",
+            detail="Проверка недоступна: в среде выполнения панели нет библиотеки `websockets`.",
+            next_step="Проверьте среду выполнения панели: библиотека `websockets` должна быть установлена.",
         )
         trace("cloud_probe_finish", state=failed.get("state"), error=failed.get("error"), error_type=failed.get("error_type"))
         return failed
@@ -2085,7 +2086,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
                                 error="auth_error",
                                 error_type="auth_error",
                                 detail=safe_auth_error_detail(),
-                                next_step="Проверьте авторизацию и MCP endpoint, затем повторите MCP check.",
+                                next_step="Проверьте авторизацию и MCP-адрес, затем повторите проверку MCP.",
                             )
                             trace("cloud_probe_finish", state=failed.get("state"), error=failed.get("error"), error_type=failed.get("error_type"))
                             return failed
@@ -2096,7 +2097,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
                             error="initialize_failed",
                             error_type="initialize_failed",
                             detail=safe_unreachable_detail(),
-                            next_step="Проверьте production MCP runtime: lifecycle initialize не завершился.",
+                            next_step="Проверьте рабочую среду MCP: начальная инициализация не завершилась.",
                         )
                         trace("cloud_probe_finish", state=failed.get("state"), error=failed.get("error"), error_type=failed.get("error_type"))
                         return failed
@@ -2144,7 +2145,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
                 error="auth_error",
                 error_type="auth_error",
                 detail=safe_auth_error_detail(),
-                next_step="Проверьте авторизацию и MCP endpoint, затем повторите MCP check.",
+                next_step="Проверьте авторизацию и MCP-адрес, затем повторите проверку MCP.",
             )
             trace(
                 "cloud_probe_exception",
@@ -2160,7 +2161,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
             state="unreachable",
             error="request_failed",
             detail=safe_unreachable_detail(),
-            next_step="Проверьте сеть и MCP-клиент робота, затем повторите MCP check.",
+            next_step="Проверьте сеть и MCP-клиент робота, затем повторите проверку MCP.",
         )
         trace(
             "cloud_probe_exception",
@@ -2188,7 +2189,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
             error="timeout" if request_sent or initialize_acked else "no_ack",
             error_type="timeout" if request_sent or initialize_acked else "no_ack",
             detail=safe_unreachable_detail(),
-            next_step="Робот не вернул ACK на безопасный MCP check. Проверьте MCP lifecycle, Wi-Fi, MCP-клиент и bridge/runtime.",
+            next_step="Робот не вернул подтверждение на безопасную проверку MCP. Проверьте последовательность инициализации MCP, Wi-Fi, MCP-клиент и рабочий мост.",
         )
         trace(
             "cloud_probe_finish",
@@ -2207,7 +2208,7 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
             error="mcp_client_missing",
             error_type="mcp_client_missing",
             detail=safe_mcp_client_missing_detail(),
-            next_step="Проверьте ai-robot-bridge и MCP runtime, затем повторите MCP check.",
+            next_step="Проверьте `ai-robot-bridge` и среду выполнения MCP, затем повторите проверку.",
         )
         trace(
             "cloud_probe_finish",
@@ -2224,8 +2225,8 @@ def cloud_mcp_bridge_probe(ws_url, *, timeout, robot_id=""):
         state="unknown",
         error="unknown",
         error_type="unknown",
-        detail="Проверка связи / MCP check не дала ответа от production MCP runtime.",
-        next_step="Проверьте ai-robot-bridge, MCP endpoint и доступность облачного канала.",
+        detail="Проверка связи по MCP не дала ответа от рабочей среды MCP.",
+        next_step="Проверьте `ai-robot-bridge`, MCP-адрес и доступность облачного канала.",
     )
     trace(
         "cloud_probe_finish",
@@ -2294,20 +2295,20 @@ def probe_edge_hub_control(robot_id, timeout=EDGE_CONTROL_PROBE_TIMEOUT_SECONDS)
     if not token:
         probe["state"] = "missing"
         probe["error"] = "pairing_token_missing"
-        probe["detail"] = "Проверка недоступна: ключ доступа / token для edge-hub не настроен."
+        probe["detail"] = "Проверка недоступна: ключ доступа для `edge-hub` не настроен."
         return probe
 
     if ws_connect is None:
         probe["state"] = "unknown"
         probe["error"] = "websockets_missing"
-        probe["detail"] = "Проверка недоступна: в panel runtime нет библиотеки websockets."
+        probe["detail"] = "Проверка недоступна: в среде выполнения панели нет библиотеки `websockets`."
         return probe
 
     control_url = edge_hub_control_ws_url(robot_id, token)
     if not control_url:
         probe["state"] = "missing"
         probe["error"] = "edge_hub_control_missing"
-        probe["detail"] = "Проверка недоступна: канал управления / control edge-hub не настроен."
+        probe["detail"] = "Проверка недоступна: канал управления `edge-hub` не настроен."
         return probe
 
     return mcp_tools_list_probe(control_url, kind="edge-hub-tools-list", timeout=timeout)
@@ -2508,7 +2509,7 @@ def probe_robot_record(robot_id):
                     "error": "mcp_client_missing",
                     "error_type": "mcp_client_missing",
                     "duration_ms": 0,
-                    "next_step": "Запустите ai-robot-bridge и повторите MCP check.",
+                    "next_step": "Запустите `ai-robot-bridge` и повторите проверку MCP.",
                 }
             )
         else:
@@ -2534,7 +2535,7 @@ def probe_robot_record(robot_id):
             {
                 "kind": "missing-control",
                 "state": "missing",
-                "detail": "Проверка недоступна: канал управления / control не настроен.",
+                "detail": "Проверка недоступна: канал управления не настроен.",
                 "error": "",
             }
         )

@@ -1309,10 +1309,10 @@
             <button class="btn warn" onclick="applyRobotQuickFilter('wifi-risk')">Нужна проверка Wi-Fi</button>
             <button class="btn" onclick="applyRobotQuickFilter('no-endpoint')">Без MCP-адреса</button>
             <button class="btn" onclick="applyRobotQuickFilter('active')">Только активные</button>
-            <button class="btn" onclick="applyRobotQuickFilter('live')">Активные / live</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('staged')">Подготовлены / staged</button>
-            <button class="btn" onclick="applyRobotQuickFilter('template')">Шаблоны / template</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('smoke-risk')">Обнаружение и облако / detect + cloud</button>
+            <button class="btn" onclick="applyRobotQuickFilter('live')">Активные</button>
+            <button class="btn warn" onclick="applyRobotQuickFilter('staged')">Подготовленные</button>
+            <button class="btn" onclick="applyRobotQuickFilter('template')">Шаблоны</button>
+            <button class="btn warn" onclick="applyRobotQuickFilter('smoke-risk')">Обнаружение и облачный контур</button>
             <button class="btn" onclick="applyRobotQuickFilter('reset')">Сбросить фильтры</button>
           </div>
         </div>
@@ -1321,7 +1321,7 @@
         <div class="operator-wifi-head">
           <div>
             <h3>Карта Wi-Fi роботов</h3>
-            <div class="mini" style="max-width:none;">Показывает только честный статус: “В сети / verified online” появляется после явного обнаружения робота / safe detect с ACK. Last_seen, cloud и service active не считаются online.</div>
+            <div class="mini" style="max-width:none;">Показывает только честный статус: «Подтверждённо в сети» появляется после явного обнаружения робота с подтверждением ответа. Последняя отметка, облачный след и активный сервис сами по себе не считаются подтверждением связи.</div>
           </div>
           <span id="operatorWifiSummary" class="pill warn">Жду данные</span>
         </div>
@@ -1333,7 +1333,7 @@
         <div class="operator-fleet-head">
           <div>
             <h3>Состояние флота</h3>
-            <div class="mini" style="max-width:none;">Разделяет шаблоны / template, подготовленные / staged, активные / live и тестовые карточки без показа MCP-адресов / endpoint и ключей доступа / token.</div>
+            <div class="mini" style="max-width:none;">Разделяет шаблоны, подготовленные, активные и тестовые карточки без показа MCP-адресов, ключей доступа и идентификаторов агентов.</div>
           </div>
           <span id="operatorFleetSummary" class="pill warn">Жду данные</span>
         </div>
@@ -1346,26 +1346,26 @@
     <div id="selfhostPanel" class="card" style="margin-top:12px;">
       <div class="operator-overview-head">
         <div>
-          <h2>Self-hosted XiaoZhi</h2>
-          <div class="mini" style="max-width:none;">Панель показывает ожидающие устройства, server-side claim и публичные OTA/WebSocket пути для нашей платформы без `xiaozhi.me`.</div>
+          <h2>Платформа Гоша</h2>
+          <div class="mini" style="max-width:none;">Панель показывает ожидающие устройства, серверную привязку и совместимые публичные OTA- и WebSocket-пути платформы `Гоша`.</div>
         </div>
         <span id="selfhostSummaryPill" class="pill warn">Жду данные</span>
       </div>
       <div class="row" style="margin-bottom:10px;">
-        <button class="btn primary" onclick="reloadSelfhostState()">Обновить self-hosted</button>
+        <button class="btn primary" onclick="reloadSelfhostState()">Обновить платформу</button>
       </div>
-      <div id="selfhostBackendMeta" class="hint-box">Состояние self-hosted backend появится после первой загрузки панели.</div>
+      <div id="selfhostBackendMeta" class="hint-box">Состояние платформы и её совместимого серверного узла появится после первой загрузки панели.</div>
       <div class="operator-grid">
         <div>
           <div class="mini" style="max-width:none;margin-bottom:8px;">Ожидают привязки</div>
           <div id="selfhostPendingList" class="attention-list">
-            <div class="attention-item"><span>Pending devices еще не загружены.</span></div>
+            <div class="attention-item"><span>Список ожидающих устройств ещё не загружен.</span></div>
           </div>
         </div>
         <div>
           <div class="mini" style="max-width:none;margin-bottom:8px;">Уже привязаны</div>
           <div id="selfhostClaimedList" class="attention-list">
-            <div class="attention-item"><span>Claimed devices еще не загружены.</span></div>
+            <div class="attention-item"><span>Список привязанных устройств ещё не загружен.</span></div>
           </div>
         </div>
       </div>
@@ -1433,7 +1433,7 @@
             <input id="robotSearchInput" class="robot-search" type="search" placeholder="Поиск по robot_id, имени или системному состоянию" oninput="setRobotSearch(this.value)" autocomplete="off" />
           </div>
           <div id="compactFilterRow" class="compact-filter-row" aria-label="Фильтры роботов"></div>
-          <div class="mini" style="max-width:none;">Таблица показывает только безопасные статусы: реальные MCP-адреса / endpoint, ключи доступа / token и agentId не выводятся.</div>
+          <div class="mini" style="max-width:none;">Таблица показывает только безопасные статусы: реальные MCP-адреса, ключи доступа и идентификаторы агентов не выводятся.</div>
         </div>
         <div style="max-height:560px; overflow:auto;">
           <div id="robotsList" class="robot-list"></div>
@@ -1494,11 +1494,11 @@
         <details class="soft-box" style="grid-column: 1 / -1;">
           <summary class="details-toggle">Расширенная настройка MCP</summary>
           <div class="field" style="margin-top:10px;">
-            <label for="newRobotEndpoint">Облачный MCP-адрес / endpoint</label>
-            <input id="newRobotEndpoint" type="text" placeholder="Вставлять только при подготовке live-робота" autocomplete="off" />
+            <label for="newRobotEndpoint">Совместимый облачный MCP-адрес</label>
+            <input id="newRobotEndpoint" type="text" placeholder="Вставлять только при подготовке рабочего робота" autocomplete="off" />
           </div>
           <div class="mini" style="max-width:none;margin-top:6px;">
-            Это чувствительное поле: не показывайте его клиенту и не вставляйте сюда MCP-адрес / endpoint или ключ доступа / token для подготовленного робота / staged без готового плана проверки связи / smoke-check.
+            Это чувствительное поле: не показывайте его клиенту и не вставляйте сюда MCP-адрес или ключ доступа для подготовленного робота без готового плана проверки связи.
           </div>
         </details>
       </div>
@@ -1506,7 +1506,7 @@
         <button class="btn primary" onclick="createRobot()">Добавить робота</button>
       </div>
       <div class="hint-box">
-        После создания робот сразу появится в списке. Если облачный MCP-адрес уже известен, вставь его здесь, чтобы панель сразу видела, что робот зарегистрирован в облаке.
+        После создания робот сразу появится в списке. Если совместимый облачный MCP-адрес уже известен, вставьте его здесь, чтобы панель сразу видела, что робот зарегистрирован во внешнем облачном контуре.
       </div>
     </div>
 
@@ -1626,10 +1626,10 @@
           <input id="ctrlRobotName" type="text" placeholder="Например: Гоша 02" />
         </div>
         <div class="field">
-          <label for="ctrlBackendMode">Backend mode</label>
+          <label for="ctrlBackendMode">Режим платформы</label>
           <select id="ctrlBackendMode">
-            <option value="xiaozhi_cloud">XiaoZhi cloud</option>
-            <option value="self_hosted_xiaozhi">Self-hosted XiaoZhi</option>
+            <option value="self_hosted_xiaozhi">Платформа Гоша</option>
+            <option value="xiaozhi_cloud">Совместимый облачный режим</option>
           </select>
         </div>
         <div class="field">
@@ -1641,16 +1641,16 @@
           </select>
         </div>
         <div class="field" style="grid-column: 1 / -1;">
-          <label for="ctrlCloudEndpoint">Облачный MCP-адрес / endpoint</label>
-          <input id="ctrlCloudEndpoint" type="text" placeholder="Можно вставить позже, после регистрации робота в XiaoZhi" />
+          <label for="ctrlCloudEndpoint">Совместимый облачный MCP-адрес</label>
+          <input id="ctrlCloudEndpoint" type="text" placeholder="Можно вставить позже, если робот временно работает через совместимый облачный контур" />
         </div>
         <div class="field" style="grid-column: 1 / -1;">
-          <label for="ctrlWsUrl">Локальный / fallback WS URL</label>
+          <label for="ctrlWsUrl">Локальный или резервный WS URL</label>
           <input id="ctrlWsUrl" type="text" placeholder="ws://192.168.0.50:8080/ws" />
         </div>
       </div>
       <div id="controlHintBox" class="hint-box">
-        Если робот еще не зарегистрирован в XiaoZhi, поле облачного MCP-адреса / endpoint можно оставить пустым и заполнить позже в закрытом режиме настройки.
+        Если робот ещё не зарегистрирован во внешнем облачном контуре совместимости, поле совместимого облачного MCP-адреса можно оставить пустым и заполнить позже в закрытом режиме настройки.
       </div>
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" onclick="saveControl()">Сохранить подключение</button>
@@ -1768,15 +1768,15 @@
     const AUTO_DETECT_LIMIT = 3;
     const robotFilterOptions = [
       { mode: "all", label: "Все" },
-      { mode: "template", label: "Шаблоны / template" },
-      { mode: "staged", label: "Подготовлены / staged" },
-      { mode: "live", label: "Активные / live" },
-      { mode: "test", label: "Тестовые / test" },
+      { mode: "template", label: "Шаблоны" },
+      { mode: "staged", label: "Подготовлены" },
+      { mode: "live", label: "Активные" },
+      { mode: "test", label: "Тестовые" },
       { mode: "warning", label: "Предупреждения" },
-      { mode: "no-endpoint", label: "Без MCP-адреса / endpoint" },
-      { mode: "no-token", label: "Без ключа доступа / token" },
+      { mode: "no-endpoint", label: "Без MCP-адреса" },
+      { mode: "no-token", label: "Без ключа доступа" },
       { mode: "smoke-failed", label: "Обнаружение не подтверждено" },
-      { mode: "cloud-unavailable", label: "Облако / cloud недоступно" },
+      { mode: "cloud-unavailable", label: "Облачный контур недоступен" },
     ];
     try {
       const savedViewMode = localStorage.getItem("aiRobotPanelViewMode");
@@ -1887,14 +1887,14 @@
         : '<div class="attention-item"><span>Сейчас нет устройств в pending state.</span></div>';
       claimedEl.innerHTML = claimed.length
         ? claimed.slice(0, 8).map((item) => renderSelfhostListItem(item, true)).join("")
-        : '<div class="attention-item"><span>Claimed devices пока не появились.</span></div>';
+        : '<div class="attention-item"><span>Привязанные устройства пока не появились.</span></div>';
     }
 
     async function reloadSelfhostState(silent = false) {
       const res = await apiGet(operatorUrl("/selfhost-xiaozhi"));
       if (!res.ok) {
         currentSelfhostState = null;
-        if (!silent) notify("Не удалось загрузить self-hosted XiaoZhi state", "bad");
+        if (!silent) notify("Не удалось загрузить состояние платформы Гоша", "bad");
         renderSelfhostState();
         return;
       }
@@ -2192,14 +2192,14 @@
     }
 
     function servicePill(state) {
-      if (state === "active") return `<span class="pill ok">Сервис / service: активен</span>`;
-      if (state === "inactive") return `<span class="pill bad">Сервис / service: остановлен</span>`;
-      if (state === "failed") return `<span class="pill bad">Сервис / service: ошибка</span>`;
-      return `<span class="pill warn">Сервис / service: ${state || "неизвестно"}</span>`;
+      if (state === "active") return `<span class="pill ok">Сервис: активен</span>`;
+      if (state === "inactive") return `<span class="pill bad">Сервис: остановлен</span>`;
+      if (state === "failed") return `<span class="pill bad">Сервис: ошибка</span>`;
+      return `<span class="pill warn">Сервис: ${state || "неизвестно"}</span>`;
     }
 
     function endpointPill(ok) {
-      return ok ? `<span class="pill ok">MCP-адрес / endpoint: выдан</span>` : `<span class="pill bad">MCP-адрес / endpoint: не выдан</span>`;
+      return ok ? `<span class="pill ok">MCP-адрес: выдан</span>` : `<span class="pill bad">MCP-адрес: не выдан</span>`;
     }
 
     function formatDiagValue(state) {
@@ -2207,21 +2207,21 @@
         "active": "активен",
         "inactive": "остановлен",
         "failed": "ошибка",
-        "online": "пассивно виден, не verified online",
+        "online": "пассивно виден, но связь не подтверждена",
         "offline": "не в сети",
-        "seen": "есть пассивная отметка / last_seen",
+        "seen": "есть пассивная отметка `last_seen`",
         "reported-ready": "клиент ранее видел канал",
         "reported-unreachable": "клиент ранее не видел канал",
-        "verified_online": "В сети / verified online",
-        "mcp_endpoint_alive_not_robot_ack": "MCP bridge доступен, робот не подтвердил ACK",
-        "auth_error": "ошибка доступа / auth error",
+        "verified_online": "подтверждённо в сети",
+        "mcp_endpoint_alive_not_robot_ack": "MCP-мост доступен, робот не подтвердил ответ",
+        "auth_error": "ошибка доступа",
         "mcp_client_missing": "MCP-клиент не подключён",
-        "method_not_supported": "method не поддерживается",
+        "method_not_supported": "метод не поддерживается",
         "reachable": "доступно, требуется ACK",
         "unreachable": "недоступно",
         "missing": "не задано",
         "configured": "настроено",
-        "auth_missing": "XiaoZhi API token не настроен",
+        "auth_missing": "токен совместимого облачного API не настроен",
         "claimed": "привязан к нашей платформе",
         "awaiting_claim": "ждет привязки",
         "delivered": "доставлено",
@@ -2234,7 +2234,7 @@
 
     function formatDiagLabel(label) {
       return {
-        "endpoint": "MCP-адрес / endpoint",
+        "endpoint": "MCP-адрес",
         "bridge": "мост",
         "policy": "политика",
         "hub": "шлюз",
@@ -2265,7 +2265,7 @@
     }
 
     function backendProviderName(cloud) {
-      return (cloud?.provider || cloud?.backend_mode || "") === "self_hosted_xiaozhi" ? "self-hosted XiaoZhi" : "XiaoZhi";
+      return (cloud?.provider || cloud?.backend_mode || "") === "self_hosted_xiaozhi" ? "Гоша" : "совместимый облачный контур";
     }
 
     function fmtLastSeen(ts) {
@@ -2308,7 +2308,7 @@
         pills.push(diagPill("связь", d.transport_state || "unknown"));
       }
       if (cloud.configured) {
-        const cloudLabel = String(cloud.state || "").toLowerCase() === "online" ? "видит устройство, не online" : formatDiagValue(cloud.state || "unknown");
+        const cloudLabel = String(cloud.state || "").toLowerCase() === "online" ? "видит устройство, но связь не подтверждена" : formatDiagValue(cloud.state || "unknown");
         pills.push(`<span class="pill ${cloudConsolePillClass(cloud)}">${escapeHtml(backendProviderName(cloud))}: ${escapeHtml(cloudLabel)}</span>`);
       }
 
@@ -2321,15 +2321,15 @@
       details.push(`Локальная сеть клиента: ${mobilePresence.label}. ${mobilePresence.detail}`);
       if (rustoreTest) details.push("Тестовая карточка RuStore: нужна для проверки входа по коду, а не для управления железом.");
       if (d.source) details.push(`Источник: ${d.source}`);
-      if (d.agent_last_seen) details.push(`last_seen: ${fmtLastSeen(d.agent_last_seen)} (пассивная отметка, не online)`);
+      if (d.agent_last_seen) details.push(`last_seen: ${fmtLastSeen(d.agent_last_seen)} (пассивная отметка, не подтверждает связь)`);
       if (d.target) details.push("Канал MCP: настроен");
-      if (cloud.configured && isSelfhostRobot(robot)) details.push("Self-hosted backend: включен для этого робота.");
-      if (cloud.configured && !isSelfhostRobot(robot)) details.push("Метаданные агента XiaoZhi: есть");
-      if (cloud.configured) details.push(`Backend / cloud: ${cloudConsoleSummaryText(cloud)}`);
-      if (cloud.latest_connected_at) details.push(`Последнее подключение XiaoZhi: ${formatIsoMoment(cloud.latest_connected_at)}`);
-      if (cloud.checked_at_iso) details.push(`Проверка backend: ${formatIsoMoment(cloud.checked_at_iso)}`);
+      if (cloud.configured && isSelfhostRobot(robot)) details.push("Платформа Гоша включена для этого робота.");
+      if (cloud.configured && !isSelfhostRobot(robot)) details.push("Метаданные совместимого облачного агента: есть");
+      if (cloud.configured) details.push(`Облачный контур: ${cloudConsoleSummaryText(cloud)}`);
+      if (cloud.latest_connected_at) details.push(`Последнее подключение во внешнем облачном контуре: ${formatIsoMoment(cloud.latest_connected_at)}`);
+      if (cloud.checked_at_iso) details.push(`Последняя проверка серверного узла: ${formatIsoMoment(cloud.checked_at_iso)}`);
       if (d.hub_error) details.push(`Ошибка шлюза: ${d.hub_error}`);
-      if (d.last_error) details.push("ошибка связи: есть, подробности скрыты без endpoint/token; выполните обнаружение робота / MCP check или откройте MCP-настройку");
+      if (d.last_error) details.push("Ошибка связи: есть, подробности скрыты без MCP-адреса и ключа доступа; выполните обнаружение робота или откройте MCP-настройку.");
       if ((admin.policy_mismatches || []).length) details.push(`не совпадает: ${admin.policy_mismatches.join(", ")}`);
 
       return `
@@ -2465,7 +2465,7 @@
       const policyApplied = robots.filter(r => (r.admin_status || {}).tools_policy_applied).length;
 
       document.getElementById("statRobots").textContent = `${liveRobots.length}/${physicalRobots.length}`;
-      document.getElementById("statRobotsMeta").textContent = `активные / live из боевых; подготовлены / staged ${stagedRobots.length}, шаблоны / template ${templateRobots.length}, тест / test ${supportRobots.length}`;
+      document.getElementById("statRobotsMeta").textContent = `активных боевых: ${liveRobots.length}; подготовленных: ${stagedRobots.length}; шаблонов: ${templateRobots.length}; тестовых: ${supportRobots.length}`;
 
       document.getElementById("statServices").textContent = `${activeServices}/${physicalRobots.length}`;
       document.getElementById("statServicesMeta").textContent = "Активные сервисы моста роботов";
@@ -2585,7 +2585,7 @@
           level: "warn",
           label: "Не требуется",
           short: "не требуется",
-          detail: "Для шаблона / template или служебной карточки явное обнаружение робота не требуется.",
+          detail: "Для шаблона или служебной карточки явное обнаружение робота не требуется.",
           state: "not_required",
           probe: null,
         };
@@ -2596,7 +2596,7 @@
           level: "warn",
           label: "Не проверяли",
           short: "не проверяли",
-          detail: "Панель ещё не выполняла безопасное обнаружение робота. Нужен safe MCP check без движения.",
+          detail: "Панель ещё не выполняла безопасное обнаружение робота. Нужна безопасная проверка MCP без движения.",
           state: "not_checked",
           probe: null,
         };
@@ -2606,7 +2606,7 @@
           level: "warn",
           label: "Проверка устарела",
           short: "устарела",
-          detail: `Последнее безопасное обнаружение было ${formatProbeAge(probe.checked_at)}. Повторите detect, чтобы подтвердить текущее состояние робота.`,
+          detail: `Последнее безопасное обнаружение было ${formatProbeAge(probe.checked_at)}. Повторите обнаружение, чтобы подтвердить текущее состояние робота.`,
           state: "stale",
           probe,
         };
@@ -2646,39 +2646,39 @@
       const kind = String(probe?.kind || "").toLowerCase();
       return {
         "edge-hub-tools-list": "через edge-hub tools/list",
-        "direct-robot-tools-list": "через прямой WebSocket робота / direct tools/list",
-        "direct-robot-tools-list-envelope": "через прямой WebSocket робота / direct envelope",
-        "cloud-mcp-bridge": "через облачный MCP/bridge, не ACK робота",
-        "cloud-mcp-tools-call": "через облачный MCP tools/call self.otto.get_status",
-        "direct-mcp-tools-list": "через прямой MCP tools/list, не подтверждает физический ACK",
-        "direct-ws-open": "через прямой WebSocket без ACK",
-        "missing-control": "без канала управления / control",
-        "snapshot": "по snapshot"
-      }[kind] || "через обнаружение робота / MCP check";
+        "direct-robot-tools-list": "через прямой WebSocket робота, `tools/list`",
+        "direct-robot-tools-list-envelope": "через прямой WebSocket робота, режим оболочки",
+        "cloud-mcp-bridge": "через облачный мост MCP, без подтверждения от робота",
+        "cloud-mcp-tools-call": "через облачный MCP, `tools/call self.otto.get_status`",
+        "direct-mcp-tools-list": "через прямой MCP `tools/list`, без подтверждения от физического робота",
+        "direct-ws-open": "через прямой WebSocket без подтверждения",
+        "missing-control": "без канала управления",
+        "snapshot": "по сохранённому снимку"
+      }[kind] || "через обнаружение робота по MCP";
     }
 
     function probeLifecyclePathLabel(path) {
       return {
-        "client_initiated": "инициировано панелью / client_initiated",
-        "remote_initiated": "инициировано remote endpoint / remote_initiated",
+        "client_initiated": "инициировано панелью",
+        "remote_initiated": "инициировано удалённой точкой подключения",
       }[String(path || "").toLowerCase()] || "";
     }
 
     function probeProtocolPhaseLabel(phase) {
       return {
-        "connect": "старт соединения / connect",
-        "initialize_sent": "initialize отправлен / initialize_sent",
-        "initialize_ack": "initialize подтверждён / initialize_ack",
-        "notifications_initialized_sent": "initialized отправлен / notifications_initialized_sent",
-        "tools_call_sent": "tools/call отправлен / tools_call_sent",
-        "tools_call_ack": "ACK на tools/call / tools_call_ack",
-        "initialize_remote": "remote endpoint прислал initialize / initialize_remote",
-        "notifications_initialized_remote": "remote endpoint прислал initialized / notifications_initialized_remote",
-        "tools_list_remote": "remote endpoint прислал tools/list / tools_list_remote",
-        "waiting_initialize_ack": "ожидание ACK на initialize / waiting_initialize_ack",
-        "waiting_post_initialize": "ожидание после initialize / waiting_post_initialize",
-        "waiting_remote_lifecycle": "ожидание remote lifecycle / waiting_remote_lifecycle",
-        "waiting_tools_call_ack": "ожидание ACK на tools/call / waiting_tools_call_ack",
+        "connect": "старт соединения",
+        "initialize_sent": "`initialize` отправлен",
+        "initialize_ack": "`initialize` подтверждён",
+        "notifications_initialized_sent": "`initialized` отправлен",
+        "tools_call_sent": "`tools/call` отправлен",
+        "tools_call_ack": "подтверждение на `tools/call`",
+        "initialize_remote": "удалённая точка прислала `initialize`",
+        "notifications_initialized_remote": "удалённая точка прислала `initialized`",
+        "tools_list_remote": "удалённая точка прислала `tools/list`",
+        "waiting_initialize_ack": "ожидание подтверждения на `initialize`",
+        "waiting_post_initialize": "ожидание после `initialize`",
+        "waiting_remote_lifecycle": "ожидание удалённой последовательности инициализации",
+        "waiting_tools_call_ack": "ожидание подтверждения на `tools/call`",
       }[String(phase || "").toLowerCase()] || "";
     }
 
@@ -2720,11 +2720,11 @@
 
     function renderToolActivitySnippet(activity, maxTargets = 4) {
       if (!activity?.available) {
-        return '<div class="mini" style="max-width:none;">Журнал вызовов пока пуст или ещё не создан в runtime.</div>';
+        return '<div class="mini" style="max-width:none;">Журнал вызовов пока пуст или ещё не создан в рабочей среде.</div>';
       }
       const pills = (activity.targets || []).slice(0, maxTargets).map((target) => {
         const suffix = Number(target?.tool_call_count || 0) > 0
-          ? `${toolLabel(target.name)}: ${target.tool_call_count} вызовов инструмента / tool-call`
+          ? `${toolLabel(target.name)}: ${target.tool_call_count} вызовов инструмента`
           : `${toolLabel(target.name)}: ${target.request_count || 0} запросов`;
         return `<span class="pill ${toolTargetPillClass(target)}">${escapeHtml(suffix)}</span>`;
       }).join("");
@@ -2732,8 +2732,8 @@
         ? `Последний запрос: ${activity.last_request_method} -> ${toolLabel(activity.last_request_target || "")}.`
         : "Последний запрос пока не зафиксирован.";
       const toolCall = activity.last_tool_name
-        ? ` Последний вызов инструмента / tool-call: ${activity.last_tool_name} (${toolLabel(activity.last_tool_target || "")}).`
-        : " Журнал вызовов инструмента / tool-call пока пуст или робот только пингуется.";
+        ? ` Последний вызов инструмента: ${activity.last_tool_name} (${toolLabel(activity.last_tool_target || "")}).`
+        : " Журнал вызовов инструмента пока пуст или робот только отвечает на служебные проверки.";
       return `
         <div class="mini" style="max-width:none;">${escapeHtml(request + toolCall)}</div>
         ${pills ? `<div class="status-stack" style="margin-top:8px;">${pills}</div>` : ""}
@@ -2750,8 +2750,8 @@
           ? `${target.last_request_method}, ${target.request_count || 0} запросов`
           : `${target.request_count || 0} запросов`;
         const callText = target.last_tool_name
-          ? `Последний вызов инструмента / tool-call: ${target.last_tool_name} (${formatIsoMoment(target.last_tool_call_seen_iso)})`
-          : "Вызов инструмента / tool-call пока не зафиксирован";
+          ? `Последний вызов инструмента: ${target.last_tool_name} (${formatIsoMoment(target.last_tool_call_seen_iso)})`
+          : "Вызов инструмента пока не зафиксирован";
         const updated = target.last_request_seen_iso
           ? `Последний запрос: ${formatIsoMoment(target.last_request_seen_iso)}`
           : "Последний запрос: —";
@@ -2769,7 +2769,7 @@
       }).join("");
       const head = [
         activity.last_request_method ? `Последний запрос: ${activity.last_request_method} -> ${toolLabel(activity.last_request_target || "")}` : "Последний запрос: —",
-        activity.last_tool_name ? `Последний вызов инструмента / tool-call: ${activity.last_tool_name} (${toolLabel(activity.last_tool_target || "")})` : "Последний вызов инструмента / tool-call: не зафиксирован",
+        activity.last_tool_name ? `Последний вызов инструмента: ${activity.last_tool_name} (${toolLabel(activity.last_tool_target || "")})` : "Последний вызов инструмента: не зафиксирован",
         `Обновлено: ${formatIsoMoment(activity.updated_at_iso)}`
       ].join(" • ");
       return `
@@ -2856,7 +2856,7 @@
           return `${provider}: устройство уже привязано к нашей платформе.${seen}`;
         }
         if (state === "awaiting_claim") {
-          return `${provider}: режим включен, но устройство еще не прошло server-side claim.`;
+          return `${provider}: режим включён, но устройство ещё не прошло серверную привязку.`;
         }
         return String(cloud?.detail || `${provider}: статус пока не определен.`);
       }
@@ -2866,56 +2866,56 @@
         .map((item) => item.alias || item.board_name || item.mac_address || item.id)
         .filter(Boolean)
         .slice(0, 3);
-      const namesText = names.length ? ` Пассивно видны в cloud: ${names.join(", ")}` : "";
+      const namesText = names.length ? ` Пассивно видны во внешнем облачном контуре: ${names.join(", ")}` : "";
       if (state === "online") {
-        return `Консоль XiaoZhi пассивно видит устройство (${cloud.online_count || 0} из ${cloud.devices_count || 0}), но это не подтверждает “В сети / verified online”.${namesText}`;
+        return `Совместимый облачный контур пассивно видит устройство (${cloud.online_count || 0} из ${cloud.devices_count || 0}), но это не подтверждает статус «Подтверждённо в сети».${namesText}`;
       }
       if (state === "offline") {
         const lastSeen = cloud.latest_connected_at ? ` Последнее подключение: ${formatIsoMoment(cloud.latest_connected_at)}.` : "";
-        return `Консоль XiaoZhi не видит устройство в cloud (${cloud.devices_count || 0} всего).${lastSeen}`;
+        return `Совместимый облачный контур сейчас не видит устройство (${cloud.devices_count || 0} всего).${lastSeen}`;
       }
       if (state === "auth_missing") {
-        return "Облачная проверка / cloud XiaoZhi недоступна: не настроен XiaoZhi API token в окружении панели.";
+        return "Облачная проверка недоступна: не настроен токен совместимого облачного API в окружении панели.";
       }
       if (state === "error") {
         const status = cloud.status ? ` HTTP ${cloud.status}.` : "";
         const detail = String(cloud.error || cloud.detail || "").trim();
-        return `Консоль XiaoZhi ответила ошибкой.${status}${detail ? ` ${detail}` : ""}`;
+        return `Совместимый облачный контур ответил ошибкой.${status}${detail ? ` ${detail}` : ""}`;
       }
-      return String(cloud?.detail || "Консоль XiaoZhi пока не дала уверенного статуса.");
+      return String(cloud?.detail || "Совместимый облачный контур пока не дал уверенного статуса.");
     }
 
     function probeSummaryText(probe) {
       const via = probeKindLabel(probe);
-      const method = probe?.method ? ` method=${probe.method}.` : "";
+      const method = probe?.method ? ` метод=${probe.method}.` : "";
       const requestId = probe?.request_id ? ` request_id=${probe.request_id}.` : "";
       const duration = Number.isFinite(Number(probe?.duration_ms)) && Number(probe?.duration_ms) > 0
         ? ` duration_ms=${Number(probe.duration_ms)}.`
         : "";
       if (probeIsVerifiedOnline(probe)) {
-        const tools = Number.isFinite(Number(probe?.tools_count)) ? `, сервисов / tools: ${Number(probe.tools_count)}` : "";
-        return `Робот на связи / verified online: обнаружение робота / MCP check прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Робот ответил ${via}${tools}.`;
+        const tools = Number.isFinite(Number(probe?.tools_count)) ? `, сервисов: ${Number(probe.tools_count)}` : "";
+        return `Робот на связи: подтверждение получено ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Робот ответил ${via}${tools}.`;
       }
       if (probeIsAuthError(probe)) {
-        return `Ошибка доступа / auth error: обнаружение робота / MCP check не прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Панель не смогла авторизоваться в рабочем MCP/control канале.`;
+        return `Ошибка доступа: обнаружение робота не прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Панель не смогла авторизоваться в рабочем канале MCP-управления.`;
       }
       if (probeIsMcpClientMissing(probe)) {
-        return `MCP-клиент робота не подключён: обнаружение робота / MCP check недоступно ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Bridge/runtime не держит рабочую MCP-сессию.`;
+        return `MCP-клиент робота не подключён: обнаружение робота недоступно ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Мост или рабочая среда не держат активную MCP-сессию.`;
       }
       if (probeIsMethodUnsupported(probe)) {
-        return `Diagnostic method не поддерживается: обнаружение робота / MCP check вернуло отказ ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Текущий безопасный method не поддерживается в этом MCP/runtime.`;
+        return `Диагностический метод не поддерживается: обнаружение робота вернуло отказ ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Текущий безопасный метод не поддерживается в этом MCP-контуре.`;
       }
       if (probeIsUnreachable(probe)) {
-        return `Робот не отвечает / unreachable: обнаружение робота / MCP check не прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Возможные причины: робот выключен, нет Wi‑Fi, не запущен MCP-клиент, ошибка сети или авторизации.`;
+        return `Робот не отвечает: обнаружение робота не прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Возможные причины: робот выключен, нет Wi‑Fi, не запущен MCP-клиент, ошибка сети или авторизации.`;
       }
       if (probeIsMcpBridgeOnly(probe)) {
-        return `Облачный MCP/bridge доступен ${formatProbeAge(probe?.checked_at)}, но физический робот не подтвердил ACK. Это не “В сети / verified online”; повторите полноценное обнаружение робота / MCP check после проверки bridge/runtime и авторизации.`;
+        return `Облачный MCP-мост доступен ${formatProbeAge(probe?.checked_at)}, но физический робот не подтвердил ответ. Это ещё не статус «Подтверждённо в сети»; повторите полноценное обнаружение робота после проверки моста, рабочей среды и авторизации.`;
       }
       const state = String(probe?.state || "").toLowerCase();
       if (state === "missing") {
-        return `Обнаружение робота / MCP check пока невозможно${method}${duration}: для робота не настроен рабочий канал управления / control.`;
+        return `Обнаружение робота пока невозможно${method}${duration}: для робота не настроен рабочий канал управления.`;
       }
-      return `Обнаружение робота / MCP check пока не дало уверенного результата (${via})${requestId}${method}${duration}`;
+      return `Обнаружение робота пока не дало уверенного результата (${via})${requestId}${method}${duration}`;
     }
 
     function probeOperatorText(probe) {
@@ -2923,37 +2923,37 @@
         return "Можно сказать клиенту: робот ответил на активную проверку сейчас. Повторное подключение к Wi‑Fi сейчас не нужно.";
       }
       if (probeIsAuthError(probe)) {
-        return "Проверьте MCP-адрес / endpoint, права доступа и рабочую авторизацию production MCP канала. Без успешного ACK робот не считается online.";
+        return "Проверьте MCP-адрес, права доступа и рабочую авторизацию производственного MCP-канала. Без успешного подтверждения робот не считается подключённым.";
       }
       if (probeIsMcpClientMissing(probe)) {
-        return "Сначала проверьте, что ai-robot-bridge запущен и держит MCP-сессию для этого робота. После этого повторите обнаружение робота / MCP check.";
+        return "Сначала проверьте, что `ai-robot-bridge` запущен и держит MCP-сессию для этого робота. После этого повторите обнаружение робота.";
       }
       if (probeIsMethodUnsupported(probe)) {
-        return "Текущий безопасный diagnostic method не поддерживается. Нужен другой read-only MCP method без движения робота.";
+        return "Текущий безопасный диагностический метод не поддерживается. Нужен другой метод только для чтения без движения робота.";
       }
       if (probeIsUnreachable(probe)) {
-        return "Сначала проверьте питание робота, Wi‑Fi, MCP-адрес / endpoint и запущен ли MCP-клиент. Не называйте робота online без нового успешного обнаружения робота / MCP check.";
+        return "Сначала проверьте питание робота, Wi‑Fi, MCP-адрес и запущен ли MCP-клиент. Не называйте робота подключённым без нового успешного обнаружения.";
       }
       if (probeIsMcpBridgeOnly(probe)) {
-        return "MCP bridge отвечает, но это не ACK физического робота. Проверьте bridge/runtime, авторизацию и повторите полноценное обнаружение робота / MCP check.";
+        return "MCP-мост отвечает, но это не подтверждение от физического робота. Проверьте мост, рабочую среду, авторизацию и повторите полноценное обнаружение.";
       }
       const state = String(probe?.state || "").toLowerCase();
       if (state === "missing") {
-        return "Сначала проверьте MCP-адрес, мост / bridge и сервис / service, иначе панель не сможет честно подтвердить Wi‑Fi статус.";
+        return "Сначала проверьте MCP-адрес, мост и службу, иначе панель не сможет честно подтвердить состояние Wi‑Fi.";
       }
-      return "Повторите обнаружение робота / MCP check и уточните у клиента питание робота и сеть. Обычный refresh не подтверждает online.";
+      return "Повторите обнаружение робота и уточните у клиента питание робота и сеть. Обычное обновление панели не подтверждает связь.";
     }
 
     function probeToastText(probe) {
       const state = String(probe?.state || "").toLowerCase();
-      if (probeIsVerifiedOnline(probe)) return "Робот на связи / verified online: обнаружение робота / MCP check получило ACK.";
-      if (probeIsAuthError(probe)) return "Ошибка доступа / auth error: обнаружение робота / MCP check не смогло пройти авторизацию.";
+      if (probeIsVerifiedOnline(probe)) return "Робот на связи: обнаружение робота получило подтверждение.";
+      if (probeIsAuthError(probe)) return "Ошибка доступа: обнаружение робота не смогло пройти авторизацию.";
       if (probeIsMcpClientMissing(probe)) return "MCP-клиент робота не подключён.";
-      if (probeIsMethodUnsupported(probe)) return "Diagnostic method не поддерживается.";
-      if (probeIsUnreachable(probe)) return "Робот не отвечает / unreachable: обнаружение робота / MCP check не получило ACK.";
-      if (probeIsMcpBridgeOnly(probe)) return "MCP bridge доступен, но физический робот не подтвердил ACK.";
-      if (state === "missing") return "Обнаружение робота / MCP check недоступно: не настроен канал управления / control.";
-      return "Обнаружение робота / MCP check выполнено, но результат пока неуверенный.";
+      if (probeIsMethodUnsupported(probe)) return "Диагностический метод не поддерживается.";
+      if (probeIsUnreachable(probe)) return "Робот не отвечает: обнаружение робота не получило подтверждения.";
+      if (probeIsMcpBridgeOnly(probe)) return "MCP-мост доступен, но физический робот не подтвердил ответ.";
+      if (state === "missing") return "Обнаружение робота недоступно: не настроен канал управления.";
+      return "Обнаружение робота выполнено, но результат пока неуверенный.";
     }
 
     function probeNextStepText(probe) {
@@ -2990,7 +2990,7 @@
       return `
         <div class="operator-script">
           <strong>Обнаружение робота:</strong> ${escapeHtml(probeSummaryText(probe))}
-          <div class="mini" style="max-width:none; margin-top:4px;">Технически: safe MCP check без движения робота.</div>
+          <div class="mini" style="max-width:none; margin-top:4px;">Технически: безопасная проверка MCP без движения робота.</div>
           <br><span class="pill ${cls}">${escapeHtml(probeKindLabel(probe))}</span>
           <span class="pill ${cls}">state: ${escapeHtml(formatDiagValue(state))}</span>
           <span class="pill">${escapeHtml(formatProbeAge(probe?.checked_at))}</span>
@@ -3000,7 +3000,7 @@
           ${errorType}
           ${lifecyclePill}
           ${phasePill}
-          ${probe?.last_seen ? `<span class="pill warn">last_seen: ${escapeHtml(formatProbeAge(probe.last_seen))}, не online</span>` : ""}
+          ${probe?.last_seen ? `<span class="pill warn">last_seen: ${escapeHtml(formatProbeAge(probe.last_seen))}, без подтверждения связи</span>` : ""}
           ${nextStep ? `<div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(`Следующий шаг: ${nextStep}`)}</div>` : ""}
         </div>
       `;
@@ -3032,11 +3032,11 @@
 
     function fleetStateLabel(state) {
       return {
-        "template": "Шаблон / template",
-        "staged": "Подготовлен / staged",
-        "live": "Активен / live",
-        "test": "Тест / test"
-      }[state] || "Подготовлен / staged";
+        "template": "Шаблон",
+        "staged": "Подготовлен",
+        "live": "Активен",
+        "test": "Тест"
+      }[state] || "Подготовлен";
     }
 
     function fleetStatePill(robot) {
@@ -3067,16 +3067,16 @@
       }
       const probe = detection.probe;
       if (probeIsAuthError(probe)) {
-        return { level: "bad", label: "Обнаружение: auth error", detail: probeSummaryText(probe) };
+        return { level: "bad", label: "Обнаружение: ошибка доступа", detail: probeSummaryText(probe) };
       }
       if (probeIsMcpClientMissing(probe)) {
         return { level: "bad", label: "Обнаружение: MCP-клиент не подключён", detail: probeSummaryText(probe) };
       }
       if (probeIsMethodUnsupported(probe)) {
-        return { level: "warn", label: "Обнаружение: method не поддерживается", detail: probeSummaryText(probe) };
+        return { level: "warn", label: "Обнаружение: метод не поддерживается", detail: probeSummaryText(probe) };
       }
       if (probeIsMcpBridgeOnly(probe)) {
-        return { level: "warn", label: "Обнаружение: нужен ACK робота", detail: probeSummaryText(probe) };
+        return { level: "warn", label: "Обнаружение: нужно подтверждение от робота", detail: probeSummaryText(probe) };
       }
       return { level: "bad", label: "Обнаружение: не обнаружен", detail: detection.detail };
     }
@@ -3100,10 +3100,10 @@
         ? `<span class="pill ok">verified_now: да</span>`
         : `<span class="pill warn">verified_now: нет</span>`;
       const lastSeenPill = lastSeen
-        ? `<span class="pill warn">last_seen: ${escapeHtml(formatProbeAge(lastSeen))}, не online</span>`
+        ? `<span class="pill warn">last_seen: ${escapeHtml(formatProbeAge(lastSeen))}, без подтверждения связи</span>`
         : `<span class="pill warn">last_seen: нет данных</span>`;
       const stalePill = detection.state === "stale"
-        ? `<span class="pill warn">detect: устарел</span>`
+        ? `<span class="pill warn">обнаружение: устарело</span>`
         : "";
       return `<div class="status-stack" style="margin-top:6px;">${detectPill}${verified}${stalePill}${lastSeenPill}</div>`;
     }
@@ -3153,7 +3153,7 @@
       const sourceLabel = source === "request"
         ? "реальный запрос"
         : source === "tool_call"
-          ? "вызов инструмента / tool-call"
+          ? "вызов инструмента"
           : source === "updated"
             ? "обновление журнала"
             : "";
@@ -3161,7 +3161,7 @@
       const methodText = lastMethod ? lastMethod : "";
       const targetSuffix = targetText ? ` -> ${targetText}` : "";
       const countsText = requestCount || toolCallCount
-        ? ` Всего запросов: ${requestCount || 0}, tool-call: ${toolCallCount || 0}.`
+        ? ` Всего запросов: ${requestCount || 0}, вызовов инструмента: ${toolCallCount || 0}.`
         : "";
 
       if (!lastSeen || status === "missing") {
@@ -3216,7 +3216,7 @@
         level: "warn",
         label: "Серверная активность: давно не было",
         short: "нет свежей активности",
-        detail: `Последняя записанная активность была ${ageText}. Это уже история, а не текущий online-сигнал.${countsText}`,
+        detail: `Последняя записанная активность была ${ageText}. Это уже история, а не текущий сигнал живой связи.${countsText}`,
         lastSeen,
         source,
         status,
@@ -3229,7 +3229,7 @@
           level: "warn",
           label: "Локальная сеть клиента: не требуется",
           short: "не требуется",
-          detail: "Шаблон / template не использует клиентское приложение как источник локального присутствия.",
+          detail: "Шаблон не использует клиентское приложение как источник локального присутствия.",
           receivedAt: 0,
           localHost: "",
           status: "missing",
@@ -3261,7 +3261,7 @@
           level: "warn",
           label: "Локальная сеть клиента: нет данных",
           short: "нет app-сигнала",
-          detail: "Приложение ещё не передавало в панель локальный сигнал из домашней Wi‑Fi клиента.",
+          detail: "Приложение ещё не передавало в панель локальный сигнал из домашней сети клиента.",
           receivedAt,
           localHost,
           status: "missing",
@@ -3287,7 +3287,7 @@
           level: "ok",
           label: "Локальная сеть клиента: подтверждено",
           short: "подтверждено приложением",
-          detail: `Приложение в той же домашней Wi‑Fi сети локально нашло робота${localHost ? ` (${localHost})` : ""}. Это подтверждает локальное присутствие, но не заменяет verified online без свежего ACK.`,
+          detail: `Приложение в той же домашней сети Wi‑Fi локально нашло робота${localHost ? ` (${localHost})` : ""}. Это подтверждает локальное присутствие, но не заменяет отдельное подтверждение связи без свежего ответа робота.`,
           receivedAt,
           localHost,
           status: "fresh",
@@ -3300,7 +3300,7 @@
           level: "warn",
           label: "Локальная сеть клиента: телефон в сети робота",
           short: "телефон в сети робота",
-          detail: `Телефон подключён к временной сети робота. Это onboarding/reconnect-сигнал, а не подтверждение, что робот уже в домашней Wi‑Fi. Последний app-сигнал: ${ageText}.`,
+          detail: `Телефон подключён к временной сети робота. Это сигнал первичной настройки или повторного подключения, а не подтверждение, что робот уже в домашней сети Wi‑Fi. Последний сигнал приложения: ${ageText}.`,
           receivedAt,
           localHost: "",
           status: "fresh",
@@ -3312,8 +3312,8 @@
         return {
           level: "warn",
           label: "Локальная сеть клиента: рядом видна сеть робота",
-          short: "виден hotspot",
-          detail: `Приложение рядом с клиентом видит сеть робота Xiaozhi-..., но это ещё не значит, что робот вернулся в домашнюю Wi‑Fi. Последний app-сигнал: ${ageText}.`,
+          short: "видна сеть робота",
+          detail: `Приложение рядом с клиентом видит временную сеть робота, но это ещё не значит, что робот вернулся в домашнюю сеть Wi‑Fi. Последний сигнал приложения: ${ageText}.`,
           receivedAt,
           localHost: "",
           status: "fresh",
@@ -3325,7 +3325,7 @@
         level: "warn",
         label: "Локальная сеть клиента: локально не найден",
         short: "локально не найден",
-        detail: `Приложение недавно искало робота в локальной сети клиента и не нашло его. Это полезный локальный сигнал, но не окончательный вывод без safe detect. Последний app-сигнал: ${ageText}.`,
+        detail: `Приложение недавно искало робота в локальной сети клиента и не нашло его. Это полезный локальный сигнал, но не окончательный вывод без явного обнаружения. Последний сигнал приложения: ${ageText}.`,
         receivedAt,
         localHost: "",
         status: "fresh",
@@ -3407,7 +3407,7 @@
       const sourceLabel = state.source === "request"
         ? "источник: запрос"
         : state.source === "tool_call"
-          ? "источник: tool-call"
+          ? "источник: вызов инструмента"
           : state.source === "updated"
             ? "источник: журнал"
             : "";
@@ -3436,7 +3436,7 @@
       const provider = backendProviderName(cloud);
       if (!cloud.configured) return `<span class="pill warn">${escapeHtml(provider)}: не настроено</span>`;
       const state = String(cloud.state || "unknown").toLowerCase();
-      const label = state === "online" ? "видит устройство, не verified online" : formatDiagValue(state);
+      const label = state === "online" ? "видит устройство, но связь не подтверждена" : formatDiagValue(state);
       return `<span class="pill ${cloudConsolePillClass(cloud)}">${escapeHtml(provider)}: ${escapeHtml(label)}</span>`;
     }
 
@@ -3450,13 +3450,13 @@
 
     function fleetNextActionText(robot, smoke) {
       const presenceConfirmed = robotPresenceConfirmed(robot);
-      if (isTemplateRobot(robot)) return "Шаблон / template для подготовки новых роботов. Не запускать как активного робота / live.";
+      if (isTemplateRobot(robot)) return "Шаблон для подготовки новых роботов. Не запускать как активного робота.";
       if (isSupportRobot(robot)) return "Служебная карточка. Не боевой робот.";
-      if (robotNeedsEndpointOrToken(robot)) return "Следующий шаг: заполнить MCP-адрес / endpoint и ключ доступа / token в закрытом режиме настройки.";
-      if (smoke?.level !== "ok" && !presenceConfirmed) return "Следующий шаг: выполнить явное обнаружение робота / safe detect, затем действовать по его результату: сеть, авторизация, bridge/runtime или supported method.";
-      if (presenceConfirmed) return "Связь уже подтверждена приложением или живой серверной активностью. Safe detect нужен только как отдельная техническая проверка ACK.";
-      if (robotCloudNeedsAttention(robot) && isSelfhostRobot(robot)) return "Следующий шаг: завершить server-side claim устройства и проверить self-hosted XiaoZhi backend.";
-      if (robotCloudNeedsAttention(robot)) return "Следующий шаг: настроить XiaoZhi API token, чтобы появилась вторая облачная проверка / cloud.";
+      if (robotNeedsEndpointOrToken(robot)) return "Следующий шаг: заполнить MCP-адрес и ключ доступа в закрытом режиме настройки.";
+      if (smoke?.level !== "ok" && !presenceConfirmed) return "Следующий шаг: выполнить явное обнаружение робота, затем действовать по его результату: сеть, авторизация, мост, рабочая среда или поддерживаемый метод.";
+      if (presenceConfirmed) return "Связь уже подтверждена приложением или живой серверной активностью. Отдельное обнаружение нужно только как техническая проверка подтверждения ответа.";
+      if (robotCloudNeedsAttention(robot) && isSelfhostRobot(robot)) return "Следующий шаг: завершить серверную привязку устройства и проверить серверный узел платформы Гоша.";
+      if (robotCloudNeedsAttention(robot)) return "Следующий шаг: настроить токен совместимого облачного API, чтобы появилась вторая облачная проверка.";
       return "Рабочий контур робота готов для оператора.";
     }
 
@@ -3476,35 +3476,35 @@
     }
 
     function robotEndpointStatus(robot) {
-      if (isTemplateRobot(robot)) return { level: "warn", label: "не требуется", detail: "Шаблон / template не использует боевой MCP-адрес / endpoint." };
-      if (isSupportRobot(robot)) return { level: "warn", label: "тест", detail: "Тестовая карточка не требует боевого MCP-адреса / endpoint." };
+      if (isTemplateRobot(robot)) return { level: "warn", label: "не требуется", detail: "Шаблон не использует боевой MCP-адрес." };
+      if (isSupportRobot(robot)) return { level: "warn", label: "тест", detail: "Тестовая карточка не требует боевого MCP-адреса." };
       return robotEndpointReady(robot)
-        ? { level: "ok", label: "есть", detail: "MCP-адрес / endpoint настроен. Значение не показывается." }
-        : { level: "bad", label: "нет", detail: "MCP-адрес / endpoint не настроен. Значение не показывается." };
+        ? { level: "ok", label: "есть", detail: "MCP-адрес настроен. Значение не показывается." }
+        : { level: "bad", label: "нет", detail: "MCP-адрес не настроен. Значение не показывается." };
     }
 
     function robotTokenStatus(robot) {
-      if (isTemplateRobot(robot)) return { level: "warn", label: "не требуется", detail: "Шаблон / template не использует боевой ключ доступа / token." };
-      if (isSupportRobot(robot)) return { level: "warn", label: "тест", detail: "Тестовая карточка не требует боевого ключа доступа / token." };
+      if (isTemplateRobot(robot)) return { level: "warn", label: "не требуется", detail: "Шаблон не использует боевой ключ доступа." };
+      if (isSupportRobot(robot)) return { level: "warn", label: "тест", detail: "Тестовая карточка не требует боевого ключа доступа." };
       return robotTokenReady(robot)
-        ? { level: "ok", label: "есть", detail: "Ключ доступа / token или metadata агента настроены. Значение не показывается." }
-        : { level: "bad", label: "нет", detail: "Ключ доступа / token или metadata агента не настроены. Значение не показывается." };
+        ? { level: "ok", label: "есть", detail: "Ключ доступа или метаданные агента настроены. Значение не показывается." }
+        : { level: "bad", label: "нет", detail: "Ключ доступа или метаданные агента не настроены. Значение не показывается." };
     }
 
     function robotCloudStatus(robot) {
       if (isTemplateRobot(robot) || isSupportRobot(robot)) {
-        return { level: "warn", label: "не требуется", detail: "Cloud-проверка для служебной карточки не требуется." };
+        return { level: "warn", label: "не требуется", detail: "Облачная проверка для служебной карточки не требуется." };
       }
       const cloud = robot.cloud_console || {};
       const state = String(cloud.state || "").toLowerCase();
       if (!cloud.configured) return { level: "warn", label: "не настроено", detail: `${backendProviderName(cloud)} не настроен для этой карточки.` };
       if (isSelfhostRobot(robot)) {
         if (state === "claimed") return { level: "ok", label: "привязано", detail: cloudConsoleSummaryText(cloud) };
-        if (state === "awaiting_claim") return { level: "warn", label: "ждет claim", detail: cloudConsoleSummaryText(cloud) };
+        if (state === "awaiting_claim") return { level: "warn", label: "ждёт привязку", detail: cloudConsoleSummaryText(cloud) };
       }
       if (state === "online") return { level: "warn", label: "видит устройство", detail: cloudConsoleSummaryText(cloud) };
-      if (state === "offline") return { level: "bad", label: "offline", detail: cloudConsoleSummaryText(cloud) };
-      if (state === "auth_missing") return { level: "warn", label: "token не настроен", detail: cloudConsoleSummaryText(cloud) };
+      if (state === "offline") return { level: "bad", label: "не видит устройство", detail: cloudConsoleSummaryText(cloud) };
+      if (state === "auth_missing") return { level: "warn", label: "токен не настроен", detail: cloudConsoleSummaryText(cloud) };
       if (state === "error") return { level: "bad", label: "ошибка", detail: cloudConsoleSummaryText(cloud) };
       return { level: "warn", label: formatDiagValue(state || "unknown"), detail: cloudConsoleSummaryText(cloud) };
     }
@@ -3528,7 +3528,7 @@
       return {
         level: enabled ? "ok" : "warn",
         label: `${enabled}/${tools.length || 0}`,
-        detail: calls ? `${enabled} сервисов включено, ${calls} вызовов инструмента / tool-call` : `${enabled} сервисов включено из ${tools.length || 0}`
+        detail: calls ? `${enabled} сервисов включено, ${calls} вызовов инструмента` : `${enabled} сервисов включено из ${tools.length || 0}`
       };
     }
 
@@ -3539,8 +3539,8 @@
       const smoke = robotSmokeStatus(robot);
       const admin = robot.admin_status || {};
       const presenceConfirmed = robotPresenceConfirmed(robot);
-      if (endpoint.level === "bad") warnings.push("нет endpoint");
-      if (token.level === "bad") warnings.push("нет token");
+      if (endpoint.level === "bad") warnings.push("нет MCP-адреса");
+      if (token.level === "bad") warnings.push("нет ключа доступа");
       if (!isTemplateRobot(robot) && !isSupportRobot(robot) && smoke.level !== "ok" && !presenceConfirmed) warnings.push("обнаружение");
       if (!isTemplateRobot(robot) && !isSupportRobot(robot) && robotCloudNeedsAttention(robot) && !presenceConfirmed) warnings.push("облако");
       if (!isTemplateRobot(robot) && !isSupportRobot(robot) && robot.service_state !== "active") warnings.push("сервис");
@@ -3629,11 +3629,11 @@
         return {
           level: "warn",
           label: "Шаблон, не Wi‑Fi",
-          short: "шаблон / template",
+          short: "шаблон",
           confidence: 100,
-          detail: "Это служебный шаблон / template для подготовки новых роботов. У него не проверяется домашний Wi-Fi и рабочий канал / live.",
-          operatorText: "Используйте шаблон только как основу для новых роботов, не как активное устройство / live.",
-          evidence: "служебный шаблон / runtime template"
+          detail: "Это служебный шаблон для подготовки новых роботов. У него не проверяется домашний Wi‑Fi и рабочий канал.",
+          operatorText: "Используйте шаблон только как основу для новых роботов, не как активное устройство.",
+          evidence: "служебный шаблон"
         };
       }
 
@@ -3645,15 +3645,15 @@
           confidence: 100,
           detail: "Карточка нужна для проверки входа по коду. Физический Wi-Fi робота здесь не проверяется.",
           operatorText: "Для модератора достаточно выдать и проверить индивидуальный код.",
-          evidence: "RuStore test"
+          evidence: "карточка RuStore"
         };
       }
 
       if (detection.state === "detected_now" && liveProbe) {
         return {
           level: "ok",
-          label: "В сети / verified online",
-          short: "verified online",
+          label: "Подтверждённо в сети",
+          short: "в сети",
           confidence: 96,
           detail: probeSummaryText(liveProbe),
           operatorText: probeOperatorText(liveProbe),
@@ -3668,8 +3668,8 @@
           short: mobile.state === "phone_on_robot_wifi" ? "в сети робота" : "виден hotspot",
           confidence: 94,
           detail: mobile.detail,
-          operatorText: "Для этой прошивки это сильный сигнал, что робот ещё не вернулся в домашнюю Wi‑Fi. Ведите клиента по reconnect/onboarding сценарию.",
-          evidence: "app local presence: hotspot"
+          operatorText: "Для этой прошивки это сильный сигнал, что робот ещё не вернулся в домашнюю сеть Wi‑Fi. Ведите клиента по сценарию повторного подключения.",
+          evidence: "приложение видит временную сеть робота"
         };
       }
 
@@ -3681,7 +3681,7 @@
           confidence: 95,
           detail: `${mobile.detail} ${activity.detail}`,
           operatorText: "Связь подтверждена сразу двумя независимыми сигналами: приложение нашло робота в LAN клиента, а панель увидела живой серверный запрос.",
-          evidence: "app local + server activity"
+          evidence: "локальное подтверждение приложением и серверная активность"
         };
       }
 
@@ -3691,9 +3691,9 @@
           label: "Активен по серверным запросам",
           short: "живой запрос",
           confidence: 90,
-          detail: `${activity.detail} Это не тот же самый сигнал, что verified online, но для оператора это уже сильное подтверждение, что робот подключён и работает.`,
-          operatorText: "Можно считать робота подключённым. Если нужен отдельный safe MCP ACK, нажмите «Обнаружить робота», но зелёный сигнал активности уже честный.",
-          evidence: "server activity after probe"
+          detail: `${activity.detail} Это не тот же самый сигнал, что подтверждённая связь, но для оператора это уже сильное подтверждение, что робот подключён и работает.`,
+          operatorText: "Можно считать робота подключённым. Если нужно отдельное подтверждение MCP-ответа, нажмите «Обнаружить робота», но зелёный сигнал активности уже честный.",
+          evidence: "серверная активность после проверки"
         };
       }
 
@@ -3703,9 +3703,9 @@
           label: "В домашней сети",
           short: "локально найден",
           confidence: 84,
-          detail: `${mobile.detail} Даже если safe MCP ACK ещё не получен, для панели это уже честный сигнал, что робот подключён к домашней сети клиента.`,
+          detail: `${mobile.detail} Даже если отдельное подтверждение MCP ещё не получено, для панели это уже честный сигнал, что робот подключён к домашней сети клиента.`,
           operatorText: "Робот локально подтверждён приложением. Если нужен ещё и живой серверный канал, попросите клиента поговорить с роботом или нажмите «Обнаружить робота».",
-          evidence: "app local presence"
+          evidence: "локальное подтверждение приложением"
         };
       }
 
@@ -3716,8 +3716,8 @@
           short: "был активен",
           confidence: 74,
           detail: activity.detail,
-          operatorText: "Панель видела недавнюю живую активность робота. Это хороший ориентир для оператора, но если нужен статус прямо сейчас, попросите клиента снова обратиться к роботу или запустите detect.",
-          evidence: "recent server activity"
+          operatorText: "Панель видела недавнюю живую активность робота. Это хороший ориентир для оператора, но если нужен статус прямо сейчас, попросите клиента снова обратиться к роботу или запустите обнаружение.",
+          evidence: "недавняя серверная активность"
         };
       }
 
@@ -3729,22 +3729,22 @@
           confidence: 60,
           detail: mobile.detail,
           operatorText: "Приложение рядом с клиентом не нашло робота в локальной сети. Это не равняется «выключен», но связь сейчас не подтверждена.",
-          evidence: "app local presence: not_found"
+          evidence: "приложение не нашло робота локально"
         };
       }
 
       if (detection.state === "stale") {
         const cloudHint = cloud.configured
-          ? ` Вторичный cloud-сигнал: ${cloudConsoleSummaryText(cloud)}`
+          ? ` Вторичный облачный сигнал: ${cloudConsoleSummaryText(cloud)}`
           : "";
         return {
           level: "warn",
           label: "Проверка устарела",
-          short: "повторить detect",
+          short: "повторить обнаружение",
           confidence: 58,
           detail: `${detection.detail}${cloudHint}`,
-          operatorText: "Повторите «Обнаружить робота». Без свежего safe detect панель не должна считать робота online.",
-          evidence: "stale detect snapshot"
+          operatorText: "Повторите «Обнаружить робота». Без свежего обнаружения панель не должна считать робота подключённым.",
+          evidence: "устаревший результат обнаружения"
         };
       }
 
@@ -3752,8 +3752,8 @@
         if (probeIsVerifiedOnline(liveProbe)) {
           return {
             level: "ok",
-            label: "В сети / verified online",
-            short: "verified online",
+            label: "Подтверждённо в сети",
+            short: "в сети",
             confidence: 96,
             detail: probeSummaryText(liveProbe),
             operatorText: probeOperatorText(liveProbe),
@@ -3763,7 +3763,7 @@
         if (probeIsUnreachable(liveProbe)) {
           return {
             level: "bad",
-            label: "Нет ответа / unreachable",
+            label: "Нет ответа",
             short: "нет ответа",
             confidence: 94,
             detail: probeSummaryText(liveProbe),
@@ -3774,8 +3774,8 @@
         if (probeIsMcpBridgeOnly(liveProbe)) {
           return {
             level: "warn",
-            label: "MCP bridge без ACK",
-            short: "нужен ACK робота",
+            label: "MCP-мост без подтверждения",
+            short: "нужно подтверждение",
             confidence: 62,
             detail: probeSummaryText(liveProbe),
             operatorText: probeOperatorText(liveProbe),
@@ -3785,7 +3785,7 @@
         return {
           level: "warn",
           label: "Обнаружение неясно",
-          short: "safe detect",
+          short: "обнаружение",
           confidence: 70,
           detail: probeSummaryText(liveProbe),
           operatorText: probeOperatorText(liveProbe),
@@ -3797,47 +3797,47 @@
         return {
           level: "warn",
           label: "Нужно обнаружение",
-          short: "safe detect",
+          short: "обнаружение",
           confidence: 48,
           detail: `${detection.detail} ${cloudConsoleSummaryText(cloud)}`,
-          operatorText: "Сначала нажмите «Обнаружить робота». Cloud-сигнал полезен, но он не заменяет safe detect с ACK.",
-          evidence: "detect ещё не запускался"
+          operatorText: "Сначала нажмите «Обнаружить робота». Облачный сигнал полезен, но он не заменяет явное обнаружение с подтверждением ответа.",
+          evidence: "обнаружение ещё не запускалось"
         };
       }
 
       if (cloud.configured && cloudState === "online") {
         return {
           level: "warn",
-          label: "Cloud видит устройство",
-          short: "нужен ping",
+          label: "Облачный контур видит устройство",
+          short: "нужна проверка",
           confidence: 60,
           detail: cloudConsoleSummaryText(cloud),
-          operatorText: "Cloud-сигнал полезен как подсказка, но не подтверждает online. Нажмите «Обнаружить робота», чтобы получить verified online.",
-          evidence: "cloud, не ACK"
+          operatorText: "Облачный сигнал полезен как подсказка, но не подтверждает связь. Нажмите «Обнаружить робота», чтобы получить подтверждённый статус.",
+          evidence: "облачный контур, без подтверждения ответа"
         };
       }
 
       if (cloud.configured && cloudState === "offline") {
         return {
           level: "warn",
-          label: "Cloud не видит устройство",
-          short: "облако / cloud: offline",
+          label: "Облачный контур не видит устройство",
+          short: "облако: не видит",
           confidence: 50,
           detail: cloudConsoleSummaryText(cloud),
-          operatorText: "Запустите явное обнаружение робота. Только отсутствие ответа на active check означает «Робот не отвечает / unreachable» в панели.",
-          evidence: "cloud, не ACK"
+          operatorText: "Запустите явное обнаружение робота. Только отсутствие ответа на активную проверку означает в панели статус «Робот не отвечает».",
+          evidence: "облачный контур, без подтверждения ответа"
         };
       }
 
       if (cloud.configured && ["auth_missing", "error"].includes(cloudState)) {
         return {
           level: "warn",
-          label: "Облачная проверка / cloud недоступна",
-          short: "XiaoZhi: проверить",
+          label: "Облачная проверка недоступна",
+          short: "проверить облако",
           confidence: 52,
           detail: cloudConsoleSummaryText(cloud),
-          operatorText: "Используйте текущее явное обнаружение панели, а для второго сигнала настройте XiaoZhi API token в окружении панели.",
-          evidence: "консоль XiaoZhi"
+          operatorText: "Используйте текущее явное обнаружение панели, а для второго сигнала настройте токен совместимого облачного API в окружении панели.",
+          evidence: "совместимый облачный контур"
         };
       }
 
@@ -3849,7 +3849,7 @@
           confidence: 25,
           detail: "У робота еще нет рабочего MCP-адреса, поэтому панель не может проверить живой канал.",
           operatorText: "Сначала добавьте MCP-адрес или выдайте клиенту код подключения.",
-          evidence: "нет endpoint"
+          evidence: "нет MCP-адреса"
         };
       }
 
@@ -3869,10 +3869,10 @@
         return {
           level: "warn",
           label: "Есть пассивный сигнал",
-          short: "нужен ping",
+          short: "нужна проверка",
           confidence: 55,
-          detail: "Пассивные diagnostics/last_seen показывают, что канал мог быть доступен раньше, но это не подтверждает online сейчас.",
-          operatorText: "Нажмите «Обнаружить робота». Без свежего ACK с request_id робот не считается online.",
+          detail: "Пассивная диагностика и `last_seen` показывают, что канал мог быть доступен раньше, но это не подтверждает связь сейчас.",
+          operatorText: "Нажмите «Обнаружить робота». Без свежего подтверждения с `request_id` робот не считается подключённым.",
           evidence: formatDiagValue(transport || agentState || "passive")
         };
       }
@@ -3883,8 +3883,8 @@
           label: "Пассивно нет связи",
           short: "нужен ping",
           confidence: 45,
-          detail: lastError || "Пассивная диагностика не видит канал. Для честного статуса выполните обнаружение робота / MCP check.",
-          operatorText: "Не называйте робота offline/online только по кэшу. Запустите обнаружение робота / MCP check и затем действуйте по результату.",
+          detail: lastError || "Пассивная диагностика не видит канал. Для честного статуса выполните обнаружение робота через проверку MCP.",
+          operatorText: "Не называйте робота отключённым или подключённым только по кэшу. Запустите обнаружение робота через проверку MCP и затем действуйте по результату.",
           evidence: formatDiagValue(transport)
         };
       }
@@ -3907,7 +3907,7 @@
         short: "неясно",
         confidence: 45,
         detail: lastError || "Панель пока не может уверенно определить, подключен ли робот к домашней сети.",
-        operatorText: "Обновите состояние и уточните у клиента: горит ли робот, видна ли сеть XiaoZhi-..., выключен ли VPN на телефоне.",
+        operatorText: "Обновите состояние и уточните у клиента: горит ли робот, видна ли временная сеть робота и выключен ли VPN на телефоне.",
         evidence: formatDiagValue(transport || "unknown")
       };
     }
@@ -4026,7 +4026,7 @@
             <button class="btn primary" onclick="detectRobotState('${robot.robot_id}', this)">Обнаружить робота</button>
             <button class="btn" onclick="openControl('${robot.robot_id}')">Открыть MCP</button>
           </div>
-          <div class="mini" style="max-width:none; margin-top:6px;">Safe MCP check без движения. Технический маршрут: operator detect / MCP check.</div>
+          <div class="mini" style="max-width:none; margin-top:6px;">Безопасная проверка MCP без движения. Технический маршрут: обнаружение робота через операторскую панель.</div>
         </section>
       `;
     }
@@ -4053,8 +4053,8 @@
       if (isTemplateRobot(robot)) {
         return {
           level: "warn",
-          title: "Шаблон / template",
-          detail: "Это не боевой робот, а заготовка для создания новых рабочих контуров / runtime. Его не нужно запускать, проверять через smoke-check или выдавать клиенту код.",
+          title: "Шаблон",
+          detail: "Это не боевой робот, а заготовка для создания новых рабочих контуров. Его не нужно запускать, проверять обнаружением или выдавать клиенту код.",
           action: "Оставить шаблон",
           actionCode: `expandRobotCard('${robot.robot_id}'); renderRobots();`
         };
@@ -4072,16 +4072,16 @@
         if (robotNeedsEndpointOrToken(robot)) {
           return {
             level: "bad",
-            title: "Подготовлен / staged: нужен канал подключения и ключ доступа",
-            detail: "Робот подготовлен, но ещё не готов к активному режиму / live: заполните MCP-адрес / endpoint и ключ доступа / token в закрытом режиме настройки, затем запускайте сервис и safe detect.",
+            title: "Подготовлен: нужен канал подключения и ключ доступа",
+            detail: "Робот подготовлен, но ещё не готов к активному режиму: заполните MCP-адрес и ключ доступа в закрытом режиме настройки, затем запускайте сервис и выполняйте обнаружение.",
             action: "Открыть MCP",
             actionCode: `openControl('${robot.robot_id}')`
           };
         }
         return {
           level: "warn",
-          title: "Подготовлен / staged: нужно обнаружение",
-          detail: "MCP-адрес / endpoint и ключ доступа / token выглядят заполненными, но робот ещё не активен / live. Следующий безопасный шаг: проверить MCP, запустить сервис вручную и подтвердить safe detect.",
+          title: "Подготовлен: нужно обнаружение",
+          detail: "MCP-адрес и ключ доступа выглядят заполненными, но робот ещё не активен. Следующий безопасный шаг: проверить MCP, запустить сервис вручную и подтвердить обнаружение.",
           action: "Открыть MCP",
           actionCode: `openControl('${robot.robot_id}')`
         };
@@ -4108,8 +4108,8 @@
       if (smoke.level !== "ok" && !presenceConfirmed) {
         return {
           level: smoke.level === "bad" ? "bad" : "warn",
-          title: smoke.level === "bad" ? "Робот не отвечает / unreachable" : "Нужно обнаружение робота",
-          detail: `${smoke.detail} Робот не считается online по refresh, last_seen, cloud, endpoint/token или service active.`,
+          title: smoke.level === "bad" ? "Робот не отвечает" : "Нужно обнаружение робота",
+          detail: `${smoke.detail} Робот не считается подключённым по обычному обновлению, последней отметке, облачному следу, MCP-адресу, ключу доступа или просто активной службе.`,
           action: smoke.level === "bad" ? "Повторить обнаружение" : "Обнаружить робота",
           actionCode: `detectRobotState('${robot.robot_id}')`
         };
@@ -4117,8 +4117,8 @@
       if (wifi.level === "bad") {
         return {
           level: "bad",
-          title: "Робот не отвечает / unreachable",
-          detail: `${wifi.detail} Проверьте питание, сеть, MCP-адрес / endpoint, ключ доступа / token и клиент робота.`,
+          title: "Робот не отвечает",
+          detail: `${wifi.detail} Проверьте питание, сеть, MCP-адрес, ключ доступа и клиент робота.`,
           action: "Повторить обнаружение",
           actionCode: `detectRobotState('${robot.robot_id}')`
         };
@@ -4136,7 +4136,7 @@
         return {
           level: "warn",
           title: "Связь требует проверки",
-          detail: diag.last_error || "Проверьте MCP-адрес / endpoint и состояние робота в облаке / cloud.",
+          detail: diag.last_error || "Проверьте MCP-адрес и состояние робота во внешнем совместимом облачном контуре.",
           action: "Открыть MCP",
           actionCode: `openControl('${robot.robot_id}')`
         };
@@ -4253,7 +4253,7 @@
       const risk = new Set([...needsEndpoint, ...smokeRisk, ...cloudRisk].map((robot) => robot.robot_id));
 
       summary.className = `pill ${risk.size ? "warn" : "ok"}`;
-      summary.textContent = `активные / live ${live.length} · подготовлены / staged ${staged.length} · шаблоны / template ${template.length}`;
+        summary.textContent = `активных ${live.length} · подготовленных ${staged.length} · шаблонов ${template.length}`;
 
       const sorted = [...robots].sort((a, b) => {
         const rank = { staged: 0, live: 1, test: 2, template: 3 };
@@ -4313,16 +4313,16 @@
       const noOwner = physicalRobots.filter((robot) => !ownerHasContact(robot));
 
       const issues = [
-        ["Подготовленные роботы / staged требуют доводки", stagedRobots],
-        ["Нет канала подключения или ключа доступа / endpoint + token", endpointRisk],
-        ["Явное обнаружение / detect не подтверждено", smokeRisk],
-        ["Облачная проверка / cloud недоступна или не видит устройство", cloudRisk],
-        ["Робот не отвечает / unreachable после обнаружения", wifiBad],
+        ["Подготовленные роботы требуют доводки", stagedRobots],
+        ["Нет канала подключения или ключа доступа", endpointRisk],
+        ["Явное обнаружение не подтверждено", smokeRisk],
+        ["Облачная проверка недоступна или не видит устройство", cloudRisk],
+        ["Робот не отвечает после обнаружения", wifiBad],
         ["Wi-Fi статус нужно уточнить", wifiWarn],
         ["Нет MCP-адреса", noEndpoint],
         ["Мост не активен", bridgeDown],
-        ["Нужен verified online через обнаружение", linkBad],
-        ["Политика сервисов / tools не применена", policyBad],
+        ["Нужно подтверждение связи через обнаружение", linkBad],
+        ["Политика сервисов не применена", policyBad],
         ["Нет активного кода подключения", noReadyCode],
         ["Карточка клиента пустая", noOwner],
       ].filter(([, items]) => items.length);
@@ -4331,7 +4331,7 @@
         focus.textContent = `Все основные проверки в порядке: ${physicalRobots.length} боевых роботов готовы к работе оператора.`;
         pill.className = "pill ok";
         pill.textContent = "Всё спокойно";
-        const info = templateRobots.length ? renderAttentionItem("Шаблоны / template отделены от активных роботов / live", templateRobots, "ok") : "";
+        const info = templateRobots.length ? renderAttentionItem("Шаблоны отделены от активных роботов", templateRobots, "ok") : "";
         list.innerHTML = renderAttentionItem("Критичных пунктов нет", physicalRobots, "ok", "Можно работать с подписками, памятью и клиентами.") + info;
         return;
       }
@@ -4343,7 +4343,7 @@
       list.innerHTML = issues
         .slice(0, 6)
         .map(([title, items]) => renderAttentionItem(title, items))
-        .join("") + (templateRobots.length ? renderAttentionItem("Шаблоны / template отделены от активных роботов / live", templateRobots, "ok") : "");
+        .join("") + (templateRobots.length ? renderAttentionItem("Шаблоны отделены от активных роботов", templateRobots, "ok") : "");
     }
 
     function renderRobotFilterControls() {
@@ -4417,7 +4417,7 @@
       if (buttonEl) buttonEl.disabled = true;
       if (expand) expandRobotCard(robotId);
       if (!silent) {
-        setStatus(`${robotLabel}: выполняю обнаружение робота / safe detect...`);
+        setStatus(`${robotLabel}: выполняю обнаружение робота...`);
       }
       const res = await apiPost(operatorUrl(`/robots/${robotId}/detect`), {});
       if (!res.ok) {
@@ -4454,13 +4454,13 @@
         .slice(0, AUTO_DETECT_LIMIT);
       if (!queue.length) return;
       autoDetectInFlight = true;
-      setStatus(`Автообнаружение: проверяю ${queue.length} live-роботов...`);
+      setStatus(`Автообнаружение: проверяю ${queue.length} активных роботов...`);
       for (const robot of queue) {
         await detectRobotState(robot.robot_id, null, { silent: true, expand: false });
       }
       autoDetectInFlight = false;
       renderRobots();
-      setStatus(`Автообнаружение завершено: проверено ${queue.length} live-роботов.`);
+      setStatus(`Автообнаружение завершено: проверено ${queue.length} активных роботов.`);
     }
 
     async function reloadRobots() {
@@ -4553,7 +4553,7 @@
               <div class="robot-title-row">
                 <div>
                   <div class="robot-title">${escapeHtml(robotDisplayName(robot))}</div>
-                  <div class="robot-subtitle">${isTemplate ? "Шаблон / template для подготовки, не активный робот / live" : "Подключение, клиент, память и сервисы"}</div>
+                  <div class="robot-subtitle">${isTemplate ? "Шаблон для подготовки, не активный робот" : "Подключение, клиент, память и сервисы"}</div>
                 </div>
                 <div class="robot-summary-side">
                   <span>Открыть настройки</span>
@@ -4717,12 +4717,12 @@
               <tr>
                 <th class="col-robot">Робот</th>
                 <th class="col-state">Состояние</th>
-                <th class="col-small">MCP-адрес / endpoint</th>
-                <th class="col-small">Ключ / token</th>
+                <th class="col-small">MCP-адрес</th>
+                <th class="col-small">Ключ доступа</th>
                 <th class="col-small">Обнаружение</th>
-                <th class="col-small">Облако / cloud</th>
-                <th class="col-memory">Память / memory</th>
-                <th class="col-tools">Сервисы / tools + MCP</th>
+                <th class="col-small">Облако</th>
+                <th class="col-memory">Память</th>
+                <th class="col-tools">Сервисы и MCP</th>
                 <th class="col-warning">Предупреждения</th>
                 <th class="col-next">Следующий шаг</th>
               </tr>
