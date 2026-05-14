@@ -15,6 +15,7 @@
 ## Целевые порты
 
 - панель и API: `18876`
+- внутренний шлюз ИИ-агентов: `127.0.0.1:18110`
 - совместимый узел `WebSocket`: `18080`
 - внутренний веб-интерфейс серверного узла: `127.0.0.1:18082`
 - внутренний HTTP-интерфейс серверного узла: `127.0.0.1:18083`
@@ -23,17 +24,20 @@
 
 - создаёт рабочее дерево каталогов;
 - копирует unit-файлы `systemd`;
-- создаёт `panel.env` и `selfhost-backend.env`, если их ещё нет;
+- создаёт `panel.env`, `selfhost-backend.env` и `agent-gateway.env`, если их ещё нет;
 - генерирует локальный пароль оператора и пароль базы данных, если они ещё не заданы;
 - по возможности одноразово импортирует данные `robots/mobile/share` из `/opt/ai_robot` только в новый рабочий контур;
-- включает `gosha-backend.service`, `gosha-panel.service` и `gosha-observer.timer`.
+- включает `gosha-agent-gateway.service`, `gosha-backend.service`, `gosha-panel.service` и `gosha-observer.timer`.
 
 ## Что проверять после развёртывания
 
 - `systemctl status gosha-backend.service`
+- `systemctl status gosha-agent-gateway.service`
 - `systemctl status gosha-panel.service`
 - `systemctl status gosha-observer.timer`
+- `curl http://127.0.0.1:18110/healthz`
 - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
+- `curl http://127.0.0.1:18876/api/operator/agent-profiles`
 - `curl http://127.0.0.1:18876/api/mobile/plans`
 - наличие `/opt/gosha_platform/runtime/reports/LAST_REPORT_RU.md`
 

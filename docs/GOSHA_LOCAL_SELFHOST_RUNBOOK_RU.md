@@ -18,22 +18,31 @@
 
 ```bash
 cd /home/max/GOSHA_PLATFORM
+bash bin/run_local_gosha_gateway.sh
+```
+
+Во втором терминале:
+
+```bash
 bash bin/run_local_gosha_panel.sh
 ```
 
 Адрес:
 
 ```text
-http://127.0.0.1:18876
+панель: http://127.0.0.1:18876
+шлюз ИИ-агентов: http://127.0.0.1:18110
 ```
 
 ## Что проверять первым
 
 1. `GET /api/operator/selfhost-xiaozhi`
 2. `GET /api/mobile/plans`
-3. `GET /xiaozhi/ota/` с `Device-Id` / `Client-Id`
-4. `POST /xiaozhi/ota/activate`
-5. переход устройства из ожидающего состояния в привязанное через интерфейс панели
+3. `GET /api/operator/agent-gateway/status`
+4. `GET /api/operator/agent-profiles`
+5. `GET /xiaozhi/ota/` с `Device-Id` / `Client-Id`
+6. `POST /xiaozhi/ota/activate`
+7. переход устройства из ожидающего состояния в привязанное через интерфейс панели
 
 ## Где лежит локальное состояние
 

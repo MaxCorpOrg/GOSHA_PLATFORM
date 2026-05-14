@@ -41,6 +41,10 @@
 ## Что уже сделано
 
 - Первая отправка изменений в `origin/agent/bootstrap-gosha` выполнена.
+- В проект добавлен масштабируемый контур ИИ-агентов:
+  - отдельный шлюз `gosha-agent-gateway`
+  - слой хранения профилей агентов
+  - привязка активного профиля к роботу
 - На сервере уже созданы:
   - `/opt/gosha_platform/app`
   - `/opt/gosha_platform/runtime/app_root`
@@ -53,14 +57,21 @@
   - `pending -> claim -> activate=200`
   - `python3 platform/check_gosha_mobile_contract.py --base-url http://127.0.0.1:18876`
 - В правилах проекта закреплён единый русский технический язык для отчётов, планов и контрольных точек.
+- В правилах проекта закреплено, что `Гоша` — масштабируемая платформа для многих роботов и многих OpenAI-совместимых провайдеров.
 - В панели, документации и операторских текстах проект называется `Гоша`.
 - `Xiaozhi` сохранён только в технических местах совместимости.
+- Локально подтверждены новые сценарии:
+  - получение состояния `gosha-agent-gateway`
+  - создание двух профилей ИИ-агентов
+  - наследование профиля по умолчанию для робота
+  - явное переключение робота на другой профиль без перепрошивки
 
 ## Где остановились
 
-- Развёртывание на сервере остановлено сознательно, потому что получение образов `backend` слишком тяжёлое для текущей скорости канала.
+- Развёртывание на сервере остановлено сознательно, потому что получение образов совместимого серверного узла `backend` слишком тяжёлое для текущей скорости канала.
 - На сервере сейчас:
   - `gosha-backend.service` -> `failed/disabled`
+  - `gosha-agent-gateway.service` -> `inactive/disabled`
   - `gosha-panel.service` -> `inactive/disabled`
   - `gosha-observer.timer` -> `inactive/disabled`
 - Ничего не должно тянуться в фоне, но рабочая копия и рабочие каталоги уже готовы.
@@ -75,10 +86,13 @@ bash ops/install_server.sh
 ```
 
 - После завершения получения образов проверить:
+  - `systemctl status gosha-agent-gateway.service`
   - `systemctl status gosha-backend.service`
   - `systemctl status gosha-panel.service`
   - `systemctl status gosha-observer.timer`
+  - `curl http://127.0.0.1:18110/healthz`
   - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
+  - `curl http://127.0.0.1:18876/api/operator/agent-profiles`
   - `curl http://127.0.0.1:18876/api/mobile/plans`
 - После любого заметного шага обновить:
   - `PROJECT_STATUS_RU.md`

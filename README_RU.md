@@ -1,11 +1,12 @@
 # GOSHA PLATFORM
 
 Отдельный проект для платформы `Гоша`, вынесенный из `AI_ROBOT` в самостоятельный репозиторий и отдельный серверный рабочий контур.
+Проект сразу проектируется как масштабируемый: много роботов, много профилей ИИ-агентов и много OpenAI-совместимых провайдеров без жёсткой привязки к одному облаку.
 
 ## Что здесь есть
 
 - `platform/`
-  - панель, маршруты `mobile/operator API` и совместимый шлюз платформы `Гоша`
+  - панель, маршруты `mobile/operator API`, отдельный внутренний шлюз ИИ-агентов и слой хранения профилей агентов
 - `backend/`
   - `docker compose` и шаблон `env` для совместимого серверного узла на базе `xinnan-tech/xiaozhi-esp32-server`
 - `ops/`
@@ -23,19 +24,35 @@
 - `AI_ROBOT` не является рабочим корнем этого проекта.
 - Всё, что относится к локальному состоянию и откату, должно жить только в `local_only/`.
 - Внешне проект называется `Гоша`; упоминания `Xiaozhi` допустимы только в технических местах совместимости.
+- Новые подсистемы нужно строить с расчётом на масштабирование по числу роботов и профилей агентов.
 
 ## Быстрый старт локально
 
 ```bash
 cd /home/max/GOSHA_PLATFORM
 bash bin/init_local_lab.sh
+bash bin/run_local_gosha_gateway.sh
+```
+
+Во втором терминале:
+
+```bash
 bash bin/run_local_gosha_panel.sh
 ```
 
-Панель поднимется на:
+Порты локального контура:
 
 ```text
-http://127.0.0.1:18876
+панель: http://127.0.0.1:18876
+внутренний шлюз ИИ-агентов: http://127.0.0.1:18110
+```
+
+## Что проверять локально
+
+```bash
+curl http://127.0.0.1:18876/api/operator/agent-gateway/status
+curl http://127.0.0.1:18876/api/operator/agent-profiles
+curl http://127.0.0.1:18876/api/operator/robots
 ```
 
 ## Быстрый старт на сервере
@@ -58,6 +75,7 @@ bash ops/install_server.sh
 ```bash
 systemctl status gosha-panel.service
 systemctl status gosha-backend.service
+systemctl status gosha-agent-gateway.service
 systemctl status gosha-observer.timer
 ```
 
