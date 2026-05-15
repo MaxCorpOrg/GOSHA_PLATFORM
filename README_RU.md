@@ -19,6 +19,8 @@
 - `docs/`
   - контрольные точки, рабочие инструкции и документы передачи состояния
   - спецификация собственной панели управления ассистентом `Гоша`
+- `docs/GOSHA_PROJECT_MAP_RU.md`
+  - общая карта всех контуров: платформа, сервер, голоса, прошивка, мобильный клиент и документы
 - `local_only/`
   - рабочие данные, снимки состояния, откатные материалы и прочее, что не должно попадать в git
 
@@ -26,6 +28,12 @@
 
 - GitHub-репозиторий для этого проекта отдельный.
 - `AI_ROBOT` не является рабочим корнем этого проекта.
+- Для нового чата канонический порядок входа такой:
+  - `AGENTS.md`
+  - `START_HERE_FOR_NEW_CHAT.md`
+  - `docs/GOSHA_PROJECT_MAP_RU.md`
+  - `docs/NEW_CHAT_CHECKPOINT_RU.md`
+  - `docs/PROJECT_STATUS_RU.md`
 - Всё, что относится к локальному состоянию и откату, должно жить только в `local_only/`.
 - Внешне проект называется `Гоша`; упоминания `Xiaozhi` допустимы только в технических местах совместимости.
 - Внешние OTA-маршруты собственного продукта переводим на `/gosha/...`, а старые `/xiaozhi/...` сохраняем как временные совместимые псевдонимы там, где это уже нужно живому контуру.
@@ -93,6 +101,16 @@ bundle.mobile_profile.brand = GOSHA
 bundle.mobile_profile.panel_url = http://151.241.228.232:18876
 bundle.mobile_profile.portal_url = http://192.168.4.1
 bundle.mobile_profile.robot_wifi_prefixes = [GOSHA-, Xiaozhi-]
+```
+
+Где смотреть живой голосовой контур:
+
+```text
+логика профилей: platform/gosha_assistant_store.py
+рабочие профили на сервере: /opt/gosha_platform/runtime/app_root/agents
+эффективный TTS/ASR/LLM: /opt/gosha_platform/runtime/app_root/selfhost_xiaozhi/backend/data/.config.yaml
+секреты поставщиков: /opt/gosha_platform/runtime/env/providers.env
+локальные секреты разработчика: /home/max/GOSHA_PLATFORM/GOSHA_API
 ```
 
 ## Что проверять локально

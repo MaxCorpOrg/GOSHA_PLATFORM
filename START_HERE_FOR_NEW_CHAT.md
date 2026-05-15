@@ -5,19 +5,20 @@
 ## Сначала прочитать
 
 1. `AGENTS.md`
-2. `docs/NEW_CHAT_CHECKPOINT_RU.md`
-3. `docs/AGENT_CHECKPOINT_RU.md`
-4. `docs/PROJECT_STATUS_RU.md`
-5. Если задача про сервер:
+2. `docs/GOSHA_PROJECT_MAP_RU.md`
+3. `docs/NEW_CHAT_CHECKPOINT_RU.md`
+4. `docs/AGENT_CHECKPOINT_RU.md`
+5. `docs/PROJECT_STATUS_RU.md`
+6. Если задача про сервер:
    - `docs/GOSHA_SERVER_DEPLOY_RU.md`
    - `ops/AGENTS.md`
-6. Если задача про панель и совместимый шлюз платформы `Гоша`:
+7. Если задача про панель и совместимый шлюз платформы `Гоша`:
    - `docs/GOSHA_LOCAL_SELFHOST_RUNBOOK_RU.md`
    - `platform/AGENTS.md`
    - `docs/GOSHA_ASSISTANT_CONTROL_PANEL_SPEC_RU.md`
-7. Если задача уже перешла к собственной прошивке:
+8. Если задача уже перешла к собственной прошивке:
    - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
-8. Если задача относится к новому мобильному клиенту:
+9. Если задача относится к новому мобильному клиенту:
    - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
 
 ## Как писать новые записи
@@ -39,11 +40,17 @@
   - собственные профили голосов
   - собственные экранные профили и лица
   - собственная настройка имени пробуждения `Гоша`
-- Лёгкий серверный контур уже подтверждён на `151.241.228.232`:
+- Общая карта всех связанных контуров зафиксирована в:
+  - `docs/GOSHA_PROJECT_MAP_RU.md`
+- Полный серверный контур уже подтверждён на `151.241.228.232`:
   - `gosha-agent-gateway.service`
   - `gosha-panel.service`
+  - `gosha-backend.service`
   - `gosha-observer.timer`
-- Тяжёлый этап `backend` остаётся отдельным следующим шагом.
+- Базовый живой русский цикл уже подтверждён:
+  - слово пробуждения `Гоша`
+  - распознавание русской речи
+  - русский голосовой ответ
 - Для следующего прошивочного этапа создан отдельный соседний репозиторий:
   - `/home/max/GOSHA_FIRMWARE`
 - Для следующего мобильного этапа создан отдельный соседний репозиторий:

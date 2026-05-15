@@ -1,0 +1,311 @@
+# GOSHA PROJECT MAP
+
+Главная карта входа в текущий контур `Гоша`.
+
+Этот документ нужен, чтобы новый агент не искал наугад:
+- где сама платформа;
+- где серверный рабочий контур;
+- где прошивка;
+- где мобильный клиент;
+- где лежат голоса, профили, секреты и контрольные документы.
+
+## 1. С чего начинать новый чат
+
+1. Открыть:
+   - `/home/max/GOSHA_PLATFORM/AGENTS.md`
+   - `/home/max/GOSHA_PLATFORM/START_HERE_FOR_NEW_CHAT.md`
+   - `/home/max/GOSHA_PLATFORM/docs/NEW_CHAT_CHECKPOINT_RU.md`
+   - `/home/max/GOSHA_PLATFORM/docs/AGENT_CHECKPOINT_RU.md`
+   - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
+2. Затем открыть этот файл:
+   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
+3. Если задача уже уходит в прошивку, дальше переходить в:
+   - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
+4. Если задача уходит в Android-клиент, дальше переходить в:
+   - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
+
+## 2. Основные репозитории и их назначение
+
+### `GOSHA_PLATFORM`
+
+- Путь:
+  - `/home/max/GOSHA_PLATFORM`
+- Назначение:
+  - панель оператора;
+  - операторские и мобильные маршруты;
+  - внутренний шлюз ИИ-агентов;
+  - совместимый голосовой серверный контур;
+  - профили ассистента, голоса, памяти, экрана, пробуждения и `MCP`.
+- Это текущий главный источник истины для серверного контура `Гоша`.
+
+### `GOSHA_FIRMWARE`
+
+- Путь:
+  - `/home/max/GOSHA_FIRMWARE`
+- Назначение:
+  - собственная прошивка робота;
+  - профиль платы `gosha-otto-v1`;
+  - экран, слово пробуждения, локальный портал, локальный `WebSocket`, аппаратные выводы.
+
+### `GOSHA_MOBILE`
+
+- Путь:
+  - `/home/max/GOSHA_MOBILE`
+- Назначение:
+  - отдельный Android-клиент `Гоша`;
+  - ввод кода подключения;
+  - перевод телефона в сеть робота;
+  - локальный портал настройки;
+  - работа с `mobile API` платформы.
+
+### `AI_ROBOT`
+
+- Путь:
+  - `/home/max/MAX_CORP_CORE/AI_ROBOT`
+- Статус:
+  - легаси-контур;
+  - источник одноразового импорта и справки;
+  - не рабочий корень новых проектов `Гоша`.
+
+## 3. Где живёт серверный контур
+
+### Исходники платформы
+
+- Репозиторий:
+  - `/home/max/GOSHA_PLATFORM`
+- Ключевые папки:
+  - `platform/`
+  - `backend/`
+  - `ops/`
+  - `docs/`
+
+### Рабочая копия на сервере
+
+- Код:
+  - `/opt/gosha_platform/app`
+- Рабочее состояние:
+  - `/opt/gosha_platform/runtime`
+- Службы:
+  - `gosha-panel.service`
+  - `gosha-agent-gateway.service`
+  - `gosha-backend.service`
+  - `gosha-observer.timer`
+
+### Где лежат серверные секреты
+
+- Локальный секретный каталог разработчика:
+  - `/home/max/GOSHA_PLATFORM/GOSHA_API`
+- Текущий локальный файл ключа `DeepSeek`:
+  - `/home/max/GOSHA_PLATFORM/GOSHA_API/GOHA_API_DEEPSEEK.txt`
+- Серверный рабочий файл ключей:
+  - `/opt/gosha_platform/runtime/env/providers.env`
+
+Важно:
+- `GOSHA_API/` не должен попадать в git;
+- `providers.env` не должен попадать в git;
+- ключи поставщиков ИИ нельзя хранить в обычных JSON-профилях.
+
+## 4. Где живут голоса, распознавание и ассистент
+
+### Логика профилей в исходниках
+
+- Составные профили ассистента:
+  - `/home/max/GOSHA_PLATFORM/platform/gosha_assistant_store.py`
+- Профили поставщиков ИИ и привязки:
+  - `/home/max/GOSHA_PLATFORM/platform/gosha_agent_store.py`
+- Внутренний шлюз ИИ-агентов:
+  - `/home/max/GOSHA_PLATFORM/platform/gosha_agent_gateway.py`
+- Панель:
+  - `/home/max/GOSHA_PLATFORM/platform/gui_panel.py`
+  - `/home/max/GOSHA_PLATFORM/platform/panel_index.html`
+
+### Где лежат рабочие профили на сервере
+
+- Папка профилей:
+  - `/opt/gosha_platform/runtime/app_root/agents`
+- Подпапки:
+  - `/opt/gosha_platform/runtime/app_root/agents/providers`
+  - `/opt/gosha_platform/runtime/app_root/agents/assistants`
+  - `/opt/gosha_platform/runtime/app_root/agents/voices`
+  - `/opt/gosha_platform/runtime/app_root/agents/memory`
+  - `/opt/gosha_platform/runtime/app_root/agents/mcp_bundles`
+  - `/opt/gosha_platform/runtime/app_root/agents/knowledge`
+  - `/opt/gosha_platform/runtime/app_root/agents/screens`
+  - `/opt/gosha_platform/runtime/app_root/agents/wake`
+  - `/opt/gosha_platform/runtime/app_root/agents/bindings`
+
+### Где смотреть, какой голос реально активен
+
+- Эффективная конфигурация совместимого `backend`:
+  - `/opt/gosha_platform/runtime/app_root/selfhost_xiaozhi/backend/data/.config.yaml`
+
+### Текущий рабочий голосовой стек
+
+- Распознавание речи:
+  - `VoskASR`
+- Модель ИИ:
+  - `deepseek-v4-flash`
+- Синтез речи:
+  - `EdgeTTS`
+
+### Где лежит переопределение синтеза речи
+
+- Репозиторный слой:
+  - `/home/max/GOSHA_PLATFORM/backend/overrides/edge.py`
+- Папка с переопределениями:
+  - `/home/max/GOSHA_PLATFORM/backend/overrides`
+
+### Какие голоса сейчас реально доступны
+
+- `voice-ru-default`
+  - Светлана, основной женский голос
+- `voice-ru-man`
+  - Дмитрий, взрослый мужской голос
+- `voice-ru-kid-girl`
+  - детский пресет на базе Светланы
+- `voice-ru-kid-boy`
+  - детский пресет на базе Дмитрия
+
+Важно:
+- оба детских варианта пока не нативные детские русские голоса;
+- это пресеты скорости и высоты голоса поверх взрослых голосов `EdgeTTS`;
+- следующий большой шаг по голосу — смена самого движка синтеза речи на более сильный русский `TTS`.
+
+## 5. Где живёт прошивка
+
+### Репозиторий
+
+- Путь:
+  - `/home/max/GOSHA_FIRMWARE`
+
+### Главные точки входа
+
+- `/home/max/GOSHA_FIRMWARE/AGENTS.md`
+- `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
+- `/home/max/GOSHA_FIRMWARE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- `/home/max/GOSHA_FIRMWARE/docs/FIRMWARE_IMPORT_CHECKPOINT_RU.md`
+- `/home/max/GOSHA_FIRMWARE/docs/HARDWARE_MANIFEST_RU.md`
+- `/home/max/GOSHA_FIRMWARE/docs/PIN_MAP_RU.md`
+
+### Где исходники платы `Гоша`
+
+- Сборочный корень:
+  - `/home/max/GOSHA_FIRMWARE/firmware`
+- Профиль платы:
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1`
+
+### Где русский пользовательский слой прошивки
+
+- Русская локализация:
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/assets/locales/ru-RU`
+
+### Где слово пробуждения и аудиоконтур
+
+- Аудио:
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/audio`
+- Слово пробуждения:
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/audio/wake_words`
+
+### Где лежит собранная прошивка
+
+- Основной merged-образ:
+  - `/home/max/GOSHA_FIRMWARE/firmware/build/merged-binary.bin`
+- Выпускной архив:
+  - `/home/max/GOSHA_FIRMWARE/firmware/releases/v2.2.2_gosha-otto-v1.zip`
+
+## 6. Где живёт Android-клиент
+
+### Репозиторий
+
+- Путь:
+  - `/home/max/GOSHA_MOBILE`
+
+### Главные точки входа
+
+- `/home/max/GOSHA_MOBILE/AGENTS.md`
+- `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
+- `/home/max/GOSHA_MOBILE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- `/home/max/GOSHA_MOBILE/docs/PROJECT_STATUS_RU.md`
+
+### Где лежит код приложения
+
+- Android-код:
+  - `/home/max/GOSHA_MOBILE/app/src/main`
+- Текущий исходный пакет в дереве файлов пока ещё лежит в старом пути:
+  - `/home/max/GOSHA_MOBILE/app/src/main/java/com/maxcorp/edgeconnector`
+
+Важно:
+- это не старое приложение как продукт;
+- это унаследованный путь исходников после одноразового копирования;
+- канонический новый `applicationId` уже:
+  - `com.maxcorp.gosha.mobile`
+
+### Где лежит готовый отладочный `APK`
+
+- `/home/max/GOSHA_MOBILE/app/build/outputs/apk/client/debug/app-client-debug.apk`
+
+## 7. Какие документы считать каноническими
+
+### Для платформы
+
+- Общая карта:
+  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
+- Короткая точка входа:
+  - `/home/max/GOSHA_PLATFORM/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- Подробная рабочая точка:
+  - `/home/max/GOSHA_PLATFORM/docs/AGENT_CHECKPOINT_RU.md`
+- Живое состояние:
+  - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
+
+### Для прошивки
+
+- Короткая точка входа:
+  - `/home/max/GOSHA_FIRMWARE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- Подробная рабочая точка:
+  - `/home/max/GOSHA_FIRMWARE/docs/AGENT_CHECKPOINT_RU.md`
+- Живое состояние:
+  - `/home/max/GOSHA_FIRMWARE/docs/PROJECT_STATUS_RU.md`
+
+### Для мобильного клиента
+
+- Короткая точка входа:
+  - `/home/max/GOSHA_MOBILE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- Подробная рабочая точка:
+  - `/home/max/GOSHA_MOBILE/docs/AGENT_CHECKPOINT_RU.md`
+- Живое состояние:
+  - `/home/max/GOSHA_MOBILE/docs/PROJECT_STATUS_RU.md`
+
+## 8. Текущее состояние на 2026-05-15
+
+- Платформа `Гоша` жива на сервере:
+  - панель отвечает;
+  - шлюз ИИ-агентов отвечает;
+  - голосовой `WebSocket` отвечает;
+  - `DeepSeek`, `VoskASR` и `EdgeTTS` уже работают в одном контуре.
+- Робот `gosha-main`:
+  - откликается на слово `Гоша`;
+  - распознаёт русскую речь;
+  - отвечает голосом.
+- Мобильный клиент:
+  - уже отделён в самостоятельный проект;
+  - видит робота и может довести телефон до сети робота;
+  - ещё требует доводки локального портала и плавности сценария подключения.
+- Прошивка:
+  - уже собрана, прошита и подключается к платформе;
+  - слово пробуждения `Гоша` уже включено;
+  - ещё требует доводки качества распознавания, ложных срабатываний и локального портала.
+
+## 9. Что делать следующим пакетом
+
+1. Закрыть документную контрольную точку и использовать этот файл как главный ориентир нового чата.
+2. Для голоса решить следующий архитектурный шаг:
+   - искать новый движок синтеза речи с более сильными русскими голосами.
+3. Для прошивки отдельно разобрать:
+   - ложные срабатывания;
+   - дальнее распознавание;
+   - влияние динамика и микрофона;
+   - локальный портал `192.168.4.1`.
+4. Для мобильного клиента дополировать:
+   - сценарий возврата из режима точки доступа;
+   - устойчивое открытие локального портала;
+   - переход в главное меню без лишних перезапусков.
