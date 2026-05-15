@@ -3422,7 +3422,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(TERMS_OF_USE_SHARE_PATH, "text/html; charset=utf-8")
             return
 
-        if parsed.path.rstrip("/") == "/xiaozhi/ota":
+        if parsed.path.rstrip("/") in ("/xiaozhi/ota", "/gosha/ota"):
             identity = extract_selfhost_device_identity(self.headers, {})
             if not identity.get("device_id"):
                 self._send_json(400, {"ok": False, "error": "device_id is required"})
@@ -3662,7 +3662,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed, parts = self._path_parts()
         payload = self._body_json()
 
-        if parsed.path.rstrip("/") == "/xiaozhi/ota":
+        if parsed.path.rstrip("/") in ("/xiaozhi/ota", "/gosha/ota"):
             identity = extract_selfhost_device_identity(self.headers, payload)
             if not identity.get("device_id"):
                 self._send_json(400, {"ok": False, "error": "device_id is required"})
@@ -3686,7 +3686,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, ota_payload)
             return
 
-        if parsed.path.rstrip("/") == "/xiaozhi/ota/activate":
+        if parsed.path.rstrip("/") in ("/xiaozhi/ota/activate", "/gosha/ota/activate"):
             identity = extract_selfhost_device_identity(self.headers, payload)
             device_id = identity.get("device_id") or str(payload.get("serial_number", "")).strip()
             if not device_id:

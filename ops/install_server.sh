@@ -132,8 +132,10 @@ PANEL_SESSION_TTL_SECONDS=43200
 GOSHA_AGENT_GATEWAY_URL=http://127.0.0.1:${AGENT_GATEWAY_PORT}
 GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=5
 SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE=${PANEL_URL}
-SELFHOST_XIAOZHI_OTA_URL=${PANEL_URL}/xiaozhi/ota/
-SELFHOST_XIAOZHI_ACTIVATE_URL=${PANEL_URL}/xiaozhi/ota/activate
+SELFHOST_GOSHA_OTA_URL=${PANEL_URL}/gosha/ota/
+SELFHOST_GOSHA_ACTIVATE_URL=${PANEL_URL}/gosha/ota/activate
+SELFHOST_XIAOZHI_OTA_URL=${PANEL_URL}/gosha/ota/
+SELFHOST_XIAOZHI_ACTIVATE_URL=${PANEL_URL}/gosha/ota/activate
 SELFHOST_XIAOZHI_WS_URL=${WS_URL}
 SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE=${MCP_BASE}
 APK_SHARE_PATH=${APP_ROOT}/share/maxcorp-connector-debug.apk
@@ -179,8 +181,10 @@ ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_URL" "http://127.0.0.1:${AGENT_GATEWAY_PORT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "5"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE" "${PANEL_URL}"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_OTA_URL" "${PANEL_URL}/xiaozhi/ota/"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_ACTIVATE_URL" "${PANEL_URL}/xiaozhi/ota/activate"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_OTA_URL" "${PANEL_URL}/gosha/ota/"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_ACTIVATE_URL" "${PANEL_URL}/gosha/ota/activate"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_OTA_URL" "${PANEL_URL}/gosha/ota/"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_ACTIVATE_URL" "${PANEL_URL}/gosha/ota/activate"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_WS_URL" "${WS_URL}"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE" "${MCP_BASE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "APK_SHARE_PATH" "${APP_ROOT}/share/maxcorp-connector-debug.apk"

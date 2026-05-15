@@ -164,12 +164,24 @@ def default_backend_config():
         default_scheme="http",
     )
     ota_url = ensure_trailing_slash(
-        normalize_url(os.environ.get("SELFHOST_XIAOZHI_OTA_URL"), default_scheme="http")
-        or f"{public_http_base}/xiaozhi/ota"
+        normalize_url(
+            os.environ.get("SELFHOST_GOSHA_OTA_URL")
+            or os.environ.get("SELFHOST_XIAOZHI_OTA_URL"),
+            default_scheme="http",
+        )
+        or f"{public_http_base}/gosha/ota"
     )
-    activate_url = normalize_url(os.environ.get("SELFHOST_XIAOZHI_ACTIVATE_URL"), default_scheme="http") or f"{ota_url}activate"
+    activate_url = normalize_url(
+        os.environ.get("SELFHOST_GOSHA_ACTIVATE_URL")
+        or os.environ.get("SELFHOST_XIAOZHI_ACTIVATE_URL"),
+        default_scheme="http",
+    ) or f"{ota_url}activate"
     websocket_url = ensure_trailing_slash(
-        normalize_url(os.environ.get("SELFHOST_XIAOZHI_WS_URL"), default_scheme="ws")
+        normalize_url(
+            os.environ.get("SELFHOST_GOSHA_WS_URL")
+            or os.environ.get("SELFHOST_XIAOZHI_WS_URL"),
+            default_scheme="ws",
+        )
         or derive_ws_base(public_http_base, "/xiaozhi/v1/")
     )
     mcp_endpoint_base = ensure_trailing_slash(
