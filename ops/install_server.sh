@@ -64,9 +64,28 @@ DB_PASSWORD_FILE="${ENV_ROOT}/selfhost-db.password"
 INTERNAL_PROXY_TOKEN_FILE="${ENV_ROOT}/internal-openai-proxy.token"
 PROVIDERS_ENV_FILE="${ENV_ROOT}/providers.env"
 BACKEND_STORAGE_ROOT="${APP_ROOT}/selfhost_xiaozhi/backend"
+ASR_PROVIDER_KEY="${SELFHOST_XIAOZHI_ASR_PROVIDER:-VoskASR}"
+case "$(printf '%s' "${ASR_PROVIDER_KEY}" | tr '[:upper:]' '[:lower:]')" in
+  funasr)
+    ASR_PROVIDER_KEY="FunASR"
+    ;;
+  vosk|voskasr|"")
+    ASR_PROVIDER_KEY="VoskASR"
+    ;;
+  *)
+    echo "Unsupported ASR provider: ${ASR_PROVIDER_KEY}" >&2
+    exit 1
+    ;;
+esac
 SENSEVOICE_MODEL_DIR="${BACKEND_STORAGE_ROOT}/models/SenseVoiceSmall"
 SENSEVOICE_MODEL_FILE="${SENSEVOICE_MODEL_DIR}/model.pt"
 SENSEVOICE_MODEL_URL="${SELFHOST_XIAOZHI_SENSEVOICE_URL:-https://modelscope.cn/models/iic/SenseVoiceSmall/resolve/master/model.pt}"
+VOSK_MODEL_NAME="${SELFHOST_XIAOZHI_VOSK_MODEL_NAME:-vosk-model-small-ru-0.22}"
+VOSK_MODELS_ROOT="${BACKEND_STORAGE_ROOT}/models/vosk"
+VOSK_MODEL_DIR="${VOSK_MODELS_ROOT}/${VOSK_MODEL_NAME}"
+VOSK_MODEL_ARCHIVE="${BACKEND_STORAGE_ROOT}/models/${VOSK_MODEL_NAME}.zip"
+VOSK_MODEL_URL="${SELFHOST_XIAOZHI_VOSK_MODEL_URL:-https://alphacephei.com/vosk/models/${VOSK_MODEL_NAME}.zip}"
+VOSK_CONTAINER_MODEL_PATH="/opt/xiaozhi-esp32-server/models/vosk/${VOSK_MODEL_NAME}"
 BACKEND_CONFIG_FILE="${BACKEND_STORAGE_ROOT}/data/.config.yaml"
 
 ensure_env_key() {
@@ -93,6 +112,7 @@ mkdir -p \
   "${APP_ROOT}/bin" \
   "${BACKEND_STORAGE_ROOT}/data" \
   "${SENSEVOICE_MODEL_DIR}" \
+  "${VOSK_MODELS_ROOT}" \
   "${BACKEND_STORAGE_ROOT}/mysql" \
   "${BACKEND_STORAGE_ROOT}/redis" \
   "${BACKEND_STORAGE_ROOT}/uploadfile" \
@@ -206,6 +226,8 @@ SELFHOST_XIAOZHI_WEB_PORT=${WEB_PORT}
 SELFHOST_XIAOZHI_DB_USER=root
 SELFHOST_XIAOZHI_DB_PASSWORD=${DB_PASSWORD}
 SELFHOST_XIAOZHI_REDIS_PASSWORD=
+SELFHOST_XIAOZHI_ASR_PROVIDER=${ASR_PROVIDER_KEY}
+SELFHOST_XIAOZHI_VOSK_MODEL_NAME=${VOSK_MODEL_NAME}
 SELFHOST_XIAOZHI_STORAGE_ROOT=${BACKEND_STORAGE_ROOT}
 EOF
 fi
@@ -263,7 +285,9 @@ ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WEB_PORT" "$
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_USER" "root"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_PASSWORD" "${DB_PASSWORD}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_REDIS_PASSWORD" ""
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_ASR_PROVIDER" "${ASR_PROVIDER_KEY}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_ASR_LANGUAGE" "ru"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_VOSK_MODEL_NAME" "${VOSK_MODEL_NAME}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_STORAGE_ROOT" "${BACKEND_STORAGE_ROOT}"
 
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "APP_ROOT" "${APP_ROOT}"
@@ -272,12 +296,37 @@ ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_PORT" "${AGE
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "45"
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_DEFAULT_PROFILE_ID" "${DEFAULT_PROVIDER_PROFILE_ID}"
 
-if [[ ! -s "${SENSEVOICE_MODEL_FILE}" ]]; then
+if [[ "${ASR_PROVIDER_KEY}" == "FunASR" && ! -s "${SENSEVOICE_MODEL_FILE}" ]]; then
   echo "Downloading SenseVoiceSmall model to ${SENSEVOICE_MODEL_FILE}"
   curl -fL --retry 3 --retry-delay 5 -C - -o "${SENSEVOICE_MODEL_FILE}" "${SENSEVOICE_MODEL_URL}"
 fi
 
-python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}" "${APP_ROOT}"
+if [[ "${ASR_PROVIDER_KEY}" == "VoskASR" && ! -f "${VOSK_MODEL_DIR}/am/final.mdl" ]]; then
+  echo "Downloading Vosk model ${VOSK_MODEL_NAME} to ${VOSK_MODEL_ARCHIVE}"
+  curl -fL --retry 3 --retry-delay 5 -C - -o "${VOSK_MODEL_ARCHIVE}" "${VOSK_MODEL_URL}"
+  python3 - <<'PY' "${VOSK_MODEL_ARCHIVE}" "${VOSK_MODELS_ROOT}" "${VOSK_MODEL_NAME}"
+import sys
+import zipfile
+from pathlib import Path
+
+archive_path = Path(sys.argv[1])
+extract_root = Path(sys.argv[2])
+model_name = sys.argv[3]
+target_dir = extract_root / model_name
+
+if target_dir.joinpath("am", "final.mdl").exists():
+    raise SystemExit(0)
+
+extract_root.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(archive_path) as zf:
+    zf.extractall(extract_root)
+
+if not target_dir.joinpath("am", "final.mdl").exists():
+    raise SystemExit(f"Vosk model extraction failed: {target_dir}")
+PY
+fi
+
+python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}" "${APP_ROOT}" "${ASR_PROVIDER_KEY}" "${VOSK_CONTAINER_MODEL_PATH}"
 import sys
 import json
 from pathlib import Path
@@ -287,6 +336,8 @@ ws_url = sys.argv[2]
 panel_port = sys.argv[3]
 proxy_token = sys.argv[4]
 app_root = Path(sys.argv[5])
+asr_provider_key = sys.argv[6]
+vosk_model_path = sys.argv[7]
 
 existing = ""
 if config_path.exists():
@@ -331,6 +382,29 @@ if profile_payload:
         profile_payload["model"] = model_name
         profile_path.write_text(json.dumps(profile_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+if asr_provider_key == "VoskASR":
+    asr_lines = [
+        "selected_module:",
+        "  ASR: VoskASR",
+        "  LLM: GoshaProxyLLM",
+        "  TTS: EdgeTTS",
+        "ASR:",
+        "  VoskASR:",
+        "    type: vosk",
+        f"    model_path: {vosk_model_path}",
+        "    output_dir: tmp/",
+    ]
+else:
+    asr_lines = [
+        "selected_module:",
+        "  ASR: FunASR",
+        "  LLM: GoshaProxyLLM",
+        "  TTS: EdgeTTS",
+        "ASR:",
+        "  FunASR:",
+        "    language: ru",
+    ]
+
 config_path.write_text(
     "\n".join(
         [
@@ -340,13 +414,7 @@ config_path.write_text(
             "prompt: |",
             "  Ты — голосовой ассистент по имени Гоша.",
             "  Отвечай по-русски, доброжелательно и короткими понятными фразами.",
-            "selected_module:",
-            "  ASR: FunASR",
-            "  LLM: GoshaProxyLLM",
-            "  TTS: EdgeTTS",
-            "ASR:",
-            "  FunASR:",
-            "    language: ru",
+            *asr_lines,
             "LLM:",
             "  GoshaProxyLLM:",
             "    type: openai",

@@ -113,6 +113,37 @@ def resolve_default_profile():
     return None
 
 
+def dedupe_openai_tools_payload(payload):
+    if not isinstance(payload, dict):
+        return payload
+    tools = payload.get("tools")
+    if not isinstance(tools, list):
+        return payload
+    seen_names = set()
+    filtered_tools = []
+    for item in tools:
+        if not isinstance(item, dict):
+            filtered_tools.append(item)
+            continue
+        if str(item.get("type", "") or "").strip() != "function":
+            filtered_tools.append(item)
+            continue
+        function = item.get("function")
+        if not isinstance(function, dict):
+            filtered_tools.append(item)
+            continue
+        tool_name = str(function.get("name", "") or "").strip()
+        if not tool_name:
+            filtered_tools.append(item)
+            continue
+        if tool_name in seen_names:
+            continue
+        seen_names.add(tool_name)
+        filtered_tools.append(item)
+    payload["tools"] = filtered_tools
+    return payload
+
+
 def resolve_profile_for_request(payload, headers):
     profile_id = str((payload or {}).get("profile_id", "") or "").strip()
     robot_id = str((payload or {}).get("robot_id", "") or headers.get("X-Gosha-Robot-Id", "") or "").strip()
@@ -246,7 +277,7 @@ class AgentGatewayHandler(BaseHTTPRequestHandler):
         if path == "/v1/chat/completions":
             try:
                 robot_id, profile = resolve_profile_for_request(payload, self.headers)
-                outbound = dict(payload)
+                outbound = dedupe_openai_tools_payload(dict(payload))
                 outbound.pop("robot_id", None)
                 outbound.pop("profile_id", None)
                 if not outbound.get("model"):

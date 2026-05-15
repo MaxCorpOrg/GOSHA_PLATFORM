@@ -15,12 +15,14 @@ services:
     environment:
       - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
       - GOSHA_FUNASR_LANGUAGE=${SELFHOST_XIAOZHI_ASR_LANGUAGE:-ru}
+      - GOSHA_SELECTED_ASR_PROVIDER=${SELFHOST_XIAOZHI_ASR_PROVIDER:-VoskASR}
     ports:
       - "${SELFHOST_XIAOZHI_WS_BIND:-127.0.0.1}:${SELFHOST_XIAOZHI_WS_PORT:-8000}:8000"
       - "${SELFHOST_XIAOZHI_HTTP_BIND:-127.0.0.1}:${SELFHOST_XIAOZHI_HTTP_PORT:-8003}:8003"
     volumes:
       - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/data:/opt/xiaozhi-esp32-server/data
-      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models/SenseVoiceSmall/model.pt:/opt/xiaozhi-esp32-server/models/SenseVoiceSmall/model.pt
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models/SenseVoiceSmall:/opt/xiaozhi-esp32-server/models/SenseVoiceSmall
+      - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models/vosk:/opt/xiaozhi-esp32-server/models/vosk
       - ./overrides/fun_local.py:/opt/xiaozhi-esp32-server/core/providers/asr/fun_local.py:ro
 
   xiaozhi-esp32-server-web:

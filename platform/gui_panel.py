@@ -1255,11 +1255,43 @@ def _gateway_raw_request(path, *, method="POST", payload=None, headers=None, tim
         raise RuntimeError(str(exc)) from exc
 
 
+def dedupe_openai_tools_payload(payload):
+    if not isinstance(payload, dict):
+        return payload
+    tools = payload.get("tools")
+    if not isinstance(tools, list):
+        return payload
+    seen_names = set()
+    filtered_tools = []
+    for item in tools:
+        if not isinstance(item, dict):
+            filtered_tools.append(item)
+            continue
+        if str(item.get("type", "") or "").strip() != "function":
+            filtered_tools.append(item)
+            continue
+        function = item.get("function")
+        if not isinstance(function, dict):
+            filtered_tools.append(item)
+            continue
+        tool_name = str(function.get("name", "") or "").strip()
+        if not tool_name:
+            filtered_tools.append(item)
+            continue
+        if tool_name in seen_names:
+            continue
+        seen_names.add(tool_name)
+        filtered_tools.append(item)
+    payload["tools"] = filtered_tools
+    return payload
+
+
 def proxy_internal_openai_request(path, payload=None):
     if not GOSHA_INTERNAL_OPENAI_PROXY_TOKEN:
         raise ValueError("internal proxy token is not configured")
     outbound = dict(payload or {})
     if path == "/v1/chat/completions":
+        outbound = dedupe_openai_tools_payload(outbound)
         if not outbound.get("profile_id") and not outbound.get("robot_id"):
             profile_id = default_provider_profile_id()
             if not profile_id:
