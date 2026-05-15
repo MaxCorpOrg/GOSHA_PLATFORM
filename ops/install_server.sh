@@ -263,6 +263,7 @@ ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_WEB_PORT" "$
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_USER" "root"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_DB_PASSWORD" "${DB_PASSWORD}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_REDIS_PASSWORD" ""
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_ASR_LANGUAGE" "ru"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_STORAGE_ROOT" "${BACKEND_STORAGE_ROOT}"
 
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "APP_ROOT" "${APP_ROOT}"
@@ -276,25 +277,64 @@ if [[ ! -s "${SENSEVOICE_MODEL_FILE}" ]]; then
   curl -fL --retry 3 --retry-delay 5 -C - -o "${SENSEVOICE_MODEL_FILE}" "${SENSEVOICE_MODEL_URL}"
 fi
 
-python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}"
+python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}" "${APP_ROOT}"
 import sys
+import json
 from pathlib import Path
 
 config_path = Path(sys.argv[1])
 ws_url = sys.argv[2]
 panel_port = sys.argv[3]
 proxy_token = sys.argv[4]
+app_root = Path(sys.argv[5])
 
 existing = ""
 if config_path.exists():
     existing = config_path.read_text(encoding="utf-8", errors="ignore").strip()
 
-if existing not in ("", "{}", "null"):
+managed_markers = ("managed-by-gosha", "GoshaProxyLLM:")
+if existing not in ("", "{}", "null") and not any(marker in existing for marker in managed_markers):
     raise SystemExit(0)
+
+default_model_name = "deepseek-v4-flash"
+profile_id = ""
+profile_payload = {}
+
+panel_env_path = app_root.parent / "env" / "panel.env"
+if panel_env_path.exists():
+    try:
+        for line in panel_env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("GOSHA_BACKEND_PROXY_PROFILE_ID="):
+                profile_id = line.split("=", 1)[1].strip()
+                break
+    except Exception:
+        profile_id = ""
+
+def normalize_model(base_url, model_name):
+    base = str(base_url or "").strip().lower()
+    model = str(model_name or "").strip()
+    if "api.deepseek.com" in base and model in ("", "deepseek-chat", "deepseek-reasoner", "gosha-assistant"):
+        return default_model_name
+    return model or default_model_name
+
+if profile_id:
+    profile_path = app_root / "agents" / "profiles" / f"{profile_id}.json"
+    try:
+        profile_payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    except Exception:
+        profile_payload = {}
+
+model_name = normalize_model(profile_payload.get("base_url", ""), profile_payload.get("model", ""))
+
+if profile_payload:
+    if str(profile_payload.get("model", "") or "").strip() != model_name:
+        profile_payload["model"] = model_name
+        profile_path.write_text(json.dumps(profile_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 config_path.write_text(
     "\n".join(
         [
+            "# managed-by-gosha",
             "server:",
             f"  websocket: {ws_url}",
             "prompt: |",
@@ -304,10 +344,13 @@ config_path.write_text(
             "  ASR: FunASR",
             "  LLM: GoshaProxyLLM",
             "  TTS: EdgeTTS",
+            "ASR:",
+            "  FunASR:",
+            "    language: ru",
             "LLM:",
             "  GoshaProxyLLM:",
             "    type: openai",
-            "    model_name: gosha-assistant",
+            f"    model_name: {model_name}",
             f"    url: http://host.docker.internal:{panel_port}/api/internal/openai/v1",
             f"    api_key: {proxy_token}",
             "TTS:",
