@@ -38,6 +38,8 @@ def env_or_file_value(var_name, file_var_name):
 
 
 APP_ROOT = Path(os.environ.get("APP_ROOT", "/opt/gosha_platform/runtime/app_root")).resolve()
+REPO_ROOT = Path(__file__).resolve().parent.parent
+INSTALL_SERVER_SCRIPT = REPO_ROOT / "ops" / "install_server.sh"
 ROBOTS_DIR = APP_ROOT / "robots"
 MEMORY_ROOT = APP_ROOT / "memory"
 EDGE_PAIRINGS_PATH = Path(os.environ.get("EDGE_PAIRINGS_PATH", str(APP_ROOT / "edge" / "pairings.json"))).resolve()
@@ -519,6 +521,42 @@ def resolve_script_path(script_name):
     if repo_script.exists():
         return repo_script
     raise FileNotFoundError(f"{script_name} not found in {APP_ROOT / 'bin'} or {repo_script.parent}")
+
+
+def refresh_backend_runtime(trigger="manual"):
+    script_path = INSTALL_SERVER_SCRIPT
+    if not script_path.exists():
+        return {
+            "ok": False,
+            "error": f"install script not found: {script_path}",
+            "service_state": "unknown",
+        }
+    panel_event("backend_runtime_refresh_start", trigger=trigger, script=str(script_path))
+    result = run_cmd(["bash", str(script_path), "--phase", "backend"], timeout=300)
+    service_state = "unknown"
+    if shutil.which("systemctl") is not None:
+        state_result = run_cmd(["systemctl", "is-active", "gosha-backend.service"], timeout=10)
+        service_state = (state_result.get("stdout") or "unknown").strip() or "unknown"
+    payload = {
+        "ok": bool(result.get("ok")),
+        "code": int(result.get("code", -1)),
+        "service_state": service_state,
+        "stdout": str(result.get("stdout", "") or "").strip()[:400],
+        "stderr": str(result.get("stderr", "") or "").strip()[:400],
+    }
+    if not payload["ok"] and not payload["stderr"]:
+        payload["stderr"] = "backend refresh failed"
+    if not payload["ok"] and not payload["service_state"]:
+        payload["service_state"] = "failed"
+    panel_event(
+        "backend_runtime_refresh_finish",
+        trigger=trigger,
+        ok=payload["ok"],
+        code=payload["code"],
+        service_state=payload["service_state"],
+        stderr=payload["stderr"],
+    )
+    return payload
 
 
 def get_robot_mcp_endpoint(robot_id):
@@ -1373,7 +1411,12 @@ def upsert_assistant_profile(payload):
     if not agent_store.safe_profile_id(profile_id):
         raise ValueError("invalid profile_id")
     profile = assistant_store.save_assistant_profile(profile_id, payload)
-    return {"ok": True, "profile": assistant_store.public_assistant_profile(profile)}
+    apply_result = refresh_backend_runtime(f"assistant_profile:{profile_id}")
+    return {
+        "ok": True,
+        "profile": assistant_store.public_assistant_profile(profile),
+        "apply": apply_result,
+    }
 
 
 def list_voice_profiles():
@@ -1387,7 +1430,12 @@ def upsert_voice_profile(payload):
     if not agent_store.safe_profile_id(profile_id):
         raise ValueError("invalid profile_id")
     profile = assistant_store.save_voice_profile(profile_id, payload)
-    return {"ok": True, "profile": assistant_store.public_voice_profile(profile)}
+    apply_result = refresh_backend_runtime(f"voice_profile:{profile_id}")
+    return {
+        "ok": True,
+        "profile": assistant_store.public_voice_profile(profile),
+        "apply": apply_result,
+    }
 
 
 def list_memory_profiles():
@@ -1477,11 +1525,13 @@ def save_robot_assistant_config(robot_id, payload):
         raise ValueError("invalid robot_id")
     require_robot_dir(robot_id)
     binding = assistant_store.save_robot_binding(robot_id, payload if isinstance(payload, dict) else {})
+    apply_result = refresh_backend_runtime(f"robot_assistant_config:{robot_id}")
     return {
         "ok": True,
         "gateway": agent_gateway_status(),
         "binding": binding,
         "config": assistant_store.effective_robot_assistant_config(robot_id),
+        "apply": apply_result,
     }
 
 

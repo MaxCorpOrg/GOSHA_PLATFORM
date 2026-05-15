@@ -3301,7 +3301,12 @@
       await reloadAssistantControlCatalog(true);
       loadAssistantProfileIntoFormV1(profileId);
       await reloadRobots();
-      notify(`Ассистент ${profileId} сохранён`, "ok");
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`Ассистент ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`Ассистент ${profileId} сохранён и применён в голосовом контуре`, "ok");
     }
 
     async function saveVoiceProfileV1() {
@@ -3328,7 +3333,12 @@
       }
       await reloadAssistantControlCatalog(true);
       loadVoiceProfileIntoFormV1(profileId);
-      notify(`Голос ${profileId} сохранён`, "ok");
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`Голос ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`Голос ${profileId} сохранён и применён в голосовом контуре`, "ok");
     }
 
     async function saveMemoryProfileV1() {
@@ -3499,7 +3509,12 @@
       currentAssistantConfigRobot = robotId;
       fillRobotAssistantConfigForm((res.data || {}).config || {});
       await reloadRobots();
-      notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента сохранена`, "ok");
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента сохранена, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента сохранена и применена`, "ok");
     }
 
     async function openAssistantConfig(robotId) {
