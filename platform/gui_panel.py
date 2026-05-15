@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
 import selfhost_xiaozhi_common as selfhost_xiaozhi
@@ -64,6 +65,15 @@ MOBILE_CODES_PATH = MOBILE_DIR / "onboarding_codes.json"
 PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "http://151.241.228.232:18876").rstrip("/")
 PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "wss://151.241.228.232:8890").rstrip("/")
 PANEL_PUBLIC_SCHEME = urlparse(PUBLIC_PANEL_URL).scheme.lower()
+GOSHA_INTERNAL_OPENAI_PROXY_TOKEN = env_or_file_value(
+    "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN",
+    "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN_FILE",
+)
+GOSHA_BACKEND_PROXY_PROFILE_ID = str(os.environ.get("GOSHA_BACKEND_PROXY_PROFILE_ID", "") or "").strip()
+GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS = max(
+    5.0,
+    float(os.environ.get("GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS", "180")),
+)
 ROBOT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 CONTROL_TRANSPORTS = {"cloud-mcp", "edge-hub", "local-ws"}
 USER_SERVICE_ORDER = ["knowledge", "memory", "telegram", "email", "music", "call"]
@@ -1191,6 +1201,79 @@ def agent_gateway_status():
     return agent_gateway_client.health_snapshot()
 
 
+def default_provider_profile_id():
+    if GOSHA_BACKEND_PROXY_PROFILE_ID:
+        profile = agent_store.get_agent_profile(GOSHA_BACKEND_PROXY_PROFILE_ID)
+        if profile and profile.get("enabled"):
+            return GOSHA_BACKEND_PROXY_PROFILE_ID
+    for robot_id in list_robot_ids():
+        try:
+            binding = assistant_store.load_robot_binding(robot_id)
+        except Exception:
+            binding = {}
+        for key in ("active_profile_id", "fallback_profile_id"):
+            profile_id = str((binding or {}).get(key, "") or "").strip()
+            if not profile_id:
+                continue
+            profile = agent_store.get_agent_profile(profile_id)
+            if profile and profile.get("enabled"):
+                return profile_id
+    for item in agent_store.list_agent_profiles():
+        if item.get("enabled"):
+            return str(item.get("profile_id", "") or "").strip()
+    return ""
+
+
+def internal_openai_proxy_status():
+    profile_id = default_provider_profile_id()
+    profile = agent_store.get_agent_profile(profile_id) if profile_id else None
+    return {
+        "enabled": bool(GOSHA_INTERNAL_OPENAI_PROXY_TOKEN),
+        "default_profile_id": profile_id,
+        "default_profile": agent_store.profile_public_view(profile) if profile else None,
+        "gateway": agent_gateway_status(),
+    }
+
+
+def _gateway_raw_request(path, *, method="POST", payload=None, headers=None, timeout=None):
+    url = agent_gateway_client.gateway_base_url() + path
+    body = None
+    req_headers = dict(headers or {})
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req_headers.setdefault("Content-Type", "application/json")
+    req = Request(url, data=body, headers=req_headers, method=method)
+    try:
+        with urlopen(req, timeout=timeout or GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS) as resp:
+            raw = resp.read()
+            return int(resp.status), raw, dict(resp.headers.items())
+    except HTTPError as exc:
+        return int(exc.code), exc.read(), dict(exc.headers.items())
+    except URLError as exc:
+        raise RuntimeError(str(exc.reason)) from exc
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def proxy_internal_openai_request(path, payload=None):
+    if not GOSHA_INTERNAL_OPENAI_PROXY_TOKEN:
+        raise ValueError("internal proxy token is not configured")
+    outbound = dict(payload or {})
+    if path == "/v1/chat/completions":
+        if not outbound.get("profile_id") and not outbound.get("robot_id"):
+            profile_id = default_provider_profile_id()
+            if not profile_id:
+                raise ValueError("no enabled provider profile is configured for backend proxy")
+            outbound["profile_id"] = profile_id
+    status, raw, headers = _gateway_raw_request(
+        path,
+        method="POST" if payload is not None else "GET",
+        payload=outbound if payload is not None else None,
+        timeout=GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS,
+    )
+    return status, raw, headers
+
+
 def list_agent_profiles():
     return [agent_store.profile_public_view(item) for item in agent_store.list_agent_profiles()]
 
@@ -1209,11 +1292,13 @@ def get_robot_agent_assignment(robot_id):
     if not safe_robot_id(robot_id):
         raise ValueError("invalid robot_id")
     summary = agent_store.effective_robot_agent(robot_id)
+    assistant_control = assistant_store.effective_robot_assistant_config(robot_id)
     return {
         "ok": True,
         "gateway": agent_gateway_status(),
         "profiles": list_agent_profiles(),
         "assignment": summary,
+        "assistant_control": assistant_control,
     }
 
 
@@ -1231,6 +1316,140 @@ def save_robot_agent_assignment(robot_id, active_profile_id, fallback_profile_id
         "ok": True,
         "gateway": agent_gateway_status(),
         "assignment": agent_store.effective_robot_agent(robot_id),
+        "assistant_control": assistant_store.effective_robot_assistant_config(robot_id),
+    }
+
+
+def assistant_control_catalog():
+    snapshot = assistant_store.catalog_snapshot()
+    return {
+        "ok": True,
+        "gateway": agent_gateway_status(),
+        "internal_openai_proxy": internal_openai_proxy_status(),
+        **snapshot,
+    }
+
+
+def list_assistant_profiles():
+    return [assistant_store.public_assistant_profile(item) for item in assistant_store.list_assistant_profiles()]
+
+
+def upsert_assistant_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_assistant_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_assistant_profile(profile)}
+
+
+def list_voice_profiles():
+    return [assistant_store.public_voice_profile(item) for item in assistant_store.list_voice_profiles()]
+
+
+def upsert_voice_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_voice_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_voice_profile(profile)}
+
+
+def list_memory_profiles():
+    return [assistant_store.public_memory_profile(item) for item in assistant_store.list_memory_profiles()]
+
+
+def upsert_memory_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_memory_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_memory_profile(profile)}
+
+
+def list_mcp_bundles():
+    return [assistant_store.public_mcp_bundle(item) for item in assistant_store.list_mcp_bundles()]
+
+
+def upsert_mcp_bundle(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_mcp_bundle(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_mcp_bundle(profile)}
+
+
+def list_knowledge_profiles():
+    return [assistant_store.public_knowledge_profile(item) for item in assistant_store.list_knowledge_profiles()]
+
+
+def upsert_knowledge_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_knowledge_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_knowledge_profile(profile)}
+
+
+def list_screen_profiles():
+    return [assistant_store.public_screen_profile(item) for item in assistant_store.list_screen_profiles()]
+
+
+def upsert_screen_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_screen_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_screen_profile(profile)}
+
+
+def list_wake_profiles():
+    return [assistant_store.public_wake_profile(item) for item in assistant_store.list_wake_profiles()]
+
+
+def upsert_wake_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_wake_profile(profile_id, payload)
+    return {"ok": True, "profile": assistant_store.public_wake_profile(profile)}
+
+
+def get_robot_assistant_config(robot_id):
+    if not safe_robot_id(robot_id):
+        raise ValueError("invalid robot_id")
+    require_robot_dir(robot_id)
+    return {
+        "ok": True,
+        "gateway": agent_gateway_status(),
+        "catalog": assistant_store.catalog_snapshot(),
+        "config": assistant_store.effective_robot_assistant_config(robot_id),
+    }
+
+
+def save_robot_assistant_config(robot_id, payload):
+    if not safe_robot_id(robot_id):
+        raise ValueError("invalid robot_id")
+    require_robot_dir(robot_id)
+    binding = assistant_store.save_robot_binding(robot_id, payload if isinstance(payload, dict) else {})
+    return {
+        "ok": True,
+        "gateway": agent_gateway_status(),
+        "binding": binding,
+        "config": assistant_store.effective_robot_assistant_config(robot_id),
     }
 
 
@@ -2483,6 +2702,7 @@ def build_robot_record(robot_id, edge_snapshot=None):
     mobile_presence = load_mobile_presence_snapshot(robot_id)
     activity_presence = summarize_activity_presence(activity)
     agent_assignment = agent_store.effective_robot_agent(robot_id)
+    assistant_control = assistant_store.effective_robot_assistant_config(robot_id)
 
     return {
         "robot_id": robot_id,
@@ -2504,6 +2724,7 @@ def build_robot_record(robot_id, edge_snapshot=None):
         "tools": tools,
         "control": control_cfg,
         "agent": agent_assignment,
+        "assistant_control": assistant_control,
         "diagnostics": diagnostics,
         "subscription": subscription,
         "owner": owner,
@@ -3231,6 +3452,17 @@ def extract_selfhost_device_identity(headers, payload):
 class Handler(BaseHTTPRequestHandler):
     server_version = "AIRobotPanel/1.0"
 
+    def _send_bytes(self, code, body, content_type="application/json; charset=utf-8", extra_headers=None):
+        payload = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(payload)))
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _send_json(self, code, payload, extra_headers=None):
         body = json_bytes(payload)
         self.send_response(code)
@@ -3514,6 +3746,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
+        if parsed.path == "/api/internal/openai/v1/models":
+            auth = str(self.headers.get("Authorization", "") or "").strip()
+            expected = f"Bearer {GOSHA_INTERNAL_OPENAI_PROXY_TOKEN}"
+            if not GOSHA_INTERNAL_OPENAI_PROXY_TOKEN or auth != expected:
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            try:
+                status, raw, headers = proxy_internal_openai_request("/v1/models")
+                content_type = headers.get("Content-Type") or headers.get("content-type") or "application/json; charset=utf-8"
+                self._send_bytes(status, raw, content_type=content_type)
+            except Exception as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
+            return
+
         effective_path = parsed.path
         effective_parts = parts
         if parsed.path.startswith("/api/operator/"):
@@ -3549,6 +3795,38 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 },
             )
+            return
+
+        if effective_path == "/api/assistant-control/catalog":
+            self._send_json(200, {"ok": True, "data": assistant_control_catalog()})
+            return
+
+        if effective_path == "/api/assistant-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_assistant_profiles()}})
+            return
+
+        if effective_path == "/api/voice-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_voice_profiles()}})
+            return
+
+        if effective_path == "/api/memory-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_memory_profiles()}})
+            return
+
+        if effective_path == "/api/mcp-bundles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_mcp_bundles()}})
+            return
+
+        if effective_path == "/api/knowledge-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_knowledge_profiles()}})
+            return
+
+        if effective_path == "/api/screen-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_screen_profiles()}})
+            return
+
+        if effective_path == "/api/wake-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_wake_profiles()}})
             return
 
         if effective_path == "/api/subscription/plans":
@@ -3636,6 +3914,14 @@ class Handler(BaseHTTPRequestHandler):
             robot_id = effective_parts[2]
             try:
                 self._send_json(200, {"ok": True, "data": get_robot_agent_assignment(robot_id)})
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "assistant-config":
+            robot_id = effective_parts[2]
+            try:
+                self._send_json(200, {"ok": True, "data": get_robot_assistant_config(robot_id)})
             except Exception as exc:
                 self._send_json(400, {"ok": False, "error": str(exc)})
             return
@@ -3748,6 +4034,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": str(exc)})
                 return
             self._send_json(200, result)
+            return
+
+        if parsed.path == "/api/internal/openai/v1/chat/completions":
+            auth = str(self.headers.get("Authorization", "") or "").strip()
+            expected = f"Bearer {GOSHA_INTERNAL_OPENAI_PROXY_TOKEN}"
+            if not GOSHA_INTERNAL_OPENAI_PROXY_TOKEN or auth != expected:
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            try:
+                status, raw, headers = proxy_internal_openai_request("/v1/chat/completions", payload)
+                content_type = headers.get("Content-Type") or headers.get("content-type") or "application/json; charset=utf-8"
+                self._send_bytes(status, raw, content_type=content_type)
+            except Exception as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
             return
 
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "mobile" and parts[2] == "robots" and parts[4] == "subscription":
@@ -3867,6 +4167,55 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": str(exc)})
             return
 
+        if effective_path == "/api/assistant-profiles":
+            try:
+                self._send_json(200, upsert_assistant_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/voice-profiles":
+            try:
+                self._send_json(200, upsert_voice_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/memory-profiles":
+            try:
+                self._send_json(200, upsert_memory_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/mcp-bundles":
+            try:
+                self._send_json(200, upsert_mcp_bundle(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/knowledge-profiles":
+            try:
+                self._send_json(200, upsert_knowledge_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/screen-profiles":
+            try:
+                self._send_json(200, upsert_screen_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/wake-profiles":
+            try:
+                self._send_json(200, upsert_wake_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "service":
             robot_id = effective_parts[2]
             if not safe_robot_id(robot_id):
@@ -3875,6 +4224,14 @@ class Handler(BaseHTTPRequestHandler):
             action = str(payload.get("action", "")).strip().lower()
             result = set_service(robot_id, action)
             self._send_json(200 if result.get("ok") else 400, result)
+            return
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "assistant-config":
+            robot_id = effective_parts[2]
+            try:
+                self._send_json(200, save_robot_assistant_config(robot_id, payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
             return
 
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "detect":

@@ -1553,6 +1553,441 @@
       </div>
     </div>
 
+    <div id="assistantControlPanel" class="card" style="margin-top:12px;">
+      <div class="operator-overview-head">
+        <div>
+          <h2>Управление ассистентом Гоша</h2>
+          <div class="mini" style="max-width:none;">
+            Этот блок собирает составную конфигурацию робота: ассистента, голос, память, набор `MCP`, а также отложенные профили экрана, лиц, имени пробуждения и базы знаний.
+          </div>
+        </div>
+        <span id="assistantControlSummaryPill" class="pill warn">Жду данные</span>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <button class="btn primary" onclick="reloadAssistantControlCatalog()">Обновить управление ассистентом</button>
+      </div>
+      <div id="assistantControlMeta" class="hint-box">Каталог профилей ассистента и его составных частей появится после первой загрузки панели.</div>
+
+      <details class="soft-box" open style="margin-top:10px;">
+        <summary class="details-toggle">Поставщики ИИ</summary>
+        <div class="mini" style="max-width:none; margin-top:10px;">
+          Поставщики ИИ уже управляются в блоке выше через существующие OpenAI-совместимые профили. Новые разделы ниже используют этот же слой как совместимый слой поставщиков.
+        </div>
+        <div id="assistantProviderSummary" class="hint-box" style="margin-top:10px;">Сводка по поставщикам ИИ появится после загрузки.</div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn" onclick="scrollToPanel('agentProfilesPanel')">Открыть раздел поставщиков ИИ</button>
+        </div>
+      </details>
+
+      <details class="soft-box" open style="margin-top:10px;">
+        <summary class="details-toggle">Ассистенты</summary>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые профили ассистента</div>
+            <div id="assistantProfilesV1List" class="attention-list">
+              <div class="attention-item"><span>Список ассистентов ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Создать или изменить ассистента</div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="assistantProfileId">ID ассистента</label>
+                <input id="assistantProfileId" type="text" placeholder="gosha-main" />
+              </div>
+              <div class="field">
+                <label for="assistantDisplayName">Понятное имя</label>
+                <input id="assistantDisplayName" type="text" placeholder="Гоша основной" />
+              </div>
+              <div class="field">
+                <label for="assistantNameV1">Имя ассистента</label>
+                <input id="assistantNameV1" type="text" placeholder="Гоша" />
+              </div>
+              <div class="field">
+                <label for="assistantLanguage">Язык диалога</label>
+                <select id="assistantLanguage"></select>
+              </div>
+              <div class="field">
+                <label for="assistantProviderProfileId">Поставщик ИИ</label>
+                <select id="assistantProviderProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="assistantVoiceProfileId">Профиль голоса</label>
+                <select id="assistantVoiceProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="assistantMemoryProfileId">Профиль памяти</label>
+                <select id="assistantMemoryProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="assistantMcpBundleId">Набор MCP</label>
+                <select id="assistantMcpBundleId"></select>
+              </div>
+              <div class="field">
+                <label for="assistantKnowledgeProfileId">База знаний</label>
+                <select id="assistantKnowledgeProfileId"></select>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="assistantRoleTemplate">Шаблон роли</label>
+                <input id="assistantRoleTemplate" type="text" placeholder="Например: консультант, помощник, ведущий" />
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="assistantRoleDescription">Краткое описание роли</label>
+                <input id="assistantRoleDescription" type="text" placeholder="Как оператору понимать этот профиль" />
+              </div>
+              <div class="field">
+                <label for="assistantModelOverride">Переопределение модели</label>
+                <input id="assistantModelOverride" type="text" placeholder="Оставьте пустым, чтобы брать модель поставщика" />
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="assistantSystemPromptV1">Системный промпт</label>
+                <textarea id="assistantSystemPromptV1" placeholder="Главная инструкция для ассистента"></textarea>
+              </div>
+              <label class="check-item"><input id="assistantEnabled" type="checkbox" checked /> Профиль включён</label>
+              <label class="check-item"><input id="assistantIsDefault" type="checkbox" /> Профиль по умолчанию</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveAssistantProfileV1()">Сохранить ассистента</button>
+              <button class="btn" onclick="resetAssistantProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Голоса</summary>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые голосовые профили</div>
+            <div id="voiceProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список голосов ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="voiceProfileId">ID голоса</label>
+                <input id="voiceProfileId" type="text" placeholder="ru-child-1" />
+              </div>
+              <div class="field">
+                <label for="voiceDisplayName">Понятное имя</label>
+                <input id="voiceDisplayName" type="text" placeholder="Русский детский 1" />
+              </div>
+              <div class="field">
+                <label for="voiceLanguage">Язык голоса</label>
+                <input id="voiceLanguage" type="text" placeholder="ru-RU" />
+              </div>
+              <div class="field">
+                <label for="voiceType">Тип голоса</label>
+                <select id="voiceType"></select>
+              </div>
+              <div class="field">
+                <label for="voiceName">Имя голоса у поставщика</label>
+                <input id="voiceName" type="text" placeholder="child-ru-1" />
+              </div>
+              <div class="field">
+                <label for="voiceProviderLabel">Пояснение для оператора</label>
+                <input id="voiceProviderLabel" type="text" placeholder="Например: TTS основной, голос ребёнка" />
+              </div>
+              <div class="field">
+                <label for="voiceSpeechRate">Скорость речи</label>
+                <input id="voiceSpeechRate" type="number" step="0.1" min="0.5" max="2" value="1" />
+              </div>
+              <div class="field">
+                <label for="voicePitch">Высота голоса</label>
+                <input id="voicePitch" type="number" step="0.1" min="0.5" max="2" value="1" />
+              </div>
+              <label class="check-item"><input id="voiceEnabled" type="checkbox" checked /> Профиль включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveVoiceProfileV1()">Сохранить голос</button>
+              <button class="btn" onclick="resetVoiceProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Память</summary>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые профили памяти</div>
+            <div id="memoryProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список памяти ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="memoryProfileId">ID профиля памяти</label>
+                <input id="memoryProfileId" type="text" placeholder="memory-short" />
+              </div>
+              <div class="field">
+                <label for="memoryDisplayName">Понятное имя</label>
+                <input id="memoryDisplayName" type="text" placeholder="Кратковременная память" />
+              </div>
+              <div class="field">
+                <label for="memoryTypeV1">Тип памяти</label>
+                <select id="memoryTypeV1"></select>
+              </div>
+              <label class="check-item"><input id="memoryBySpeaker" type="checkbox" /> Память по говорящему</label>
+              <label class="check-item"><input id="memoryAllowClear" type="checkbox" checked /> Разрешить очистку памяти</label>
+              <label class="check-item"><input id="memoryEnabledV1" type="checkbox" checked /> Профиль включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveMemoryProfileV1()">Сохранить память</button>
+              <button class="btn" onclick="resetMemoryProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Инструменты MCP</summary>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые наборы MCP</div>
+            <div id="mcpBundlesList" class="attention-list">
+              <div class="attention-item"><span>Список наборов MCP ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="mcpBundleId">ID набора MCP</label>
+                <input id="mcpBundleId" type="text" placeholder="bundle-standard" />
+              </div>
+              <div class="field">
+                <label for="mcpBundleDisplayName">Понятное имя</label>
+                <input id="mcpBundleDisplayName" type="text" placeholder="Стандартный набор" />
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="mcpOfficialServices">Официальные сервисы</label>
+                <textarea id="mcpOfficialServices" placeholder="Например: weather, timer, calendar"></textarea>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="mcpCustomServices">Пользовательские сервисы</label>
+                <textarea id="mcpCustomServices" placeholder="Например: crm.lookup, sales.report, music.player"></textarea>
+              </div>
+              <label class="check-item"><input id="mcpBundleEnabled" type="checkbox" checked /> Набор включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveMcpBundleV1()">Сохранить набор MCP</button>
+              <button class="btn" onclick="resetMcpBundleForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Экран и лица</summary>
+        <div class="hint-box" style="margin-top:10px;">
+          Сохранится в платформе сейчас. Применится после отдельной синхронизации с прошивкой или следующего OTA-профиля.
+        </div>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые экранные профили</div>
+            <div id="screenProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список экранных профилей ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="screenProfileId">ID экранного профиля</label>
+                <input id="screenProfileId" type="text" placeholder="screen-gosha-dark" />
+              </div>
+              <div class="field">
+                <label for="screenDisplayName">Понятное имя</label>
+                <input id="screenDisplayName" type="text" placeholder="Гоша тёмный" />
+              </div>
+              <div class="field">
+                <label for="screenTheme">Тема</label>
+                <select id="screenTheme"></select>
+              </div>
+              <div class="field">
+                <label for="screenFaceFamily">Семейство лиц</label>
+                <select id="screenFaceFamily"></select>
+              </div>
+              <div class="field">
+                <label for="screenBrightness">Яркость</label>
+                <input id="screenBrightness" type="number" min="1" max="100" value="80" />
+              </div>
+              <div class="field">
+                <label for="screenIdleEmotion">Ожидание</label>
+                <input id="screenIdleEmotion" type="text" placeholder="neutral" />
+              </div>
+              <div class="field">
+                <label for="screenListeningEmotion">Слушаю</label>
+                <input id="screenListeningEmotion" type="text" placeholder="happy" />
+              </div>
+              <div class="field">
+                <label for="screenThinkingEmotion">Думаю</label>
+                <input id="screenThinkingEmotion" type="text" placeholder="thinking" />
+              </div>
+              <div class="field">
+                <label for="screenSpeakingEmotion">Говорю</label>
+                <input id="screenSpeakingEmotion" type="text" placeholder="talking" />
+              </div>
+              <div class="field">
+                <label for="screenErrorEmotion">Ошибка</label>
+                <input id="screenErrorEmotion" type="text" placeholder="sad" />
+              </div>
+              <div class="field">
+                <label for="screenNetworkEmotion">Настройка сети</label>
+                <input id="screenNetworkEmotion" type="text" placeholder="link" />
+              </div>
+              <label class="check-item"><input id="screenEnabled" type="checkbox" checked /> Профиль включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveScreenProfileV1()">Сохранить экранный профиль</button>
+              <button class="btn" onclick="resetScreenProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Пробуждение</summary>
+        <div class="hint-box" style="margin-top:10px;">
+          Сохранится в платформе сейчас. Применится после отдельной синхронизации с прошивкой или следующего OTA-профиля.
+        </div>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые профили пробуждения</div>
+            <div id="wakeProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список пробуждения ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="wakeProfileId">ID профиля пробуждения</label>
+                <input id="wakeProfileId" type="text" placeholder="wake-gosha" />
+              </div>
+              <div class="field">
+                <label for="wakeDisplayNameV1">Понятное имя</label>
+                <input id="wakeDisplayNameV1" type="text" placeholder="Пробуждение Гоша" />
+              </div>
+              <div class="field">
+                <label for="wakeMode">Режим</label>
+                <select id="wakeMode"></select>
+              </div>
+              <div class="field">
+                <label for="wakeName">Слово пробуждения</label>
+                <input id="wakeName" type="text" placeholder="GOSHA" />
+              </div>
+              <div class="field">
+                <label for="wakeDisplayNameHuman">Отображаемое имя</label>
+                <input id="wakeDisplayNameHuman" type="text" placeholder="Гоша" />
+              </div>
+              <div class="field">
+                <label for="wakeSensitivity">Чувствительность</label>
+                <input id="wakeSensitivity" type="number" min="1" max="99" value="20" />
+              </div>
+              <label class="check-item"><input id="wakeEnabled" type="checkbox" checked /> Профиль включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveWakeProfileV1()">Сохранить пробуждение</button>
+              <button class="btn" onclick="resetWakeProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">База знаний</summary>
+        <div class="hint-box" style="margin-top:10px;">
+          Сохранится в платформе сейчас. Полная загрузка документов и индексация будут доведены отдельным серверным контуром.
+        </div>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые профили базы знаний</div>
+            <div id="knowledgeProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список базы знаний ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="knowledgeProfileId">ID профиля базы знаний</label>
+                <input id="knowledgeProfileId" type="text" placeholder="kb-main" />
+              </div>
+              <div class="field">
+                <label for="knowledgeDisplayName">Понятное имя</label>
+                <input id="knowledgeDisplayName" type="text" placeholder="Главная база знаний" />
+              </div>
+              <div class="field">
+                <label for="knowledgeIndexingState">Состояние индексации</label>
+                <select id="knowledgeIndexingState"></select>
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="knowledgeEntries">Каталоги или документы</label>
+                <textarea id="knowledgeEntries" placeholder="По одному пути или идентификатору на строку"></textarea>
+              </div>
+              <label class="check-item"><input id="knowledgeEnabled" type="checkbox" checked /> Профиль включён</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveKnowledgeProfileV1()">Сохранить базу знаний</button>
+              <button class="btn" onclick="resetKnowledgeProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" open style="margin-top:10px;">
+        <summary class="details-toggle">Привязка профиля к роботу</summary>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="assistantRobotSelect">Робот</label>
+                <select id="assistantRobotSelect"></select>
+              </div>
+              <div class="field">
+                <label for="bindingAssistantProfileId">Ассистент</label>
+                <select id="bindingAssistantProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingVoiceProfileId">Голос</label>
+                <select id="bindingVoiceProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingMemoryProfileId">Память</label>
+                <select id="bindingMemoryProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingMcpBundleId">Набор MCP</label>
+                <select id="bindingMcpBundleId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingKnowledgeProfileId">База знаний</label>
+                <select id="bindingKnowledgeProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingScreenProfileId">Экранный профиль</label>
+                <select id="bindingScreenProfileId"></select>
+              </div>
+              <div class="field">
+                <label for="bindingWakeProfileId">Пробуждение</label>
+                <select id="bindingWakeProfileId"></select>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn" onclick="loadSelectedRobotAssistantConfig()">Загрузить конфигурацию</button>
+              <button class="btn primary" onclick="saveSelectedRobotAssistantConfig()">Сохранить привязку</button>
+            </div>
+          </div>
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Итоговая конфигурация робота</div>
+            <div id="assistantRobotConfigSummary" class="hint-box">
+              После загрузки робота здесь появится итоговый ассистент, поставщик ИИ, голос, память, набор `MCP` и все отложенные части.
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
     <div class="card" style="margin-top:12px;">
       <h2>Мобильные приложения</h2>
       <div class="row">
@@ -1944,6 +2379,16 @@
     let currentSelfhostState = null;
     let currentAgentProfiles = [];
     let currentAgentGatewayState = null;
+    let currentAssistantControlData = null;
+    let currentAssistantProfilesV1 = [];
+    let currentVoiceProfilesV1 = [];
+    let currentMemoryProfilesV1 = [];
+    let currentMcpBundlesV1 = [];
+    let currentKnowledgeProfilesV1 = [];
+    let currentScreenProfilesV1 = [];
+    let currentWakeProfilesV1 = [];
+    let currentAssistantCatalogs = {};
+    let currentAssistantConfigRobot = "";
     let memRobot = null;
     let subscriptionRobot = null;
     let ownerRobot = null;
@@ -2319,6 +2764,751 @@
       `;
     }
 
+    function simpleProfileLabel(profile) {
+      const item = profile || {};
+      return String(item.display_name || item.profile_id || "без имени");
+    }
+
+    function profileStatePill(enabled) {
+      return `<span class="pill ${enabled === false ? "warn" : "ok"}">${escapeHtml(enabled === false ? "выключен" : "включён")}</span>`;
+    }
+
+    function fillProfileSelect(selectId, items, selectedValue = "", emptyLabel = "Не выбрано") {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+      for (const profile of items || []) {
+        const value = String(profile.profile_id || "");
+        const selected = value === String(selectedValue || "") ? "selected" : "";
+        const suffix = profile.enabled === false ? " — выключен" : "";
+        options.push(`<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(simpleProfileLabel(profile) + suffix)}</option>`);
+      }
+      select.innerHTML = options.join("");
+    }
+
+    function fillValueCatalogSelect(selectId, items, selectedValue = "", emptyLabel = "Выберите") {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+      for (const item of items || []) {
+        const value = String(item.value || "");
+        const selected = value === String(selectedValue || "") ? "selected" : "";
+        options.push(`<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(item.label || value)}</option>`);
+      }
+      select.innerHTML = options.join("");
+    }
+
+    function robotAssistantCandidates(selectedRobotId = "") {
+      const options = [`<option value="">Выберите robot_id</option>`];
+      for (const robot of currentRobots.filter((item) => !isTemplateRobot(item) && !isSupportRobot(item))) {
+        const value = String(robot.robot_id || "");
+        const selected = value === String(selectedRobotId || "") ? "selected" : "";
+        options.push(`<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(robotDisplayName(robot))}</option>`);
+      }
+      return options.join("");
+    }
+
+    function renderGenericProfileListItem(profile, metaText, openFnName, extraPills = [], deferredNote = "") {
+      const item = profile || {};
+      const pills = [profileStatePill(item.enabled)].concat(extraPills || []);
+      const noteHtml = deferredNote
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(deferredNote)}</div>`
+        : "";
+      return `
+        <div class="attention-item">
+          <span>
+            <strong>${escapeHtml(simpleProfileLabel(item))}</strong><br>
+            ${escapeHtml(metaText || "Профиль готов к заполнению.")}
+          </span>
+          <div class="row" style="margin-top:8px; width:100%;">
+            ${pills.join("")}
+            <button class="btn" onclick="${openFnName}('${escapeHtml(item.profile_id || "")}')">Открыть в форму</button>
+          </div>
+          ${noteHtml}
+        </div>
+      `;
+    }
+
+    function renderAssistantProfileListItemV1(profile) {
+      const item = profile || {};
+      const provider = item.provider_profile || {};
+      const meta = [
+        item.assistant_name ? `имя: ${item.assistant_name}` : "",
+        item.dialogue_language ? `язык: ${item.dialogue_language}` : "",
+        provider.display_name ? `поставщик: ${provider.display_name}` : (item.provider_profile_id ? `поставщик: ${item.provider_profile_id}` : ""),
+        item.voice_profile_id ? `голос: ${item.voice_profile_id}` : "",
+        item.memory_profile_id ? `память: ${item.memory_profile_id}` : "",
+        item.mcp_bundle_id ? `MCP: ${item.mcp_bundle_id}` : "",
+      ].filter(Boolean).join(" • ");
+      const pills = [];
+      if (item.is_default) pills.push('<span class="pill ok">по умолчанию</span>');
+      if (item.provider_profile_id) pills.push(`<span class="pill">${escapeHtml(item.provider_profile_id)}</span>`);
+      return renderGenericProfileListItem(item, meta, "loadAssistantProfileIntoFormV1", pills);
+    }
+
+    function renderVoiceProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.language ? `язык: ${item.language}` : "",
+        item.voice_type ? `тип: ${item.voice_type}` : "",
+        item.voice_name ? `голос: ${item.voice_name}` : "",
+        item.speech_rate ? `скорость: ${item.speech_rate}` : "",
+        item.pitch ? `высота: ${item.pitch}` : "",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadVoiceProfileIntoFormV1");
+    }
+
+    function renderMemoryProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.memory_type ? `тип: ${item.memory_type}` : "",
+        item.memory_by_speaker ? "память по говорящему" : "",
+        item.allow_clear_memory ? "очистка разрешена" : "очистка запрещена",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadMemoryProfileIntoFormV1");
+    }
+
+    function renderMcpBundleListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        Array.isArray(item.official_services) && item.official_services.length ? `официальные: ${item.official_services.join(", ")}` : "",
+        Array.isArray(item.custom_services) && item.custom_services.length ? `пользовательские: ${item.custom_services.join(", ")}` : "",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadMcpBundleIntoFormV1");
+    }
+
+    function renderKnowledgeProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.indexing_state ? `индексация: ${item.indexing_state}` : "",
+        Array.isArray(item.entries) && item.entries.length ? `элементов: ${item.entries.length}` : "",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadKnowledgeProfileIntoFormV1", [], item.deferred_note || "");
+    }
+
+    function renderScreenProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.theme ? `тема: ${item.theme}` : "",
+        item.face_family ? `лица: ${item.face_family}` : "",
+        item.brightness ? `яркость: ${item.brightness}` : "",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadScreenProfileIntoFormV1", [], item.deferred_note || "");
+    }
+
+    function renderWakeProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.mode ? `режим: ${item.mode}` : "",
+        item.wake_name ? `слово: ${item.wake_name}` : "",
+        item.sensitivity ? `чувствительность: ${item.sensitivity}` : "",
+      ].filter(Boolean).join(" • ");
+      return renderGenericProfileListItem(item, meta, "loadWakeProfileIntoFormV1", [], item.deferred_note || "");
+    }
+
+    function fillAssistantControlSelects() {
+      fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], "ru-RU", "Выберите язык");
+      fillProfileSelect("assistantProviderProfileId", currentAgentProfiles || [], "", "Выберите поставщика ИИ");
+      fillProfileSelect("assistantVoiceProfileId", currentVoiceProfilesV1, "", "Без голоса");
+      fillProfileSelect("assistantMemoryProfileId", currentMemoryProfilesV1, "", "Без памяти");
+      fillProfileSelect("assistantMcpBundleId", currentMcpBundlesV1, "", "Без набора MCP");
+      fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без базы знаний");
+
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "child", "Выберите тип");
+      fillValueCatalogSelect("memoryTypeV1", currentAssistantCatalogs.memory_types || [], "short_term", "Выберите тип памяти");
+      fillValueCatalogSelect("knowledgeIndexingState", currentAssistantCatalogs.knowledge_states || [], "not_configured", "Выберите состояние");
+      fillValueCatalogSelect("screenTheme", currentAssistantCatalogs.screen_themes || [], "dark", "Выберите тему");
+      fillValueCatalogSelect("screenFaceFamily", currentAssistantCatalogs.screen_face_families || [], "gosha", "Выберите стиль лиц");
+      fillValueCatalogSelect("wakeMode", currentAssistantCatalogs.wake_modes || [], "custom", "Выберите режим");
+
+      const robotSelect = document.getElementById("assistantRobotSelect");
+      if (robotSelect) {
+        robotSelect.innerHTML = robotAssistantCandidates(currentAssistantConfigRobot);
+      }
+      fillProfileSelect("bindingAssistantProfileId", currentAssistantProfilesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingVoiceProfileId", currentVoiceProfilesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingMemoryProfileId", currentMemoryProfilesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingMcpBundleId", currentMcpBundlesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingScreenProfileId", currentScreenProfilesV1, "", "Без явной привязки");
+      fillProfileSelect("bindingWakeProfileId", currentWakeProfilesV1, "", "Без явной привязки");
+    }
+
+    function resetAssistantProfileForm() {
+      document.getElementById("assistantProfileId").value = "";
+      document.getElementById("assistantDisplayName").value = "";
+      document.getElementById("assistantNameV1").value = "Гоша";
+      document.getElementById("assistantRoleTemplate").value = "";
+      document.getElementById("assistantRoleDescription").value = "";
+      document.getElementById("assistantSystemPromptV1").value = "";
+      document.getElementById("assistantModelOverride").value = "";
+      document.getElementById("assistantEnabled").checked = true;
+      document.getElementById("assistantIsDefault").checked = false;
+      fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], "ru-RU", "Выберите язык");
+      fillProfileSelect("assistantProviderProfileId", currentAgentProfiles || [], "", "Выберите поставщика ИИ");
+      fillProfileSelect("assistantVoiceProfileId", currentVoiceProfilesV1, "", "Без голоса");
+      fillProfileSelect("assistantMemoryProfileId", currentMemoryProfilesV1, "", "Без памяти");
+      fillProfileSelect("assistantMcpBundleId", currentMcpBundlesV1, "", "Без набора MCP");
+      fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без базы знаний");
+    }
+
+    function loadAssistantProfileIntoFormV1(profileId) {
+      const profile = (currentAssistantProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetAssistantProfileForm();
+        document.getElementById("assistantProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("assistantProfileId").value = profile.profile_id || "";
+      document.getElementById("assistantDisplayName").value = profile.display_name || "";
+      document.getElementById("assistantNameV1").value = profile.assistant_name || "";
+      document.getElementById("assistantRoleTemplate").value = profile.role_template || "";
+      document.getElementById("assistantRoleDescription").value = profile.role_description || "";
+      document.getElementById("assistantSystemPromptV1").value = profile.system_prompt || "";
+      document.getElementById("assistantModelOverride").value = profile.model_override || "";
+      document.getElementById("assistantEnabled").checked = profile.enabled !== false;
+      document.getElementById("assistantIsDefault").checked = !!profile.is_default;
+      fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], profile.dialogue_language || "ru-RU", "Выберите язык");
+      fillProfileSelect("assistantProviderProfileId", currentAgentProfiles || [], profile.provider_profile_id || "", "Выберите поставщика ИИ");
+      fillProfileSelect("assistantVoiceProfileId", currentVoiceProfilesV1, profile.voice_profile_id || "", "Без голоса");
+      fillProfileSelect("assistantMemoryProfileId", currentMemoryProfilesV1, profile.memory_profile_id || "", "Без памяти");
+      fillProfileSelect("assistantMcpBundleId", currentMcpBundlesV1, profile.mcp_bundle_id || "", "Без набора MCP");
+      fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, profile.knowledge_profile_id || "", "Без базы знаний");
+    }
+
+    function resetVoiceProfileForm() {
+      document.getElementById("voiceProfileId").value = "";
+      document.getElementById("voiceDisplayName").value = "";
+      document.getElementById("voiceLanguage").value = "ru-RU";
+      document.getElementById("voiceName").value = "";
+      document.getElementById("voiceProviderLabel").value = "";
+      document.getElementById("voiceSpeechRate").value = "1";
+      document.getElementById("voicePitch").value = "1";
+      document.getElementById("voiceEnabled").checked = true;
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "child", "Выберите тип");
+    }
+
+    function loadVoiceProfileIntoFormV1(profileId) {
+      const profile = (currentVoiceProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetVoiceProfileForm();
+        document.getElementById("voiceProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("voiceProfileId").value = profile.profile_id || "";
+      document.getElementById("voiceDisplayName").value = profile.display_name || "";
+      document.getElementById("voiceLanguage").value = profile.language || "ru-RU";
+      document.getElementById("voiceName").value = profile.voice_name || "";
+      document.getElementById("voiceProviderLabel").value = profile.provider_label || "";
+      document.getElementById("voiceSpeechRate").value = String(profile.speech_rate ?? 1);
+      document.getElementById("voicePitch").value = String(profile.pitch ?? 1);
+      document.getElementById("voiceEnabled").checked = profile.enabled !== false;
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], profile.voice_type || "child", "Выберите тип");
+    }
+
+    function resetMemoryProfileForm() {
+      document.getElementById("memoryProfileId").value = "";
+      document.getElementById("memoryDisplayName").value = "";
+      document.getElementById("memoryBySpeaker").checked = false;
+      document.getElementById("memoryAllowClear").checked = true;
+      document.getElementById("memoryEnabledV1").checked = true;
+      fillValueCatalogSelect("memoryTypeV1", currentAssistantCatalogs.memory_types || [], "short_term", "Выберите тип памяти");
+    }
+
+    function loadMemoryProfileIntoFormV1(profileId) {
+      const profile = (currentMemoryProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetMemoryProfileForm();
+        document.getElementById("memoryProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("memoryProfileId").value = profile.profile_id || "";
+      document.getElementById("memoryDisplayName").value = profile.display_name || "";
+      document.getElementById("memoryBySpeaker").checked = !!profile.memory_by_speaker;
+      document.getElementById("memoryAllowClear").checked = profile.allow_clear_memory !== false;
+      document.getElementById("memoryEnabledV1").checked = profile.enabled !== false;
+      fillValueCatalogSelect("memoryTypeV1", currentAssistantCatalogs.memory_types || [], profile.memory_type || "short_term", "Выберите тип памяти");
+    }
+
+    function resetMcpBundleForm() {
+      document.getElementById("mcpBundleId").value = "";
+      document.getElementById("mcpBundleDisplayName").value = "";
+      document.getElementById("mcpOfficialServices").value = "";
+      document.getElementById("mcpCustomServices").value = "";
+      document.getElementById("mcpBundleEnabled").checked = true;
+    }
+
+    function loadMcpBundleIntoFormV1(profileId) {
+      const profile = (currentMcpBundlesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetMcpBundleForm();
+        document.getElementById("mcpBundleId").value = profileId || "";
+        return;
+      }
+      document.getElementById("mcpBundleId").value = profile.profile_id || "";
+      document.getElementById("mcpBundleDisplayName").value = profile.display_name || "";
+      document.getElementById("mcpOfficialServices").value = Array.isArray(profile.official_services) ? profile.official_services.join("\n") : "";
+      document.getElementById("mcpCustomServices").value = Array.isArray(profile.custom_services) ? profile.custom_services.join("\n") : "";
+      document.getElementById("mcpBundleEnabled").checked = profile.enabled !== false;
+    }
+
+    function resetKnowledgeProfileForm() {
+      document.getElementById("knowledgeProfileId").value = "";
+      document.getElementById("knowledgeDisplayName").value = "";
+      document.getElementById("knowledgeEntries").value = "";
+      document.getElementById("knowledgeEnabled").checked = true;
+      fillValueCatalogSelect("knowledgeIndexingState", currentAssistantCatalogs.knowledge_states || [], "not_configured", "Выберите состояние");
+    }
+
+    function loadKnowledgeProfileIntoFormV1(profileId) {
+      const profile = (currentKnowledgeProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetKnowledgeProfileForm();
+        document.getElementById("knowledgeProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("knowledgeProfileId").value = profile.profile_id || "";
+      document.getElementById("knowledgeDisplayName").value = profile.display_name || "";
+      document.getElementById("knowledgeEntries").value = Array.isArray(profile.entries) ? profile.entries.join("\n") : "";
+      document.getElementById("knowledgeEnabled").checked = profile.enabled !== false;
+      fillValueCatalogSelect("knowledgeIndexingState", currentAssistantCatalogs.knowledge_states || [], profile.indexing_state || "not_configured", "Выберите состояние");
+    }
+
+    function resetScreenProfileForm() {
+      document.getElementById("screenProfileId").value = "";
+      document.getElementById("screenDisplayName").value = "";
+      document.getElementById("screenBrightness").value = "80";
+      document.getElementById("screenIdleEmotion").value = "neutral";
+      document.getElementById("screenListeningEmotion").value = "happy";
+      document.getElementById("screenThinkingEmotion").value = "thinking";
+      document.getElementById("screenSpeakingEmotion").value = "talking";
+      document.getElementById("screenErrorEmotion").value = "sad";
+      document.getElementById("screenNetworkEmotion").value = "link";
+      document.getElementById("screenEnabled").checked = true;
+      fillValueCatalogSelect("screenTheme", currentAssistantCatalogs.screen_themes || [], "dark", "Выберите тему");
+      fillValueCatalogSelect("screenFaceFamily", currentAssistantCatalogs.screen_face_families || [], "gosha", "Выберите стиль лиц");
+    }
+
+    function loadScreenProfileIntoFormV1(profileId) {
+      const profile = (currentScreenProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetScreenProfileForm();
+        document.getElementById("screenProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("screenProfileId").value = profile.profile_id || "";
+      document.getElementById("screenDisplayName").value = profile.display_name || "";
+      document.getElementById("screenBrightness").value = String(profile.brightness ?? 80);
+      document.getElementById("screenIdleEmotion").value = profile.state_emotions?.idle || "neutral";
+      document.getElementById("screenListeningEmotion").value = profile.state_emotions?.listening || "happy";
+      document.getElementById("screenThinkingEmotion").value = profile.state_emotions?.thinking || "thinking";
+      document.getElementById("screenSpeakingEmotion").value = profile.state_emotions?.speaking || "talking";
+      document.getElementById("screenErrorEmotion").value = profile.state_emotions?.error || "sad";
+      document.getElementById("screenNetworkEmotion").value = profile.state_emotions?.network || "link";
+      document.getElementById("screenEnabled").checked = profile.enabled !== false;
+      fillValueCatalogSelect("screenTheme", currentAssistantCatalogs.screen_themes || [], profile.theme || "dark", "Выберите тему");
+      fillValueCatalogSelect("screenFaceFamily", currentAssistantCatalogs.screen_face_families || [], profile.face_family || "gosha", "Выберите стиль лиц");
+    }
+
+    function resetWakeProfileForm() {
+      document.getElementById("wakeProfileId").value = "";
+      document.getElementById("wakeDisplayNameV1").value = "";
+      document.getElementById("wakeName").value = "GOSHA";
+      document.getElementById("wakeDisplayNameHuman").value = "Гоша";
+      document.getElementById("wakeSensitivity").value = "20";
+      document.getElementById("wakeEnabled").checked = true;
+      fillValueCatalogSelect("wakeMode", currentAssistantCatalogs.wake_modes || [], "custom", "Выберите режим");
+    }
+
+    function loadWakeProfileIntoFormV1(profileId) {
+      const profile = (currentWakeProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetWakeProfileForm();
+        document.getElementById("wakeProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("wakeProfileId").value = profile.profile_id || "";
+      document.getElementById("wakeDisplayNameV1").value = profile.display_name || "";
+      document.getElementById("wakeName").value = profile.wake_name || "GOSHA";
+      document.getElementById("wakeDisplayNameHuman").value = profile.wake_display_name || "Гоша";
+      document.getElementById("wakeSensitivity").value = String(profile.sensitivity ?? 20);
+      document.getElementById("wakeEnabled").checked = profile.enabled !== false;
+      fillValueCatalogSelect("wakeMode", currentAssistantCatalogs.wake_modes || [], profile.mode || "custom", "Выберите режим");
+    }
+
+    function assistantConfigStateLabel(state) {
+      const value = String(state || "").trim().toLowerCase();
+      if (value === "ready") return "готово";
+      if (value === "server_ready_pending_firmware") return "сервер готов, ждёт синхронизацию с прошивкой";
+      if (value === "default_inherited") return "используется совместимость по умолчанию";
+      if (value === "provider_missing") return "не найден поставщик ИИ";
+      if (value === "fallback") return "используется совместимый резерв";
+      return "конфигурация не выбрана";
+    }
+
+    function assistantConfigStateClass(state) {
+      const value = String(state || "").trim().toLowerCase();
+      if (value === "ready" || value === "default_inherited") return "ok";
+      if (value === "server_ready_pending_firmware" || value === "fallback") return "warn";
+      return "warn";
+    }
+
+    function renderAssistantConfigSummary(config) {
+      const data = config || {};
+      const pills = [
+        `<span class="pill ${assistantConfigStateClass(data.state)}">${escapeHtml(assistantConfigStateLabel(data.state))}</span>`
+      ];
+      if (data.assistant_profile) pills.push(`<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(data.assistant_profile))}</span>`);
+      if (data.provider_profile) pills.push(`<span class="pill ok">поставщик ИИ: ${escapeHtml(agentProfileLabel(data.provider_profile))}</span>`);
+      if (data.voice_profile) pills.push(`<span class="pill">голос: ${escapeHtml(simpleProfileLabel(data.voice_profile))}</span>`);
+      if (data.memory_profile) pills.push(`<span class="pill">память: ${escapeHtml(simpleProfileLabel(data.memory_profile))}</span>`);
+      if (data.mcp_bundle) pills.push(`<span class="pill">MCP: ${escapeHtml(simpleProfileLabel(data.mcp_bundle))}</span>`);
+      if (data.knowledge_profile) pills.push(`<span class="pill warn">база знаний: ${escapeHtml(simpleProfileLabel(data.knowledge_profile))}</span>`);
+      if (data.screen_profile) pills.push(`<span class="pill warn">экран: отложено</span>`);
+      if (data.wake_profile) pills.push(`<span class="pill warn">пробуждение: отложено</span>`);
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      const warningHtml = warnings.length
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(warnings.join(" • "))}</div>`
+        : '<div class="mini" style="max-width:none; margin-top:8px;">Серверные части ассистента можно менять без перепрошивки. Экран, лица, пробуждение и часть базы знаний пока честно помечаются как отложенные.</div>';
+      return `${pills.join("")}${warningHtml}`;
+    }
+
+    function fillRobotAssistantConfigForm(config) {
+      const binding = config?.binding || {};
+      currentAssistantConfigRobot = config?.robot_id || currentAssistantConfigRobot || "";
+      const robotSelect = document.getElementById("assistantRobotSelect");
+      if (robotSelect) {
+        robotSelect.innerHTML = robotAssistantCandidates(currentAssistantConfigRobot);
+        robotSelect.value = currentAssistantConfigRobot || "";
+      }
+      fillProfileSelect("bindingAssistantProfileId", currentAssistantProfilesV1, binding.assistant_profile_id || "", "Без явной привязки");
+      fillProfileSelect("bindingVoiceProfileId", currentVoiceProfilesV1, binding.voice_profile_id || "", "Без явной привязки");
+      fillProfileSelect("bindingMemoryProfileId", currentMemoryProfilesV1, binding.memory_profile_id || "", "Без явной привязки");
+      fillProfileSelect("bindingMcpBundleId", currentMcpBundlesV1, binding.mcp_bundle_id || "", "Без явной привязки");
+      fillProfileSelect("bindingKnowledgeProfileId", currentKnowledgeProfilesV1, binding.knowledge_profile_id || "", "Без явной привязки");
+      fillProfileSelect("bindingScreenProfileId", currentScreenProfilesV1, binding.screen_profile_id || "", "Без явной привязки");
+      fillProfileSelect("bindingWakeProfileId", currentWakeProfilesV1, binding.wake_profile_id || "", "Без явной привязки");
+      document.getElementById("assistantRobotConfigSummary").innerHTML = renderAssistantConfigSummary(config);
+    }
+
+    function renderAssistantControlPanel() {
+      const summaryEl = document.getElementById("assistantControlSummaryPill");
+      const metaEl = document.getElementById("assistantControlMeta");
+      const providerSummaryEl = document.getElementById("assistantProviderSummary");
+      if (!currentAssistantControlData) {
+        summaryEl.className = "pill warn";
+        summaryEl.textContent = "Нет данных";
+        metaEl.textContent = "Каталог ассистента пока не загружен.";
+        providerSummaryEl.textContent = "Сводка по поставщикам ИИ пока не загружена.";
+        return;
+      }
+      const gateway = currentAssistantControlData.gateway || {};
+      const proxy = currentAssistantControlData.internal_openai_proxy || {};
+      summaryEl.className = gateway.ok ? "pill ok" : "pill warn";
+      summaryEl.textContent = `ассистентов: ${currentAssistantProfilesV1.length}, голосов: ${currentVoiceProfilesV1.length}, MCP: ${currentMcpBundlesV1.length}`;
+      metaEl.textContent = gateway.ok
+        ? "Серверные части ассистента применяются без перепрошивки. Экран, лица, пробуждение и часть базы знаний помечены как отложенные до синхронизации с прошивкой."
+        : "Каталог профилей уже можно редактировать, но внутренний шлюз ИИ-агентов временно недоступен и это нужно исправить отдельно.";
+      providerSummaryEl.textContent = currentAgentProfiles.length
+        ? `В совместимом слое поставщиков ИИ сейчас ${currentAgentProfiles.length} профилей. Прокси для голосового узла ${proxy.enabled ? "включён" : "ещё не включён"}, профиль по умолчанию: ${proxy.default_profile ? simpleProfileLabel(proxy.default_profile) : "не выбран"}.`
+        : "Поставщики ИИ ещё не созданы. Сначала заполните хотя бы один OpenAI-совместимый профиль в верхнем блоке.";
+      document.getElementById("assistantProfilesV1List").innerHTML = currentAssistantProfilesV1.length
+        ? currentAssistantProfilesV1.map((item) => renderAssistantProfileListItemV1(item)).join("")
+        : '<div class="attention-item"><span>Профили ассистента ещё не созданы.</span></div>';
+      document.getElementById("voiceProfilesList").innerHTML = currentVoiceProfilesV1.length
+        ? currentVoiceProfilesV1.map((item) => renderVoiceProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Голосовые профили ещё не созданы.</span></div>';
+      document.getElementById("memoryProfilesList").innerHTML = currentMemoryProfilesV1.length
+        ? currentMemoryProfilesV1.map((item) => renderMemoryProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Профили памяти ещё не созданы.</span></div>';
+      document.getElementById("mcpBundlesList").innerHTML = currentMcpBundlesV1.length
+        ? currentMcpBundlesV1.map((item) => renderMcpBundleListItem(item)).join("")
+        : '<div class="attention-item"><span>Наборы MCP ещё не созданы.</span></div>';
+      document.getElementById("knowledgeProfilesList").innerHTML = currentKnowledgeProfilesV1.length
+        ? currentKnowledgeProfilesV1.map((item) => renderKnowledgeProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Профили базы знаний ещё не созданы.</span></div>';
+      document.getElementById("screenProfilesList").innerHTML = currentScreenProfilesV1.length
+        ? currentScreenProfilesV1.map((item) => renderScreenProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Экранные профили ещё не созданы.</span></div>';
+      document.getElementById("wakeProfilesList").innerHTML = currentWakeProfilesV1.length
+        ? currentWakeProfilesV1.map((item) => renderWakeProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Профили пробуждения ещё не созданы.</span></div>';
+      fillAssistantControlSelects();
+      if (!currentAssistantConfigRobot) {
+        document.getElementById("assistantRobotConfigSummary").innerHTML = "После загрузки робота здесь появится итоговый ассистент, поставщик ИИ, голос, память, набор `MCP` и все отложенные части.";
+      }
+    }
+
+    async function reloadAssistantControlCatalog(silent = false) {
+      const res = await apiGet(operatorUrl("/assistant-control/catalog"));
+      if (!res.ok) {
+        currentAssistantControlData = null;
+        currentAssistantProfilesV1 = [];
+        currentVoiceProfilesV1 = [];
+        currentMemoryProfilesV1 = [];
+        currentMcpBundlesV1 = [];
+        currentKnowledgeProfilesV1 = [];
+        currentScreenProfilesV1 = [];
+        currentWakeProfilesV1 = [];
+        currentAssistantCatalogs = {};
+        renderAssistantControlPanel();
+        if (!silent) notify("Не удалось загрузить каталог ассистента Гоша", "bad");
+        return;
+      }
+      const payload = res.data || {};
+      currentAssistantControlData = payload;
+      currentAssistantProfilesV1 = Array.isArray(payload.assistants) ? payload.assistants : [];
+      currentVoiceProfilesV1 = Array.isArray(payload.voices) ? payload.voices : [];
+      currentMemoryProfilesV1 = Array.isArray(payload.memory_profiles) ? payload.memory_profiles : [];
+      currentMcpBundlesV1 = Array.isArray(payload.mcp_bundles) ? payload.mcp_bundles : [];
+      currentKnowledgeProfilesV1 = Array.isArray(payload.knowledge_profiles) ? payload.knowledge_profiles : [];
+      currentScreenProfilesV1 = Array.isArray(payload.screen_profiles) ? payload.screen_profiles : [];
+      currentWakeProfilesV1 = Array.isArray(payload.wake_profiles) ? payload.wake_profiles : [];
+      currentAssistantCatalogs = payload.catalogs || {};
+      renderAssistantControlPanel();
+      if (!silent) notify("Каталог ассистента Гоша обновлён", "ok");
+    }
+
+    async function saveAssistantProfileV1() {
+      const profileId = document.getElementById("assistantProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID ассистента", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("assistantDisplayName").value.trim(),
+        assistant_name: document.getElementById("assistantNameV1").value.trim(),
+        role_template: document.getElementById("assistantRoleTemplate").value.trim(),
+        role_description: document.getElementById("assistantRoleDescription").value.trim(),
+        system_prompt: document.getElementById("assistantSystemPromptV1").value.trim(),
+        dialogue_language: document.getElementById("assistantLanguage").value || "ru-RU",
+        provider_profile_id: document.getElementById("assistantProviderProfileId").value || "",
+        model_override: document.getElementById("assistantModelOverride").value.trim(),
+        voice_profile_id: document.getElementById("assistantVoiceProfileId").value || "",
+        memory_profile_id: document.getElementById("assistantMemoryProfileId").value || "",
+        mcp_bundle_id: document.getElementById("assistantMcpBundleId").value || "",
+        knowledge_profile_id: document.getElementById("assistantKnowledgeProfileId").value || "",
+        enabled: !!document.getElementById("assistantEnabled").checked,
+        is_default: !!document.getElementById("assistantIsDefault").checked,
+      };
+      setStatus(`Сохраняю ассистента ${profileId}...`);
+      const res = await apiPost(operatorUrl("/assistant-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить ассистента ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadAssistantProfileIntoFormV1(profileId);
+      await reloadRobots();
+      notify(`Ассистент ${profileId} сохранён`, "ok");
+    }
+
+    async function saveVoiceProfileV1() {
+      const profileId = document.getElementById("voiceProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID голоса", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("voiceDisplayName").value.trim(),
+        language: document.getElementById("voiceLanguage").value.trim(),
+        voice_type: document.getElementById("voiceType").value || "child",
+        voice_name: document.getElementById("voiceName").value.trim(),
+        provider_label: document.getElementById("voiceProviderLabel").value.trim(),
+        speech_rate: Number(document.getElementById("voiceSpeechRate").value || 1),
+        pitch: Number(document.getElementById("voicePitch").value || 1),
+        enabled: !!document.getElementById("voiceEnabled").checked,
+      };
+      const res = await apiPost(operatorUrl("/voice-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить голос ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadVoiceProfileIntoFormV1(profileId);
+      notify(`Голос ${profileId} сохранён`, "ok");
+    }
+
+    async function saveMemoryProfileV1() {
+      const profileId = document.getElementById("memoryProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID памяти", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("memoryDisplayName").value.trim(),
+        memory_type: document.getElementById("memoryTypeV1").value || "short_term",
+        memory_by_speaker: !!document.getElementById("memoryBySpeaker").checked,
+        allow_clear_memory: !!document.getElementById("memoryAllowClear").checked,
+        enabled: !!document.getElementById("memoryEnabledV1").checked,
+      };
+      const res = await apiPost(operatorUrl("/memory-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить память ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadMemoryProfileIntoFormV1(profileId);
+      notify(`Память ${profileId} сохранена`, "ok");
+    }
+
+    async function saveMcpBundleV1() {
+      const profileId = document.getElementById("mcpBundleId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID набора MCP", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("mcpBundleDisplayName").value.trim(),
+        official_services: document.getElementById("mcpOfficialServices").value,
+        custom_services: document.getElementById("mcpCustomServices").value,
+        enabled: !!document.getElementById("mcpBundleEnabled").checked,
+      };
+      const res = await apiPost(operatorUrl("/mcp-bundles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить набор MCP ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadMcpBundleIntoFormV1(profileId);
+      notify(`Набор MCP ${profileId} сохранён`, "ok");
+    }
+
+    async function saveKnowledgeProfileV1() {
+      const profileId = document.getElementById("knowledgeProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID базы знаний", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("knowledgeDisplayName").value.trim(),
+        indexing_state: document.getElementById("knowledgeIndexingState").value || "not_configured",
+        entries: document.getElementById("knowledgeEntries").value,
+        enabled: !!document.getElementById("knowledgeEnabled").checked,
+      };
+      const res = await apiPost(operatorUrl("/knowledge-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить базу знаний ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadKnowledgeProfileIntoFormV1(profileId);
+      notify(`База знаний ${profileId} сохранена`, "ok");
+    }
+
+    async function saveScreenProfileV1() {
+      const profileId = document.getElementById("screenProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID экранного профиля", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("screenDisplayName").value.trim(),
+        theme: document.getElementById("screenTheme").value || "dark",
+        face_family: document.getElementById("screenFaceFamily").value || "gosha",
+        brightness: Number(document.getElementById("screenBrightness").value || 80),
+        state_emotions: {
+          idle: document.getElementById("screenIdleEmotion").value.trim(),
+          listening: document.getElementById("screenListeningEmotion").value.trim(),
+          thinking: document.getElementById("screenThinkingEmotion").value.trim(),
+          speaking: document.getElementById("screenSpeakingEmotion").value.trim(),
+          error: document.getElementById("screenErrorEmotion").value.trim(),
+          network: document.getElementById("screenNetworkEmotion").value.trim(),
+        },
+        enabled: !!document.getElementById("screenEnabled").checked,
+      };
+      const res = await apiPost(operatorUrl("/screen-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить экранный профиль ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadScreenProfileIntoFormV1(profileId);
+      notify(`Экранный профиль ${profileId} сохранён`, "ok");
+    }
+
+    async function saveWakeProfileV1() {
+      const profileId = document.getElementById("wakeProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID пробуждения", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("wakeDisplayNameV1").value.trim(),
+        mode: document.getElementById("wakeMode").value || "custom",
+        wake_name: document.getElementById("wakeName").value.trim(),
+        wake_display_name: document.getElementById("wakeDisplayNameHuman").value.trim(),
+        sensitivity: Number(document.getElementById("wakeSensitivity").value || 20),
+        enabled: !!document.getElementById("wakeEnabled").checked,
+      };
+      const res = await apiPost(operatorUrl("/wake-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить пробуждение ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadWakeProfileIntoFormV1(profileId);
+      notify(`Пробуждение ${profileId} сохранено`, "ok");
+    }
+
+    async function loadSelectedRobotAssistantConfig() {
+      const robotId = (document.getElementById("assistantRobotSelect").value || "").trim();
+      if (!robotId) {
+        notify("Сначала выберите robot_id", "warn");
+        return;
+      }
+      currentAssistantConfigRobot = robotId;
+      const res = await apiGet(operatorUrl(`/robots/${robotId}/assistant-config`));
+      if (!res.ok) {
+        notify(`Не удалось загрузить конфигурацию ассистента для ${robotDisplayNameById(robotId)}`, "bad");
+        return;
+      }
+      const payload = res.data || {};
+      fillRobotAssistantConfigForm(payload.config || {});
+      notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента загружена`, "ok");
+    }
+
+    async function saveSelectedRobotAssistantConfig() {
+      const robotId = (document.getElementById("assistantRobotSelect").value || "").trim();
+      if (!robotId) {
+        notify("Сначала выберите robot_id", "warn");
+        return;
+      }
+      const payload = {
+        assistant_profile_id: document.getElementById("bindingAssistantProfileId").value || "",
+        voice_profile_id: document.getElementById("bindingVoiceProfileId").value || "",
+        memory_profile_id: document.getElementById("bindingMemoryProfileId").value || "",
+        mcp_bundle_id: document.getElementById("bindingMcpBundleId").value || "",
+        knowledge_profile_id: document.getElementById("bindingKnowledgeProfileId").value || "",
+        screen_profile_id: document.getElementById("bindingScreenProfileId").value || "",
+        wake_profile_id: document.getElementById("bindingWakeProfileId").value || "",
+      };
+      setStatus(`${robotDisplayNameById(robotId)}: сохраняю составную конфигурацию ассистента...`);
+      const res = await apiPost(operatorUrl(`/robots/${robotId}/assistant-config`), payload);
+      if (!res.ok) {
+        notify(`${robotDisplayNameById(robotId)}: не удалось сохранить конфигурацию ассистента`, "bad");
+        return;
+      }
+      currentAssistantConfigRobot = robotId;
+      fillRobotAssistantConfigForm((res.data || {}).config || {});
+      await reloadRobots();
+      notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента сохранена`, "ok");
+    }
+
+    async function openAssistantConfig(robotId) {
+      currentAssistantConfigRobot = robotId;
+      document.getElementById("assistantRobotSelect").value = robotId;
+      scrollToPanel("assistantControlPanel");
+      await loadSelectedRobotAssistantConfig();
+    }
+
     function renderAgentProfilesPanel() {
       const gateway = currentAgentGatewayState || {};
       const listEl = document.getElementById("agentProfilesList");
@@ -2389,18 +3579,56 @@
       notify(`Профиль ИИ-агента ${profileId} сохранён`, "ok");
     }
 
-    function renderRobotAgentPill(robot) {
-      const assignment = robot?.agent || {};
-      const effective = assignment.effective_profile || null;
-      if (effective?.display_name || effective?.profile_id) {
-        return `<span class="pill ok">агент: ${escapeHtml(agentProfileLabel(effective))}</span>`;
+    function renderAssistantControlRobotPill(robot) {
+      const cfg = robot?.assistant_control || {};
+      const assistant = cfg.assistant_profile || null;
+      const provider = cfg.provider_profile || null;
+      if (assistant?.display_name || assistant?.profile_id) {
+        return `<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(assistant))}</span>`;
       }
-      return `<span class="pill warn">агент: ${escapeHtml(agentAssignmentStateLabel(assignment.state))}</span>`;
+      if (provider?.display_name || provider?.profile_id) {
+        return `<span class="pill ok">поставщик ИИ: ${escapeHtml(agentProfileLabel(provider))}</span>`;
+      }
+      const assignment = robot?.agent || {};
+      if (assignment.effective_profile) {
+        return `<span class="pill ok">агент: ${escapeHtml(agentProfileLabel(assignment.effective_profile))}</span>`;
+      }
+      return `<span class="pill warn">ассистент: ${escapeHtml(assistantConfigStateLabel(cfg.state))}</span>`;
+    }
+
+    function renderAssistantControlRobotSnippet(robot) {
+      const cfg = robot?.assistant_control || {};
+      const assistant = cfg.assistant_profile || null;
+      const provider = cfg.provider_profile || null;
+      const voice = cfg.voice_profile || null;
+      const memory = cfg.memory_profile || null;
+      const mcp = cfg.mcp_bundle || null;
+      const warnings = Array.isArray(cfg.warnings) ? cfg.warnings : [];
+      if (!assistant && !provider && !voice && !memory && !mcp && !warnings.length) {
+        return renderAgentAssignmentHint(robot?.agent || {});
+      }
+      const pills = [
+        `<span class="pill ${assistantConfigStateClass(cfg.state)}">${escapeHtml(assistantConfigStateLabel(cfg.state))}</span>`
+      ];
+      if (assistant) pills.push(`<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(assistant))}</span>`);
+      if (provider) pills.push(`<span class="pill ok">ИИ: ${escapeHtml(agentProfileLabel(provider))}</span>`);
+      if (voice) pills.push(`<span class="pill">голос: ${escapeHtml(simpleProfileLabel(voice))}</span>`);
+      if (memory) pills.push(`<span class="pill">память: ${escapeHtml(simpleProfileLabel(memory))}</span>`);
+      if (mcp) pills.push(`<span class="pill">MCP: ${escapeHtml(simpleProfileLabel(mcp))}</span>`);
+      if (cfg.screen_profile) pills.push('<span class="pill warn">экран: отложено</span>');
+      if (cfg.wake_profile) pills.push('<span class="pill warn">пробуждение: отложено</span>');
+      const warningHtml = warnings.length
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(warnings.join(" • "))}</div>`
+        : '<div class="mini" style="max-width:none; margin-top:8px;">Составная конфигурация ассистента уже сохраняется на уровне платформы.</div>';
+      return `${pills.join("")}${warningHtml}`;
+    }
+
+    function renderRobotAgentPill(robot) {
+      return renderAssistantControlRobotPill(robot);
     }
 
     function renderRobotAgentSnippet(robot) {
-      const assignment = robot?.agent || {};
-      return renderAgentAssignmentHint(assignment);
+      return renderAssistantControlRobotSnippet(robot);
     }
 
     function applySessionState(session) {
@@ -5013,6 +6241,7 @@
       syncRobotDetectionsFromRecords(currentRobots);
       await reloadSelfhostState(true);
       await reloadAgentProfiles(true);
+      await reloadAssistantControlCatalog(true);
       renderRobots();
       await autoDetectLiveRobots();
     }
@@ -5070,6 +6299,7 @@
         : isStaged
           ? `
             <button class="btn primary" onclick="openControl('${robot.robot_id}')">Проверить MCP</button>
+            <button class="btn" onclick="openAssistantConfig('${robot.robot_id}')">Ассистент Гоша</button>
             <button class="btn" onclick="openSubscription('${robot.robot_id}')">Подписка</button>
             <button class="btn" onclick="openOwner('${robot.robot_id}')">Клиент</button>
             <button class="btn primary" onclick="openMemory('${robot.robot_id}')">Память</button>
@@ -5079,6 +6309,7 @@
           <button class="btn warn" onclick="serviceAction('${robot.robot_id}','stop', this)">Стоп</button>
           <button class="btn" onclick="serviceAction('${robot.robot_id}','restart', this)">Перезапуск</button>
           <button class="btn primary" onclick="detectRobotState('${robot.robot_id}', this)">Обнаружить робота</button>
+          <button class="btn" onclick="openAssistantConfig('${robot.robot_id}')">Ассистент Гоша</button>
           <button class="btn" onclick="openSubscription('${robot.robot_id}')">Подписка</button>
           <button class="btn" onclick="openControl('${robot.robot_id}')">MCP</button>
           <button class="btn primary" onclick="openCodePanel('${robot.robot_id}')">Выдать код</button>
@@ -5920,6 +7151,13 @@
 
     (async () => {
       resetAgentProfileForm();
+      resetAssistantProfileForm();
+      resetVoiceProfileForm();
+      resetMemoryProfileForm();
+      resetMcpBundleForm();
+      resetKnowledgeProfileForm();
+      resetScreenProfileForm();
+      resetWakeProfileForm();
       const session = await loadOperatorSession();
       if (session?.auth_enabled && !session?.authenticated) {
         showLoginOverlay("Войдите как оператор, чтобы открыть панель управления роботами.");

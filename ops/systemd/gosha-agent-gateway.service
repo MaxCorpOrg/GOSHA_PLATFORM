@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=/opt/gosha_platform/app/platform
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/opt/gosha_platform/runtime/env/agent-gateway.env
+EnvironmentFile=-/opt/gosha_platform/runtime/env/providers.env
 ExecStart=/usr/bin/env python3 /opt/gosha_platform/app/platform/gosha_agent_gateway.py
 Restart=always
 RestartSec=3

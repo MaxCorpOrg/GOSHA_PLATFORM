@@ -61,7 +61,13 @@ WS_URL="ws://${PUBLIC_HOST}:${WS_PORT}/xiaozhi/v1/"
 MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
 PANEL_PASSWORD_FILE="${ENV_ROOT}/panel.password"
 DB_PASSWORD_FILE="${ENV_ROOT}/selfhost-db.password"
+INTERNAL_PROXY_TOKEN_FILE="${ENV_ROOT}/internal-openai-proxy.token"
+PROVIDERS_ENV_FILE="${ENV_ROOT}/providers.env"
 BACKEND_STORAGE_ROOT="${APP_ROOT}/selfhost_xiaozhi/backend"
+SENSEVOICE_MODEL_DIR="${BACKEND_STORAGE_ROOT}/models/SenseVoiceSmall"
+SENSEVOICE_MODEL_FILE="${SENSEVOICE_MODEL_DIR}/model.pt"
+SENSEVOICE_MODEL_URL="${SELFHOST_XIAOZHI_SENSEVOICE_URL:-https://modelscope.cn/models/iic/SenseVoiceSmall/resolve/master/model.pt}"
+BACKEND_CONFIG_FILE="${BACKEND_STORAGE_ROOT}/data/.config.yaml"
 
 ensure_env_key() {
   local file="$1"
@@ -86,7 +92,7 @@ mkdir -p \
   "${APP_ROOT}/shared/kb" \
   "${APP_ROOT}/bin" \
   "${BACKEND_STORAGE_ROOT}/data" \
-  "${BACKEND_STORAGE_ROOT}/models" \
+  "${SENSEVOICE_MODEL_DIR}" \
   "${BACKEND_STORAGE_ROOT}/mysql" \
   "${BACKEND_STORAGE_ROOT}/redis" \
   "${BACKEND_STORAGE_ROOT}/uploadfile" \
@@ -105,12 +111,12 @@ if [[ "$(readlink -f "${REPO_ROOT}")" != "${APP_DIR}" ]]; then
   )
 fi
 
-python3 - <<'PY' "${PANEL_PASSWORD_FILE}" "${DB_PASSWORD_FILE}"
+python3 - <<'PY' "${PANEL_PASSWORD_FILE}" "${DB_PASSWORD_FILE}" "${INTERNAL_PROXY_TOKEN_FILE}"
 import secrets
 import sys
 from pathlib import Path
 
-for path_str, size in ((sys.argv[1], 20), (sys.argv[2], 24)):
+for path_str, size in ((sys.argv[1], 20), (sys.argv[2], 24), (sys.argv[3], 28)):
     path = Path(path_str)
     if not path.exists():
         path.write_text(secrets.token_urlsafe(size) + "\n", encoding="utf-8")
@@ -118,6 +124,47 @@ for path_str, size in ((sys.argv[1], 20), (sys.argv[2], 24)):
 PY
 
 DB_PASSWORD="$(tr -d '\r\n' < "${DB_PASSWORD_FILE}")"
+INTERNAL_PROXY_TOKEN="$(tr -d '\r\n' < "${INTERNAL_PROXY_TOKEN_FILE}")"
+
+DEFAULT_PROVIDER_PROFILE_ID="$(
+  python3 - <<'PY' "${APP_ROOT}"
+import json
+import sys
+from pathlib import Path
+
+app_root = Path(sys.argv[1])
+profiles_dir = app_root / "agents" / "profiles"
+bindings_dir = app_root / "agents" / "bindings"
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+profiles = {}
+for path in sorted(profiles_dir.glob("*.json")):
+    data = read_json(path)
+    profile_id = str(data.get("profile_id", "") or path.stem).strip()
+    if profile_id:
+        profiles[profile_id] = data
+
+for path in sorted(bindings_dir.glob("*.json")):
+    binding = read_json(path)
+    for key in ("active_profile_id", "fallback_profile_id"):
+        profile_id = str(binding.get(key, "") or "").strip()
+        if profile_id and profile_id in profiles:
+            print(profile_id)
+            raise SystemExit(0)
+
+for profile_id, data in profiles.items():
+    if data.get("enabled", True):
+        print(profile_id)
+        raise SystemExit(0)
+
+print("")
+PY
+)"
 
 if [[ ! -f "${ENV_ROOT}/panel.env" ]]; then
   cat > "${ENV_ROOT}/panel.env" <<EOF
@@ -131,6 +178,8 @@ PANEL_OPERATOR_PASSWORD_FILE=${PANEL_PASSWORD_FILE}
 PANEL_SESSION_TTL_SECONDS=43200
 GOSHA_AGENT_GATEWAY_URL=http://127.0.0.1:${AGENT_GATEWAY_PORT}
 GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=5
+GOSHA_INTERNAL_OPENAI_PROXY_TOKEN_FILE=${INTERNAL_PROXY_TOKEN_FILE}
+GOSHA_BACKEND_PROXY_PROFILE_ID=${DEFAULT_PROVIDER_PROFILE_ID}
 SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE=${PANEL_URL}
 SELFHOST_GOSHA_OTA_URL=${PANEL_URL}/gosha/ota/
 SELFHOST_GOSHA_ACTIVATE_URL=${PANEL_URL}/gosha/ota/activate
@@ -167,6 +216,16 @@ APP_ROOT=${APP_ROOT}
 GOSHA_AGENT_GATEWAY_HOST=127.0.0.1
 GOSHA_AGENT_GATEWAY_PORT=${AGENT_GATEWAY_PORT}
 GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=45
+GOSHA_AGENT_GATEWAY_DEFAULT_PROFILE_ID=${DEFAULT_PROVIDER_PROFILE_ID}
+EOF
+fi
+
+if [[ ! -f "${PROVIDERS_ENV_FILE}" ]]; then
+  cat > "${PROVIDERS_ENV_FILE}" <<'EOF'
+# Переменные окружения для профилей ИИ-провайдеров.
+# Заполняйте значения справа от знака "=".
+# OPENAI_API_KEY=
+# DEEPSEEK_API_KEY=
 EOF
 fi
 
@@ -180,6 +239,8 @@ ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_PASSWORD_FILE" "${PANEL_P
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_URL" "http://127.0.0.1:${AGENT_GATEWAY_PORT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "5"
+ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN_FILE" "${INTERNAL_PROXY_TOKEN_FILE}"
+ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_BACKEND_PROXY_PROFILE_ID" "${DEFAULT_PROVIDER_PROFILE_ID}"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE" "${PANEL_URL}"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_OTA_URL" "${PANEL_URL}/gosha/ota/"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_ACTIVATE_URL" "${PANEL_URL}/gosha/ota/activate"
@@ -208,6 +269,58 @@ ensure_env_key "${ENV_ROOT}/agent-gateway.env" "APP_ROOT" "${APP_ROOT}"
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_HOST" "127.0.0.1"
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_PORT" "${AGENT_GATEWAY_PORT}"
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "45"
+ensure_env_key "${ENV_ROOT}/agent-gateway.env" "GOSHA_AGENT_GATEWAY_DEFAULT_PROFILE_ID" "${DEFAULT_PROVIDER_PROFILE_ID}"
+
+if [[ ! -s "${SENSEVOICE_MODEL_FILE}" ]]; then
+  echo "Downloading SenseVoiceSmall model to ${SENSEVOICE_MODEL_FILE}"
+  curl -fL --retry 3 --retry-delay 5 -C - -o "${SENSEVOICE_MODEL_FILE}" "${SENSEVOICE_MODEL_URL}"
+fi
+
+python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}"
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+ws_url = sys.argv[2]
+panel_port = sys.argv[3]
+proxy_token = sys.argv[4]
+
+existing = ""
+if config_path.exists():
+    existing = config_path.read_text(encoding="utf-8", errors="ignore").strip()
+
+if existing not in ("", "{}", "null"):
+    raise SystemExit(0)
+
+config_path.write_text(
+    "\n".join(
+        [
+            "server:",
+            f"  websocket: {ws_url}",
+            "prompt: |",
+            "  Ты — голосовой ассистент по имени Гоша.",
+            "  Отвечай по-русски, доброжелательно и короткими понятными фразами.",
+            "selected_module:",
+            "  ASR: FunASR",
+            "  LLM: GoshaProxyLLM",
+            "  TTS: EdgeTTS",
+            "LLM:",
+            "  GoshaProxyLLM:",
+            "    type: openai",
+            "    model_name: gosha-assistant",
+            f"    url: http://host.docker.internal:{panel_port}/api/internal/openai/v1",
+            f"    api_key: {proxy_token}",
+            "TTS:",
+            "  EdgeTTS:",
+            "    type: edge",
+            "    voice: ru-RU-SvetlanaNeural",
+            "    output_dir: tmp/",
+            "",
+        ]
+    ),
+    encoding="utf-8",
+)
+PY
 
 copy_if_missing() {
   local src="$1"
@@ -263,16 +376,22 @@ install -m 644 "${APP_DIR}/ops/systemd/gosha-observer.timer" /etc/systemd/system
 systemctl daemon-reload
 
 if [[ "${PHASE}" == "panel" ]]; then
-  systemctl enable --now gosha-agent-gateway.service
-  systemctl enable --now gosha-panel.service
+  systemctl enable gosha-agent-gateway.service
+  systemctl restart gosha-agent-gateway.service
+  systemctl enable gosha-panel.service
+  systemctl restart gosha-panel.service
   systemctl enable --now gosha-observer.timer
   systemctl start gosha-observer.service || true
 elif [[ "${PHASE}" == "backend" ]]; then
-  systemctl enable --now gosha-backend.service
+  systemctl enable gosha-backend.service
+  systemctl restart gosha-backend.service
 else
-  systemctl enable --now gosha-backend.service
-  systemctl enable --now gosha-agent-gateway.service
-  systemctl enable --now gosha-panel.service
+  systemctl enable gosha-backend.service
+  systemctl restart gosha-backend.service
+  systemctl enable gosha-agent-gateway.service
+  systemctl restart gosha-agent-gateway.service
+  systemctl enable gosha-panel.service
+  systemctl restart gosha-panel.service
   systemctl enable --now gosha-observer.timer
   systemctl start gosha-observer.service || true
 fi

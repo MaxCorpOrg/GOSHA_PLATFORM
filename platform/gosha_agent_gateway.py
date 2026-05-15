@@ -7,12 +7,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+import gosha_assistant_store as assistant_store
 import gosha_agent_store as agent_store
 
 
 GATEWAY_HOST = os.environ.get("GOSHA_AGENT_GATEWAY_HOST", "127.0.0.1").strip() or "127.0.0.1"
 GATEWAY_PORT = int(os.environ.get("GOSHA_AGENT_GATEWAY_PORT", "18110"))
 DEFAULT_TIMEOUT_SECONDS = max(3.0, float(os.environ.get("GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS", "45")))
+DEFAULT_PROFILE_ID = os.environ.get("GOSHA_AGENT_GATEWAY_DEFAULT_PROFILE_ID", "").strip()
 
 
 def json_bytes(payload):
@@ -100,6 +102,17 @@ def fetch_provider_models(profile):
     }
 
 
+def resolve_default_profile():
+    if DEFAULT_PROFILE_ID:
+        profile = agent_store.get_agent_profile(DEFAULT_PROFILE_ID)
+        if profile and profile.get("enabled"):
+            return profile
+    for item in agent_store.list_agent_profiles():
+        if item.get("enabled"):
+            return item
+    return None
+
+
 def resolve_profile_for_request(payload, headers):
     profile_id = str((payload or {}).get("profile_id", "") or "").strip()
     robot_id = str((payload or {}).get("robot_id", "") or headers.get("X-Gosha-Robot-Id", "") or "").strip()
@@ -111,11 +124,20 @@ def resolve_profile_for_request(payload, headers):
             raise ValueError("agent profile is disabled")
         return robot_id, profile
     if not robot_id:
-        raise ValueError("robot_id or profile_id is required")
-    effective = agent_store.effective_robot_agent(robot_id)
-    profile = effective.get("effective_profile")
+        profile = resolve_default_profile()
+        if not profile:
+            raise ValueError("robot_id or profile_id is required")
+        return "", profile
+    effective = assistant_store.effective_robot_assistant_config(robot_id)
+    provider_profile = effective.get("provider_profile") or {}
+    provider_profile_id = str(provider_profile.get("profile_id", "") or "").strip()
+    if not provider_profile_id:
+        raise ValueError("robot has no active assistant/provider profile")
+    profile = agent_store.get_agent_profile(provider_profile_id)
     if not profile:
-        raise ValueError("robot has no active agent profile")
+        raise ValueError("provider profile not found")
+    if not profile.get("enabled"):
+        raise ValueError("provider profile is disabled")
     return robot_id, profile
 
 
@@ -159,7 +181,16 @@ class AgentGatewayHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
 
         if path == "/healthz":
-            self._send_json(200, {"ok": True, "service": "gosha-agent-gateway", **agent_store.gateway_health_snapshot()})
+            default_profile = resolve_default_profile()
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "service": "gosha-agent-gateway",
+                    "default_profile_id": (default_profile or {}).get("profile_id", ""),
+                    **agent_store.gateway_health_snapshot(),
+                },
+            )
             return
 
         if path == "/v1/providers":

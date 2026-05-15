@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=/opt/gosha_platform/app/platform
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/opt/gosha_platform/runtime/env/panel.env
+EnvironmentFile=-/opt/gosha_platform/runtime/env/providers.env
 ExecStart=/usr/bin/env python3 /opt/gosha_platform/app/platform/gui_panel.py
 Restart=always
 RestartSec=3
