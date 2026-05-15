@@ -136,8 +136,23 @@ def check_resolve_code(base_url, code, timeout, retries, retry_delay):
         bundle = {}
     required = {"code", "panel_url", "robot_id", "robot_name", "subscription", "owner", "users"}
     missing = sorted(required - set(bundle.keys()))
-    ok = payload.get("ok") is True and not missing
-    print_result(ok, "resolve code", f"{detail}, missing={', '.join(missing) or '-'}")
+    mobile_profile = bundle.get("mobile_profile") if isinstance(bundle.get("mobile_profile"), dict) else {}
+    required_mobile_profile = {
+        "brand",
+        "panel_url",
+        "mcp_endpoint_base",
+        "websocket_url",
+        "portal_url",
+        "robot_wifi_prefixes",
+        "preferred_backend_mode",
+    }
+    missing_mobile_profile = sorted(required_mobile_profile - set(mobile_profile.keys()))
+    ok = payload.get("ok") is True and not missing and not missing_mobile_profile
+    print_result(
+        ok,
+        "resolve code",
+        f"{detail}, missing={', '.join(missing) or '-'}, mobile_profile_missing={', '.join(missing_mobile_profile) or '-'}",
+    )
     return ok
 
 

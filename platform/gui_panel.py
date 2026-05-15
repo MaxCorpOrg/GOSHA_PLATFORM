@@ -63,7 +63,7 @@ EDGE_CONTROL_PROBE_TIMEOUT_SECONDS = float(os.environ.get("EDGE_CONTROL_PROBE_TI
 MOBILE_DIR = APP_ROOT / "mobile"
 MOBILE_CODES_PATH = MOBILE_DIR / "onboarding_codes.json"
 PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "http://151.241.228.232:18876").rstrip("/")
-PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "wss://151.241.228.232:8890").rstrip("/")
+PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "ws://151.241.228.232:18080/mcp").rstrip("/")
 PANEL_PUBLIC_SCHEME = urlparse(PUBLIC_PANEL_URL).scheme.lower()
 GOSHA_INTERNAL_OPENAI_PROXY_TOKEN = env_or_file_value(
     "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN",
@@ -1530,14 +1530,32 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
         "users": users,
         "instruction": "Введите код подключения. Данные клиента можно заполнить сразу или позже. После регистрации откройте шаг подключения робота к Wi‑Fi.",
     }
+    mobile_profile = {
+        "brand": "GOSHA",
+        "panel_url": PUBLIC_PANEL_URL,
+        "mcp_endpoint_base": "",
+        "websocket_url": "",
+        "portal_url": "http://192.168.4.1",
+        "robot_wifi_prefixes": ["GOSHA-", "Xiaozhi-"],
+        "preferred_backend_mode": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
+    }
     if isinstance(selfhost_bundle, dict):
+        backend = selfhost_bundle.get("backend") or {}
+        websocket_url = str(backend.get("websocket_url", "") or "")
+        mcp_endpoint_base = str(backend.get("mcp_endpoint_base", "") or "")
         bundle["selfhost_xiaozhi"] = {
             "provider": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
-            "ota_url": str((selfhost_bundle.get("backend") or {}).get("ota_url", "") or ""),
-            "activate_url": str((selfhost_bundle.get("backend") or {}).get("activate_url", "") or ""),
-            "websocket_url": str((selfhost_bundle.get("backend") or {}).get("websocket_url", "") or ""),
-            "mcp_endpoint_base": str((selfhost_bundle.get("backend") or {}).get("mcp_endpoint_base", "") or ""),
+            "ota_url": str(backend.get("ota_url", "") or ""),
+            "activate_url": str(backend.get("activate_url", "") or ""),
+            "websocket_url": websocket_url,
+            "mcp_endpoint_base": mcp_endpoint_base,
         }
+        mobile_profile["websocket_url"] = websocket_url
+        mobile_profile["mcp_endpoint_base"] = mcp_endpoint_base
+    elif bundle["cloud_endpoint"]:
+        cloud_endpoint = str(bundle["cloud_endpoint"]).strip()
+        mobile_profile["mcp_endpoint_base"] = cloud_endpoint.split("?", 1)[0]
+    bundle["mobile_profile"] = mobile_profile
     if include_panel_client_token:
         bundle["panel_client_token"] = ensure_mobile_panel_token(robot_id)
     return bundle

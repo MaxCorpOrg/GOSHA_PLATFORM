@@ -7,6 +7,9 @@
 
 - `platform/`
   - панель, маршруты `mobile/operator API`, отдельный внутренний шлюз ИИ-агентов и слой хранения профилей агентов
+- отдельный мобильный контур:
+  - `/home/max/GOSHA_MOBILE`
+  - это самостоятельный Android-клиент платформы `Гоша`, который использует `mobile API` этой платформы
 - `backend/`
   - `docker compose` и шаблон `env` для совместимого серверного узла на базе `xinnan-tech/xiaozhi-esp32-server`
 - `ops/`
@@ -81,6 +84,15 @@ bash bin/run_local_gosha_panel.sh
 OTA: /gosha/ota/ и совместимый псевдоним /xiaozhi/ota/
 activate: /gosha/ota/activate и совместимый псевдоним /xiaozhi/ota/activate
 WebSocket: пока /xiaozhi/v1/
+```
+
+Дополнительный пакет подключения для нового мобильного клиента:
+
+```text
+bundle.mobile_profile.brand = GOSHA
+bundle.mobile_profile.panel_url = http://151.241.228.232:18876
+bundle.mobile_profile.portal_url = http://192.168.4.1
+bundle.mobile_profile.robot_wifi_prefixes = [GOSHA-, Xiaozhi-]
 ```
 
 ## Что проверять локально

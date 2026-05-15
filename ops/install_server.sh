@@ -172,7 +172,7 @@ APP_ROOT=${APP_ROOT}
 PANEL_HOST=0.0.0.0
 PANEL_PORT=${PANEL_PORT}
 PUBLIC_PANEL_URL=${PANEL_URL}
-PUBLIC_EDGE_HUB_URL=ws://${PUBLIC_HOST}:18890
+PUBLIC_EDGE_HUB_URL=ws://${PUBLIC_HOST}:18080/mcp
 PANEL_OPERATOR_USER=operator
 PANEL_OPERATOR_PASSWORD_FILE=${PANEL_PASSWORD_FILE}
 PANEL_SESSION_TTL_SECONDS=43200
@@ -233,7 +233,7 @@ ensure_env_key "${ENV_ROOT}/panel.env" "APP_ROOT" "${APP_ROOT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_HOST" "0.0.0.0"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_PORT" "${PANEL_PORT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_PANEL_URL" "${PANEL_URL}"
-ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "ws://${PUBLIC_HOST}:18890"
+ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "ws://${PUBLIC_HOST}:18080/mcp"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_USER" "operator"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_PASSWORD_FILE" "${PANEL_PASSWORD_FILE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"
