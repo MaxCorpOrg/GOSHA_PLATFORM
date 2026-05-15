@@ -2914,7 +2914,7 @@
       fillProfileSelect("assistantMcpBundleId", currentMcpBundlesV1, "", "Без набора MCP");
       fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без базы знаний");
 
-      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "child", "Выберите тип");
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "adult", "Выберите тип");
       fillValueCatalogSelect("memoryTypeV1", currentAssistantCatalogs.memory_types || [], "short_term", "Выберите тип памяти");
       fillValueCatalogSelect("knowledgeIndexingState", currentAssistantCatalogs.knowledge_states || [], "not_configured", "Выберите состояние");
       fillValueCatalogSelect("screenTheme", currentAssistantCatalogs.screen_themes || [], "dark", "Выберите тему");
@@ -2985,7 +2985,7 @@
       document.getElementById("voiceSpeechRate").value = "1";
       document.getElementById("voicePitch").value = "1";
       document.getElementById("voiceEnabled").checked = true;
-      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "child", "Выберите тип");
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "adult", "Выберите тип");
     }
 
     function loadVoiceProfileIntoFormV1(profileId) {
@@ -3003,7 +3003,7 @@
       document.getElementById("voiceSpeechRate").value = String(profile.speech_rate ?? 1);
       document.getElementById("voicePitch").value = String(profile.pitch ?? 1);
       document.getElementById("voiceEnabled").checked = profile.enabled !== false;
-      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], profile.voice_type || "child", "Выберите тип");
+      fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], profile.voice_type || "adult", "Выберите тип");
     }
 
     function resetMemoryProfileForm() {
@@ -3314,7 +3314,7 @@
         profile_id: profileId,
         display_name: document.getElementById("voiceDisplayName").value.trim(),
         language: document.getElementById("voiceLanguage").value.trim(),
-        voice_type: document.getElementById("voiceType").value || "child",
+        voice_type: document.getElementById("voiceType").value || "adult",
         voice_name: document.getElementById("voiceName").value.trim(),
         provider_label: document.getElementById("voiceProviderLabel").value.trim(),
         speech_rate: Number(document.getElementById("voiceSpeechRate").value || 1),

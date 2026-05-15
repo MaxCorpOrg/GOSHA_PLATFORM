@@ -326,6 +326,114 @@ if not target_dir.joinpath("am", "final.mdl").exists():
 PY
 fi
 
+python3 - <<'PY' "${APP_ROOT}"
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+app_root = Path(sys.argv[1])
+agents_root = app_root / "agents"
+assistants_dir = agents_root / "assistants"
+voices_dir = agents_root / "voices"
+bindings_dir = agents_root / "bindings"
+memory_dir = agents_root / "memory"
+mcp_dir = agents_root / "mcp_bundles"
+screens_dir = agents_root / "screens"
+wake_dir = agents_root / "wake"
+
+for path in (assistants_dir, voices_dir, bindings_dir, memory_dir, mcp_dir, screens_dir, wake_dir):
+    path.mkdir(parents=True, exist_ok=True)
+
+now = int(time.time())
+
+def load_json(path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+def save_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+voice_profiles = {
+    "voice-ru-default": {
+        "profile_id": "voice-ru-default",
+        "display_name": "Русский голос: Светлана",
+        "voice_name": "ru-RU-SvetlanaNeural",
+        "provider_label": "Взрослый женский голос Microsoft Edge",
+        "language": "ru-RU",
+        "voice_type": "adult",
+        "speech_rate": 1.0,
+        "pitch": 1.0,
+        "enabled": True,
+    },
+    "voice-ru-man": {
+        "profile_id": "voice-ru-man",
+        "display_name": "Русский голос: Дмитрий",
+        "voice_name": "ru-RU-DmitryNeural",
+        "provider_label": "Взрослый мужской голос Microsoft Edge",
+        "language": "ru-RU",
+        "voice_type": "adult",
+        "speech_rate": 1.0,
+        "pitch": 1.0,
+        "enabled": True,
+    },
+    "voice-ru-kid-girl": {
+        "profile_id": "voice-ru-kid-girl",
+        "display_name": "Русский голос: девочка",
+        "voice_name": "ru-RU-SvetlanaNeural",
+        "provider_label": "Детский пресет на базе женского голоса Microsoft Edge",
+        "language": "ru-RU",
+        "voice_type": "child",
+        "speech_rate": 1.12,
+        "pitch": 1.28,
+        "enabled": True,
+    },
+    "voice-ru-kid-boy": {
+        "profile_id": "voice-ru-kid-boy",
+        "display_name": "Русский голос: мальчик",
+        "voice_name": "ru-RU-DmitryNeural",
+        "provider_label": "Детский пресет на базе мужского голоса Microsoft Edge",
+        "language": "ru-RU",
+        "voice_type": "child",
+        "speech_rate": 1.08,
+        "pitch": 1.18,
+        "enabled": True,
+    },
+}
+
+for profile_id, desired in voice_profiles.items():
+    path = voices_dir / f"{profile_id}.json"
+    current = load_json(path, {})
+    created_at = int(current.get("created_at", 0) or 0) or now
+    payload = {**current, **desired, "created_at": created_at, "updated_at": now}
+    save_json(path, payload)
+
+assistant_path = assistants_dir / "assistant-gosha-default.json"
+assistant = load_json(assistant_path, {})
+assistant_created_at = int(assistant.get("created_at", 0) or 0) or now
+assistant.update({
+    "profile_id": "assistant-gosha-default",
+    "display_name": "Гоша основной",
+    "assistant_name": "Гоша",
+    "role_template": assistant.get("role_template", "главный помощник") or "главный помощник",
+    "role_description": assistant.get("role_description", "Основной голосовой ассистент платформы Гоша") or "Основной голосовой ассистент платформы Гоша",
+    "system_prompt": "Ты — голосовой ассистент по имени Гоша. Всегда отвечай только по-русски, если оператор прямо не попросил другой язык. Никогда сам не переходи на китайский, японский или английский. Если фраза распознана неуверенно или выглядит искажённой, коротко попроси повторить по-русски. Отвечай дружелюбно, коротко и понятно.",
+    "dialogue_language": "ru-RU",
+    "voice_profile_id": assistant.get("voice_profile_id", "voice-ru-default") or "voice-ru-default",
+    "memory_profile_id": assistant.get("memory_profile_id", "memory-short-default") or "memory-short-default",
+    "mcp_bundle_id": assistant.get("mcp_bundle_id", "mcp-basic-default") or "mcp-basic-default",
+    "enabled": True,
+    "is_default": True,
+    "created_at": assistant_created_at,
+    "updated_at": now,
+})
+save_json(assistant_path, assistant)
+PY
+
 python3 - <<'PY' "${BACKEND_CONFIG_FILE}" "${WS_URL}" "${PANEL_PORT}" "${INTERNAL_PROXY_TOKEN}" "${APP_ROOT}" "${ASR_PROVIDER_KEY}" "${VOSK_CONTAINER_MODEL_PATH}"
 import sys
 import json
@@ -377,6 +485,68 @@ if profile_id:
 
 model_name = normalize_model(profile_payload.get("base_url", ""), profile_payload.get("model", ""))
 
+def clamp_float(value, default, min_value, max_value):
+    try:
+        result = float(value)
+    except Exception:
+        result = float(default)
+    if result < min_value:
+        return min_value
+    if result > max_value:
+        return max_value
+    return result
+
+def rate_to_edge(rate_multiplier):
+    percent = round((rate_multiplier - 1.0) * 100)
+    return f"{percent:+d}%"
+
+def pitch_to_edge(pitch_multiplier):
+    hz = round((pitch_multiplier - 1.0) * 50)
+    return f"{hz:+d}Hz"
+
+assistants_dir = app_root / "agents" / "assistants"
+bindings_dir = app_root / "agents" / "bindings"
+voices_dir = app_root / "agents" / "voices"
+
+def load_json(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+default_assistant_payload = {}
+for path in sorted(assistants_dir.glob("*.json")):
+    data = load_json(path)
+    if data.get("enabled", True) and data.get("is_default"):
+        default_assistant_payload = data
+        break
+
+voice_profile_id = str(default_assistant_payload.get("voice_profile_id", "") or "").strip()
+if not voice_profile_id:
+    for path in sorted(bindings_dir.glob("*.json")):
+        data = load_json(path)
+        candidate = str(data.get("voice_profile_id", "") or "").strip()
+        if candidate:
+            voice_profile_id = candidate
+            break
+
+voice_payload = load_json(voices_dir / f"{voice_profile_id}.json") if voice_profile_id else {}
+tts_voice_name = str(voice_payload.get("voice_name", "") or "").strip() or "ru-RU-SvetlanaNeural"
+tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
+tts_pitch = clamp_float(voice_payload.get("pitch", 1.0), 1.0, 0.5, 2.0)
+tts_rate = rate_to_edge(tts_speech_rate)
+tts_pitch_hz = pitch_to_edge(tts_pitch)
+prompt_lines = [
+    "Ты — голосовой ассистент по имени Гоша.",
+    "Всегда отвечай только по-русски, если оператор прямо не попросил другой язык.",
+    "Никогда сам не переходи на китайский, японский или английский.",
+    "Если фраза распознана неуверенно или выглядит искажённой, коротко попроси повторить по-русски.",
+    "Отвечай доброжелательно, короткими понятными фразами.",
+]
+custom_prompt = str(default_assistant_payload.get("system_prompt", "") or "").strip()
+if custom_prompt:
+    prompt_lines = [custom_prompt]
+
 if profile_payload:
     if str(profile_payload.get("model", "") or "").strip() != model_name:
         profile_payload["model"] = model_name
@@ -412,8 +582,7 @@ config_path.write_text(
             "server:",
             f"  websocket: {ws_url}",
             "prompt: |",
-            "  Ты — голосовой ассистент по имени Гоша.",
-            "  Отвечай по-русски, доброжелательно и короткими понятными фразами.",
+            *[f"  {line}" for line in prompt_lines],
             *asr_lines,
             "LLM:",
             "  GoshaProxyLLM:",
@@ -424,7 +593,11 @@ config_path.write_text(
             "TTS:",
             "  EdgeTTS:",
             "    type: edge",
-            "    voice: ru-RU-SvetlanaNeural",
+            f"    voice: {tts_voice_name}",
+            f"    speech_rate: {tts_speech_rate}",
+            f"    pitch: {tts_pitch}",
+            f"    rate: {tts_rate}",
+            f"    pitch_hz: {tts_pitch_hz}",
             "    output_dir: tmp/",
             "",
         ]

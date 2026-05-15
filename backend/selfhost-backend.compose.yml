@@ -24,6 +24,7 @@ services:
       - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models/SenseVoiceSmall:/opt/xiaozhi-esp32-server/models/SenseVoiceSmall
       - ${SELFHOST_XIAOZHI_STORAGE_ROOT:-../local_only/runtime_lab/app_root/selfhost_xiaozhi/backend}/models/vosk:/opt/xiaozhi-esp32-server/models/vosk
       - ./overrides/fun_local.py:/opt/xiaozhi-esp32-server/core/providers/asr/fun_local.py:ro
+      - ./overrides/edge.py:/opt/xiaozhi-esp32-server/core/providers/tts/edge.py:ro
 
   xiaozhi-esp32-server-web:
     image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:web_latest

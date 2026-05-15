@@ -225,7 +225,7 @@ def default_voice_profile(profile_id=""):
         "voice_name": "",
         "provider_label": "",
         "language": "ru-RU",
-        "voice_type": "child",
+        "voice_type": "adult",
         "speech_rate": 1.0,
         "pitch": 1.0,
         "enabled": True,
@@ -355,9 +355,9 @@ def normalize_voice_profile(profile_id, raw):
     base["voice_name"] = _text(_value(payload, "voice_name", "provider_voice_name", default=""))
     base["provider_label"] = _text(_value(payload, "provider_label", "voice_role", default=""))
     base["language"] = _text(_value(payload, "language", "dialogue_language", default="ru-RU"), "ru-RU") or "ru-RU"
-    voice_type = _text(_value(payload, "voice_type", "type", default="child"), "child") or "child"
+    voice_type = _text(_value(payload, "voice_type", "type", default="adult"), "adult") or "adult"
     if voice_type not in {item["value"] for item in voice_type_catalog()}:
-        voice_type = "child"
+        voice_type = "adult"
     base["voice_type"] = voice_type
     base["speech_rate"] = _float(_value(payload, "speech_rate", "speech_speed", default=1.0), 1.0, 0.5, 2.0)
     base["pitch"] = _float(_value(payload, "pitch", "voice_pitch", default=1.0), 1.0, 0.5, 2.0)
