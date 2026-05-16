@@ -41,6 +41,11 @@
   - пользовательская панель уже очищена от активных китайских строк;
   - старый музыкальный слот `music-tools` отключён и скрыт;
   - для будущей собственной музыкальной интеграции зарезервирован `gosha.media.stub`.
+  - операторский интерфейс уже смещён в понятный сценарий:
+    - карточки роботов на главном экране;
+    - отдельное рабочее окно выбранного робота;
+    - скрытые служебные панели, которые открываются только по явному действию;
+    - прямые прошивочные ссылки и OTA-адреса не выдаются в открытом интерфейсе
 
 ### `GOSHA_FIRMWARE`
 
@@ -48,7 +53,7 @@
   - `/home/max/GOSHA_FIRMWARE`
 - Назначение:
   - собственная прошивка робота;
-  - профиль платы `gosha-otto-v1`;
+  - профиль платы `gosha-v1`;
   - экран, слово пробуждения, локальный портал, локальный `WebSocket`, аппаратные выводы.
 
 ### `GOSHA_MOBILE`
@@ -171,6 +176,10 @@
 - Модель ИИ:
   - `deepseek-v4-flash`
 - Синтез речи:
+  - `SileroTTS`
+- Текущий живой спикер:
+  - `kseniya`
+- Быстрый резерв:
   - `EdgeTTS`
 
 Важно:
@@ -178,6 +187,8 @@
 - текущий живой `EdgeTTS` хранится как профиль `tts-engine-edge-default`;
 - следующий русский `TTS` уже встроен в репозиторий как модуль `backend/overrides/silero_local.py`;
 - этот модуль уже подключён в `compose`, а серверный рендер умеет собирать для него блок `SileroTTS`;
+- текущий живой тестовый профиль на сервере:
+  - `tts-engine-silero-live-test`
 - живой профиль `tts-engine-silero-prep` пока сознательно остаётся `planned`, поэтому рабочий контур безопасно держится на `EdgeTTS`;
 - если у робота явно не записан `ROBOT_BACKEND_MODE`, платформа теперь трактует это как `Платформу Гоша`;
 - `platform/add_robot.sh` создаёт новых роботов сразу с `ROBOT_BACKEND_MODE=self_hosted_xiaozhi`.
@@ -253,12 +264,12 @@
 - Сборочный корень:
   - `/home/max/GOSHA_FIRMWARE/firmware`
 - Профиль платы:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1`
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1`
 - Где проходила очистка пользовательских китайских строк:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1/otto_controller.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1/otto_robot.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1/otto_emoji_display.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-otto-v1/power_manager.h`
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_controller.cc`
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_robot.cc`
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_emoji_display.cc`
+  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/power_manager.h`
   - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/common/press_to_talk_mcp_tool.cc`
 - Важно:
   - после этого китайские символы в активном пользовательском слое больше не должны доходить до экрана, подсказок и `MCP`-описаний;
@@ -281,7 +292,7 @@
 - Основной merged-образ:
   - `/home/max/GOSHA_FIRMWARE/firmware/build/merged-binary.bin`
 - Выпускной архив:
-  - `/home/max/GOSHA_FIRMWARE/firmware/releases/v2.2.2_gosha-otto-v1.zip`
+  - `/home/max/GOSHA_FIRMWARE/firmware/releases/v2.2.2_gosha-v1.zip`
 
 ## 6. Где живёт Android-клиент
 
