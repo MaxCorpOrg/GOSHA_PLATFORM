@@ -2229,12 +2229,12 @@
     <div id="robotWorkspaceCard" class="card robot-workspace" style="margin-top:12px; display:none;">
       <div class="robot-workspace-head">
         <div>
-          <h2 id="robotWorkspaceTitle">Карточка робота</h2>
-          <div id="robotWorkspaceSubtitle" class="robot-workspace-subtitle">Выбери карточку в списке выше, и здесь откроется отдельное рабочее пространство именно этого робота.</div>
+          <h2 id="robotWorkspaceTitle">Страница робота</h2>
+          <div id="robotWorkspaceSubtitle" class="robot-workspace-subtitle">Выбери карточку в списке выше, и здесь откроется отдельная рабочая страница именно этого робота.</div>
         </div>
         <div class="row">
           <span id="robotWorkspaceStatePill" class="pill warn">Робот не выбран</span>
-          <button class="btn" onclick="closeRobotWorkspace()">Закрыть карточку</button>
+          <button class="btn" onclick="closeRobotWorkspace()">К списку роботов</button>
         </div>
       </div>
       <div class="robot-workspace-tabs" aria-label="Рабочие разделы выбранного робота">
@@ -2245,7 +2245,7 @@
       </div>
       <div id="robotWorkspaceBody" class="robot-workspace-grid">
         <div class="robot-panel robot-panel-wide">
-          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельное рабочее пространство с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
+          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельную рабочую страницу с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
         </div>
       </div>
     </div>
@@ -2564,6 +2564,7 @@
     let robotWorkspaceId = "";
     let robotWorkspaceTab = "overview";
     let robotWorkspaceConfigData = null;
+    let robotWorkspaceRouteLock = false;
     let memRobot = null;
     let subscriptionRobot = null;
     let ownerRobot = null;
@@ -2581,6 +2582,7 @@
     let robotSearchQuery = "";
     const DETECTION_FRESH_SECONDS = 90;
     const AUTO_DETECT_LIMIT = 3;
+    const ROBOT_WORKSPACE_TABS = ["overview", "personality", "connection", "client"];
     const robotFilterOptions = [
       { mode: "all", label: "Все" },
       { mode: "template", label: "Шаблоны" },
@@ -2593,6 +2595,66 @@
       { mode: "smoke-failed", label: "Обнаружение не подтверждено" },
       { mode: "cloud-unavailable", label: "Облачный контур недоступен" },
     ];
+
+    function normalizeRobotWorkspaceTab(tab) {
+      return ROBOT_WORKSPACE_TABS.includes(tab) ? tab : "overview";
+    }
+
+    function robotPageHref(robotId = "", tab = "overview") {
+      const url = new URL(window.location.href);
+      if (robotId) {
+        url.searchParams.set("robot", robotId);
+        url.searchParams.set("tab", normalizeRobotWorkspaceTab(tab));
+        url.hash = "robot";
+      } else {
+        url.searchParams.delete("robot");
+        url.searchParams.delete("tab");
+        url.hash = "";
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+
+    function readRobotWorkspaceRoute() {
+      const url = new URL(window.location.href);
+      const robotId = (url.searchParams.get("robot") || "").trim();
+      if (!robotId) return null;
+      return {
+        robotId,
+        tab: normalizeRobotWorkspaceTab((url.searchParams.get("tab") || "overview").trim())
+      };
+    }
+
+    function syncRobotWorkspaceRoute({ replace = false } = {}) {
+      if (robotWorkspaceRouteLock) return;
+      const nextUrl = robotPageHref(robotWorkspaceId, robotWorkspaceTab);
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentUrl === nextUrl) return;
+      const fn = replace ? "replaceState" : "pushState";
+      window.history[fn]({}, "", nextUrl);
+    }
+
+    async function applyRobotWorkspaceRoute({ replace = false, scroll = false } = {}) {
+      const route = readRobotWorkspaceRoute();
+      if (!route) {
+        if (robotWorkspaceId) {
+          closeRobotWorkspace({ skipRouteSync: true });
+        }
+        return false;
+      }
+      if (!currentRobots.some((robot) => robot.robot_id === route.robotId)) {
+        return false;
+      }
+      robotWorkspaceRouteLock = true;
+      try {
+        await openRobotWorkspace(route.robotId, route.tab, { skipRouteSync: true, scroll });
+      } finally {
+        robotWorkspaceRouteLock = false;
+      }
+      if (replace) {
+        syncRobotWorkspaceRoute({ replace: true });
+      }
+      return true;
+    }
     try {
       const savedViewMode = localStorage.getItem("aiRobotPanelViewMode");
       if (["cards", "compact"].includes(savedViewMode)) robotViewMode = savedViewMode;
@@ -3975,35 +4037,48 @@
       return robotWorkspaceConfigData;
     }
 
-    function closeRobotWorkspace() {
+    function closeRobotWorkspace(options = {}) {
+      const { skipRouteSync = false, replaceHistory = false } = options;
       robotWorkspaceId = "";
       robotWorkspaceTab = "overview";
       robotWorkspaceConfigData = null;
-      document.getElementById("robotWorkspaceTitle").textContent = "Карточка робота";
-      document.getElementById("robotWorkspaceSubtitle").textContent = "Выбери карточку в списке выше, и здесь откроется отдельное рабочее пространство именно этого робота.";
+      document.getElementById("robotWorkspaceTitle").textContent = "Страница робота";
+      document.getElementById("robotWorkspaceSubtitle").textContent = "Выбери карточку в списке выше, и здесь откроется отдельная рабочая страница именно этого робота.";
       document.getElementById("robotWorkspaceStatePill").className = "pill warn";
       document.getElementById("robotWorkspaceStatePill").textContent = "Робот не выбран";
       document.getElementById("robotWorkspaceBody").innerHTML = `
         <div class="robot-panel robot-panel-wide">
-          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельное рабочее пространство с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
+          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельную рабочую страницу с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
         </div>
       `;
+      if (!skipRouteSync) {
+        syncRobotWorkspaceRoute({ replace: replaceHistory });
+      }
       hidePanelCard("robotWorkspaceCard");
     }
 
-    function setRobotWorkspaceTab(tab) {
-      robotWorkspaceTab = ["overview", "personality", "connection", "client"].includes(tab) ? tab : "overview";
+    function setRobotWorkspaceTab(tab, options = {}) {
+      robotWorkspaceTab = normalizeRobotWorkspaceTab(tab);
+      if (!options.skipRouteSync) {
+        syncRobotWorkspaceRoute({ replace: false });
+      }
       renderRobotWorkspace();
     }
 
-    async function openRobotWorkspace(robotId, tab = "overview") {
+    async function openRobotWorkspace(robotId, tab = "overview", options = {}) {
+      const { skipRouteSync = false, replaceHistory = false, scroll = true } = options;
       if (!robotId) return;
       robotWorkspaceId = robotId;
-      robotWorkspaceTab = ["overview", "personality", "connection", "client"].includes(tab) ? tab : "overview";
+      robotWorkspaceTab = normalizeRobotWorkspaceTab(tab);
       showPanelCard("robotWorkspaceCard", { scroll: false });
       await loadRobotWorkspaceConfig(robotId, true);
+      if (!skipRouteSync) {
+        syncRobotWorkspaceRoute({ replace: replaceHistory });
+      }
       renderRobotWorkspace();
-      scrollToPanel("robotWorkspaceCard");
+      if (scroll) {
+        scrollToPanel("robotWorkspaceCard");
+      }
     }
 
     function renderRobotWorkspaceOverview(robot) {
@@ -4022,6 +4097,7 @@
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность и голос</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'connection')">Подключение</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент и коды</button>
+            <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>
           </div>
         </section>
         <div class="robot-workspace-kpi">
@@ -4180,7 +4256,7 @@
       const subtitleEl = document.getElementById("robotWorkspaceSubtitle");
       const stateEl = document.getElementById("robotWorkspaceStatePill");
       const bodyEl = document.getElementById("robotWorkspaceBody");
-      const activeTab = ["overview", "personality", "connection", "client"].includes(robotWorkspaceTab) ? robotWorkspaceTab : "overview";
+      const activeTab = normalizeRobotWorkspaceTab(robotWorkspaceTab);
       robotWorkspaceTab = activeTab;
       const tabMap = {
         overview: "robotWorkspaceTabOverview",
@@ -6549,7 +6625,7 @@
           <div class="mini" style="max-width:none;">${escapeHtml(health.detail)}</div>
           <div class="next-action-row">
             <button class="btn primary" onclick="${health.actionCode}">${escapeHtml(health.action)}</button>
-            <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'overview')">Открыть робота</button>
+            <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}">Страница робота</a>
           </div>
         </section>
       `;
@@ -6862,11 +6938,13 @@
       renderRobots();
       if (robotWorkspaceId) {
         if (!currentRobots.some((robot) => robot.robot_id === robotWorkspaceId)) {
-          closeRobotWorkspace();
+          closeRobotWorkspace({ replaceHistory: true });
         } else {
           await loadRobotWorkspaceConfig(robotWorkspaceId, true);
           renderRobotWorkspace();
         }
+      } else {
+        await applyRobotWorkspaceRoute({ replace: true, scroll: false });
       }
       await autoDetectLiveRobots();
     }
@@ -6912,7 +6990,7 @@
                   <div class="robot-subtitle">${isTemplate ? "Служебный шаблон для подготовки, без лишних операторских действий" : "Операторская карточка: подключение, личность, клиент и коды"}</div>
                 </div>
                 <div class="robot-summary-side">
-                  <span>Открыть робота</span>
+                  <span>Страница робота</span>
                 </div>
               </div>
               <div class="robot-quick-pills">
@@ -6953,7 +7031,7 @@
                 </div>
               </div>
               <div class="robot-shell-actions">
-                <button class="btn primary" onclick="openRobotWorkspace('${robot.robot_id}', 'overview')">Открыть робота</button>
+                <a class="btn primary" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}">Страница робота</a>
                 <button class="btn" onclick="detectRobotState('${robot.robot_id}', this, { expand: true })">Проверить связь</button>
                 <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность и голос</button>
                 <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент и коды</button>
@@ -6995,7 +7073,7 @@
         const warnings = robotWarningList(robot);
         const warningTitle = warnings.length ? warnings.join(", ") : "Критичных предупреждений нет";
         return `
-          <tr onclick="openRobotFromTable('${robot.robot_id}')" title="Открыть карточку робота">
+          <tr onclick="openRobotFromTable('${robot.robot_id}')" title="Открыть страницу робота">
             <td class="col-robot">
               <div class="cell-main" title="${escapeHtml(robotDisplayName(robot))}">${escapeHtml(robotDisplayName(robot))}</div>
               <div class="cell-sub" title="${escapeHtml(robot.robot_id)}">${escapeHtml(robot.robot_id)}</div>
@@ -7688,7 +7766,13 @@
       await loadPlans();
       await reloadRobots();
       await reloadWifi();
+      await applyRobotWorkspaceRoute({ replace: true, scroll: false });
     }
+
+    window.addEventListener("popstate", () => {
+      if (!operatorAuthenticated) return;
+      applyRobotWorkspaceRoute({ replace: true, scroll: false });
+    });
 
     (async () => {
       resetAgentProfileForm();
