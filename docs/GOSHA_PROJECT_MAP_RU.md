@@ -176,7 +176,9 @@
 Важно:
 - архитектурно `TTS` уже отделён от голосового профиля;
 - текущий живой `EdgeTTS` хранится как профиль `tts-engine-edge-default`;
-- следующий русский `TTS` пока подготовлен как профиль `tts-engine-silero-prep`, но ещё не внедрён в живой контур.
+- следующий русский `TTS` уже встроен в репозиторий как модуль `backend/overrides/silero_local.py`;
+- этот модуль уже подключён в `compose`, а серверный рендер умеет собирать для него блок `SileroTTS`;
+- живой профиль `tts-engine-silero-prep` пока сознательно остаётся `planned`, поэтому рабочий контур безопасно держится на `EdgeTTS`;
 - если у робота явно не записан `ROBOT_BACKEND_MODE`, платформа теперь трактует это как `Платформу Гоша`;
 - `platform/add_robot.sh` создаёт новых роботов сразу с `ROBOT_BACKEND_MODE=self_hosted_xiaozhi`.
 
@@ -184,6 +186,7 @@
 
 - Репозиторный слой:
   - `/home/max/GOSHA_PLATFORM/backend/overrides/edge.py`
+  - `/home/max/GOSHA_PLATFORM/backend/overrides/silero_local.py`
 - Папка с переопределениями:
   - `/home/max/GOSHA_PLATFORM/backend/overrides`
 

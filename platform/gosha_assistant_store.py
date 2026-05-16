@@ -72,7 +72,18 @@ def ensure_layout():
                 "supports_pitch": False,
                 "enabled": False,
                 "is_default": False,
-                "config": {"sample_rate": 24000, "speaker": "xenia"},
+                "config": {
+                    "model_id": "v5_5_ru",
+                    "speaker": "xenia",
+                    "sample_rate": 24000,
+                    "device": "cpu",
+                    "cache_dir": "/opt/xiaozhi-esp32-server/models/silero",
+                    "language": "ru",
+                    "use_ssml": True,
+                    "put_accent": True,
+                    "put_yo": True,
+                    "num_threads": 2,
+                },
             },
         ),
     ):
@@ -690,7 +701,7 @@ def public_tts_engine_profile(profile):
     live_backend_supported = bool(
         item.get("enabled", True)
         and item.get("runtime_state") == "ready"
-        and item.get("engine_kind") == "edge_tts"
+        and item.get("engine_kind") in {"edge_tts", "silero_tts"}
     )
     return {
         **item,

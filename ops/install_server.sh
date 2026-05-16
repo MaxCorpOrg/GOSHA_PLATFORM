@@ -86,6 +86,12 @@ VOSK_MODEL_DIR="${VOSK_MODELS_ROOT}/${VOSK_MODEL_NAME}"
 VOSK_MODEL_ARCHIVE="${BACKEND_STORAGE_ROOT}/models/${VOSK_MODEL_NAME}.zip"
 VOSK_MODEL_URL="${SELFHOST_XIAOZHI_VOSK_MODEL_URL:-https://alphacephei.com/vosk/models/${VOSK_MODEL_NAME}.zip}"
 VOSK_CONTAINER_MODEL_PATH="/opt/xiaozhi-esp32-server/models/vosk/${VOSK_MODEL_NAME}"
+SILERO_MODELS_ROOT="${BACKEND_STORAGE_ROOT}/models/silero"
+SILERO_MODEL_ID="${SELFHOST_XIAOZHI_SILERO_MODEL_ID:-v5_5_ru}"
+SILERO_DEFAULT_SPEAKER="${SELFHOST_XIAOZHI_SILERO_DEFAULT_SPEAKER:-xenia}"
+SILERO_SAMPLE_RATE="${SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE:-24000}"
+SILERO_DEVICE="${SELFHOST_XIAOZHI_SILERO_DEVICE:-cpu}"
+SILERO_CACHE_DIR="${SELFHOST_XIAOZHI_SILERO_CACHE_DIR:-/opt/xiaozhi-esp32-server/models/silero}"
 BACKEND_CONFIG_FILE="${BACKEND_STORAGE_ROOT}/data/.config.yaml"
 
 ensure_env_key() {
@@ -113,6 +119,7 @@ mkdir -p \
   "${BACKEND_STORAGE_ROOT}/data" \
   "${SENSEVOICE_MODEL_DIR}" \
   "${VOSK_MODELS_ROOT}" \
+  "${SILERO_MODELS_ROOT}" \
   "${BACKEND_STORAGE_ROOT}/mysql" \
   "${BACKEND_STORAGE_ROOT}/redis" \
   "${BACKEND_STORAGE_ROOT}/uploadfile" \
@@ -228,6 +235,11 @@ SELFHOST_XIAOZHI_DB_PASSWORD=${DB_PASSWORD}
 SELFHOST_XIAOZHI_REDIS_PASSWORD=
 SELFHOST_XIAOZHI_ASR_PROVIDER=${ASR_PROVIDER_KEY}
 SELFHOST_XIAOZHI_VOSK_MODEL_NAME=${VOSK_MODEL_NAME}
+SELFHOST_XIAOZHI_SILERO_MODEL_ID=${SILERO_MODEL_ID}
+SELFHOST_XIAOZHI_SILERO_DEFAULT_SPEAKER=${SILERO_DEFAULT_SPEAKER}
+SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE=${SILERO_SAMPLE_RATE}
+SELFHOST_XIAOZHI_SILERO_DEVICE=${SILERO_DEVICE}
+SELFHOST_XIAOZHI_SILERO_CACHE_DIR=${SILERO_CACHE_DIR}
 SELFHOST_XIAOZHI_STORAGE_ROOT=${BACKEND_STORAGE_ROOT}
 EOF
 fi
@@ -288,6 +300,11 @@ ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_REDIS_PASSWO
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_ASR_PROVIDER" "${ASR_PROVIDER_KEY}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_ASR_LANGUAGE" "ru"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_VOSK_MODEL_NAME" "${VOSK_MODEL_NAME}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_SILERO_MODEL_ID" "${SILERO_MODEL_ID}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_SILERO_DEFAULT_SPEAKER" "${SILERO_DEFAULT_SPEAKER}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE" "${SILERO_SAMPLE_RATE}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_SILERO_DEVICE" "${SILERO_DEVICE}"
+ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_SILERO_CACHE_DIR" "${SILERO_CACHE_DIR}"
 ensure_env_key "${ENV_ROOT}/selfhost-backend.env" "SELFHOST_XIAOZHI_STORAGE_ROOT" "${BACKEND_STORAGE_ROOT}"
 
 ensure_env_key "${ENV_ROOT}/agent-gateway.env" "APP_ROOT" "${APP_ROOT}"
@@ -326,6 +343,11 @@ if not target_dir.joinpath("am", "final.mdl").exists():
 PY
 fi
 
+SILERO_MODEL_ID="${SILERO_MODEL_ID}" \
+SILERO_DEFAULT_SPEAKER="${SILERO_DEFAULT_SPEAKER}" \
+SILERO_SAMPLE_RATE="${SILERO_SAMPLE_RATE}" \
+SILERO_DEVICE="${SILERO_DEVICE}" \
+SILERO_CACHE_DIR="${SILERO_CACHE_DIR}" \
 python3 - <<'PY' "${APP_ROOT}"
 import json
 import os
@@ -348,6 +370,11 @@ for path in (assistants_dir, tts_engines_dir, voices_dir, bindings_dir, memory_d
     path.mkdir(parents=True, exist_ok=True)
 
 now = int(time.time())
+silero_model_id = os.environ.get("SILERO_MODEL_ID", "v5_5_ru")
+silero_default_speaker = os.environ.get("SILERO_DEFAULT_SPEAKER", "xenia")
+silero_sample_rate = int(os.environ.get("SILERO_SAMPLE_RATE", "24000") or "24000")
+silero_device = os.environ.get("SILERO_DEVICE", "cpu")
+silero_cache_dir = os.environ.get("SILERO_CACHE_DIR", "/opt/xiaozhi-esp32-server/models/silero")
 
 def load_json(path, default):
     try:
@@ -384,7 +411,18 @@ tts_engine_profiles = {
         "supports_pitch": False,
         "enabled": False,
         "is_default": False,
-        "config": {"sample_rate": 24000, "speaker": "xenia"},
+        "config": {
+            "model_id": silero_model_id,
+            "speaker": silero_default_speaker,
+            "sample_rate": silero_sample_rate,
+            "device": silero_device,
+            "cache_dir": silero_cache_dir,
+            "language": "ru",
+            "use_ssml": True,
+            "put_accent": True,
+            "put_yo": True,
+            "num_threads": 2
+        },
     },
 }
 

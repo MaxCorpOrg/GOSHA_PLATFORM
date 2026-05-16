@@ -118,13 +118,77 @@ def resolve_tts_selection(app_root: Path, voice_profile_id: str) -> tuple[str, d
     runtime_state = str(tts_engine_payload.get("runtime_state", "") or "").strip() or "ready"
     enabled = bool(tts_engine_payload.get("enabled", True))
 
-    if requested_kind != DEFAULT_TTS_KIND:
-        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_engine_not_live"
     if runtime_state != "ready":
         return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_profile_not_ready"
     if not enabled:
         return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_profile_disabled"
+    if requested_kind != DEFAULT_TTS_KIND:
+        if requested_kind == "silero_tts":
+            return requested_profile_id, voice_payload, requested_kind, effective_module, "ready"
+        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_engine_not_live"
     return requested_profile_id, voice_payload, requested_kind, effective_module, "ready"
+
+
+def build_tts_lines(tts_kind: str, tts_module: str, voice_payload: dict, tts_engine_payload: dict, requested_tts_kind: str) -> list[str]:
+    if tts_kind == "silero_tts":
+        engine_config = tts_engine_payload.get("config", {}) if isinstance(tts_engine_payload.get("config"), dict) else {}
+        model_id = str(engine_config.get("model_id", "v5_5_ru") or "v5_5_ru").strip() or "v5_5_ru"
+        speaker = str(
+            voice_payload.get("voice_name")
+            or engine_config.get("speaker")
+            or "xenia"
+        ).strip() or "xenia"
+        sample_rate = int(clamp_float(engine_config.get("sample_rate", 24000), 24000, 8000, 48000))
+        device = str(engine_config.get("device", "cpu") or "cpu").strip() or "cpu"
+        cache_dir = str(
+            engine_config.get("cache_dir", "/opt/xiaozhi-esp32-server/models/silero")
+            or "/opt/xiaozhi-esp32-server/models/silero"
+        ).strip() or "/opt/xiaozhi-esp32-server/models/silero"
+        use_ssml = bool(engine_config.get("use_ssml", True))
+        put_accent = bool(engine_config.get("put_accent", True))
+        put_yo = bool(engine_config.get("put_yo", True))
+        num_threads = int(clamp_float(engine_config.get("num_threads", 2), 2, 1, 32))
+        tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
+        tts_pitch = clamp_float(voice_payload.get("pitch", 1.0), 1.0, 0.5, 2.0)
+        return [
+            "TTS:",
+            f"  {tts_module}:",
+            "    type: local",
+            "    language: ru",
+            f"    model_id: {model_id}",
+            f"    speaker: {speaker}",
+            f"    sample_rate: {sample_rate}",
+            f"    device: {device}",
+            f"    cache_dir: {cache_dir}",
+            f"    speech_rate: {tts_speech_rate}",
+            f"    pitch: {tts_pitch}",
+            f"    use_ssml: {'true' if use_ssml else 'false'}",
+            f"    put_accent: {'true' if put_accent else 'false'}",
+            f"    put_yo: {'true' if put_yo else 'false'}",
+            f"    num_threads: {num_threads}",
+            "    output_dir: tmp/",
+            "",
+        ]
+
+    tts_voice_name = str(voice_payload.get("voice_name", "") or "").strip() or DEFAULT_TTS_VOICE
+    if requested_tts_kind != "edge_tts" and "-Neural" not in tts_voice_name:
+        tts_voice_name = DEFAULT_TTS_VOICE
+    tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
+    tts_pitch = clamp_float(voice_payload.get("pitch", 1.0), 1.0, 0.5, 2.0)
+    tts_rate = rate_to_edge(tts_speech_rate)
+    tts_pitch_hz = pitch_to_edge(tts_pitch)
+    return [
+        "TTS:",
+        f"  {tts_module}:",
+        f"    type: {DEFAULT_TTS_TYPE}",
+        f"    voice: {tts_voice_name}",
+        f"    speech_rate: {tts_speech_rate}",
+        f"    pitch: {tts_pitch}",
+        f"    rate: {tts_rate}",
+        f"    pitch_hz: {tts_pitch_hz}",
+        "    output_dir: tmp/",
+        "",
+    ]
 
 
 def resolve_prompt_lines(default_assistant_payload: dict) -> list[str]:
@@ -179,14 +243,13 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
     default_assistant_payload = resolve_default_assistant(app_root)
     voice_profile_id = resolve_voice_profile_id(app_root, default_assistant_payload)
     requested_tts_engine_profile_id, voice_payload, effective_tts_kind, effective_tts_module, effective_tts_runtime = resolve_tts_selection(app_root, voice_profile_id)
+    requested_tts_engine_path = app_root / "agents" / "tts_engines" / f"{requested_tts_engine_profile_id}.json"
+    requested_tts_engine_payload = load_json(requested_tts_engine_path) if requested_tts_engine_profile_id else {}
+    requested_tts_kind = str(requested_tts_engine_payload.get("engine_kind", "") or "").strip() or DEFAULT_TTS_KIND
 
-    tts_voice_name = str(voice_payload.get("voice_name", "") or "").strip() or DEFAULT_TTS_VOICE
-    tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
-    tts_pitch = clamp_float(voice_payload.get("pitch", 1.0), 1.0, 0.5, 2.0)
-    tts_rate = rate_to_edge(tts_speech_rate)
-    tts_pitch_hz = pitch_to_edge(tts_pitch)
     prompt_lines = resolve_prompt_lines(default_assistant_payload)
     asr_lines = build_asr_lines(asr_provider_key, effective_tts_module, vosk_model_path)
+    tts_lines = build_tts_lines(effective_tts_kind, effective_tts_module, voice_payload, requested_tts_engine_payload, requested_tts_kind)
 
     config_path.write_text(
         "\n".join(
@@ -207,16 +270,7 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
                 f"    model_name: {model_name}",
                 f"    url: http://host.docker.internal:{panel_port}/api/internal/openai/v1",
                 f"    api_key: {proxy_token}",
-                "TTS:",
-                f"  {effective_tts_module}:",
-                f"    type: {DEFAULT_TTS_TYPE}",
-                f"    voice: {tts_voice_name}",
-                f"    speech_rate: {tts_speech_rate}",
-                f"    pitch: {tts_pitch}",
-                f"    rate: {tts_rate}",
-                f"    pitch_hz: {tts_pitch_hz}",
-                "    output_dir: tmp/",
-                "",
+                *tts_lines,
             ]
         ),
         encoding="utf-8",
