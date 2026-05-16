@@ -162,6 +162,9 @@
   - `/home/max/GOSHA_PLATFORM/platform`
 - Переопределения синтеза и совместимого server-side слоя:
   - `/home/max/GOSHA_PLATFORM/backend/overrides`
+- Быстрое переключение живого голосового профиля:
+  - `/home/max/GOSHA_PLATFORM/ops/set_live_voice_profile.py`
+  - после смены профиля нужно перерендерить серверный `backend`
 - Локальные секреты разработчика:
   - `/home/max/GOSHA_PLATFORM/GOSHA_API`
 - Серверные секреты и рабочая конфигурация:
