@@ -336,6 +336,7 @@ from pathlib import Path
 app_root = Path(sys.argv[1])
 agents_root = app_root / "agents"
 assistants_dir = agents_root / "assistants"
+tts_engines_dir = agents_root / "tts_engines"
 voices_dir = agents_root / "voices"
 bindings_dir = agents_root / "bindings"
 memory_dir = agents_root / "memory"
@@ -343,7 +344,7 @@ mcp_dir = agents_root / "mcp_bundles"
 screens_dir = agents_root / "screens"
 wake_dir = agents_root / "wake"
 
-for path in (assistants_dir, voices_dir, bindings_dir, memory_dir, mcp_dir, screens_dir, wake_dir):
+for path in (assistants_dir, tts_engines_dir, voices_dir, bindings_dir, memory_dir, mcp_dir, screens_dir, wake_dir):
     path.mkdir(parents=True, exist_ok=True)
 
 now = int(time.time())
@@ -358,10 +359,47 @@ def save_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+tts_engine_profiles = {
+    "tts-engine-edge-default": {
+        "profile_id": "tts-engine-edge-default",
+        "display_name": "EdgeTTS основной",
+        "engine_kind": "edge_tts",
+        "module_name": "EdgeTTS",
+        "provider_label": "Текущий живой контур Microsoft Edge TTS",
+        "runtime_state": "ready",
+        "supports_speech_rate": True,
+        "supports_pitch": True,
+        "enabled": True,
+        "is_default": True,
+        "config": {"output_dir": "tmp/"},
+    },
+    "tts-engine-silero-prep": {
+        "profile_id": "tts-engine-silero-prep",
+        "display_name": "Silero TTS подготовка",
+        "engine_kind": "silero_tts",
+        "module_name": "SileroTTS",
+        "provider_label": "Подготовка архитектуры для нового русского TTS",
+        "runtime_state": "planned",
+        "supports_speech_rate": True,
+        "supports_pitch": False,
+        "enabled": False,
+        "is_default": False,
+        "config": {"sample_rate": 24000, "speaker": "xenia"},
+    },
+}
+
+for profile_id, desired in tts_engine_profiles.items():
+    path = tts_engines_dir / f"{profile_id}.json"
+    current = load_json(path, {})
+    created_at = int(current.get("created_at", 0) or 0) or now
+    payload = {**current, **desired, "created_at": created_at, "updated_at": now}
+    save_json(path, payload)
+
 voice_profiles = {
     "voice-ru-default": {
         "profile_id": "voice-ru-default",
         "display_name": "Русский голос: Светлана",
+        "tts_engine_profile_id": "tts-engine-edge-default",
         "voice_name": "ru-RU-SvetlanaNeural",
         "provider_label": "Взрослый женский голос Microsoft Edge",
         "language": "ru-RU",
@@ -373,6 +411,7 @@ voice_profiles = {
     "voice-ru-man": {
         "profile_id": "voice-ru-man",
         "display_name": "Русский голос: Дмитрий",
+        "tts_engine_profile_id": "tts-engine-edge-default",
         "voice_name": "ru-RU-DmitryNeural",
         "provider_label": "Взрослый мужской голос Microsoft Edge",
         "language": "ru-RU",
@@ -384,6 +423,7 @@ voice_profiles = {
     "voice-ru-kid-girl": {
         "profile_id": "voice-ru-kid-girl",
         "display_name": "Русский голос: девочка",
+        "tts_engine_profile_id": "tts-engine-edge-default",
         "voice_name": "ru-RU-SvetlanaNeural",
         "provider_label": "Детский пресет на базе женского голоса Microsoft Edge",
         "language": "ru-RU",
@@ -395,6 +435,7 @@ voice_profiles = {
     "voice-ru-kid-boy": {
         "profile_id": "voice-ru-kid-boy",
         "display_name": "Русский голос: мальчик",
+        "tts_engine_profile_id": "tts-engine-edge-default",
         "voice_name": "ru-RU-DmitryNeural",
         "provider_label": "Детский пресет на базе мужского голоса Microsoft Edge",
         "language": "ru-RU",
@@ -505,6 +546,7 @@ def pitch_to_edge(pitch_multiplier):
     return f"{hz:+d}Hz"
 
 assistants_dir = app_root / "agents" / "assistants"
+tts_engines_dir = app_root / "agents" / "tts_engines"
 bindings_dir = app_root / "agents" / "bindings"
 voices_dir = app_root / "agents" / "voices"
 
@@ -531,6 +573,14 @@ if not voice_profile_id:
             break
 
 voice_payload = load_json(voices_dir / f"{voice_profile_id}.json") if voice_profile_id else {}
+tts_engine_profile_id = str(voice_payload.get("tts_engine_profile_id", "") or "").strip() or "tts-engine-edge-default"
+tts_engine_payload = load_json(tts_engines_dir / f"{tts_engine_profile_id}.json") if tts_engine_profile_id else {}
+tts_engine_kind = str(tts_engine_payload.get("engine_kind", "") or "").strip() or "edge_tts"
+tts_engine_module = str(tts_engine_payload.get("module_name", "") or "").strip() or "EdgeTTS"
+tts_engine_runtime_state = str(tts_engine_payload.get("runtime_state", "") or "").strip() or "ready"
+if tts_engine_kind != "edge_tts" or tts_engine_runtime_state != "ready" or not bool(tts_engine_payload.get("enabled", True)):
+    tts_engine_kind = "edge_tts"
+    tts_engine_module = "EdgeTTS"
 tts_voice_name = str(voice_payload.get("voice_name", "") or "").strip() or "ru-RU-SvetlanaNeural"
 tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
 tts_pitch = clamp_float(voice_payload.get("pitch", 1.0), 1.0, 0.5, 2.0)
@@ -557,7 +607,7 @@ if asr_provider_key == "VoskASR":
         "selected_module:",
         "  ASR: VoskASR",
         "  LLM: GoshaProxyLLM",
-        "  TTS: EdgeTTS",
+        f"  TTS: {tts_engine_module}",
         "ASR:",
         "  VoskASR:",
         "    type: vosk",
@@ -569,7 +619,7 @@ else:
         "selected_module:",
         "  ASR: FunASR",
         "  LLM: GoshaProxyLLM",
-        "  TTS: EdgeTTS",
+        f"  TTS: {tts_engine_module}",
         "ASR:",
         "  FunASR:",
         "    language: ru",
@@ -579,6 +629,8 @@ config_path.write_text(
     "\n".join(
         [
             "# managed-by-gosha",
+            f"# requested-tts-engine-profile: {tts_engine_profile_id or 'tts-engine-edge-default'}",
+            f"# effective-tts-module: {tts_engine_module}",
             "server:",
             f"  websocket: {ws_url}",
             "prompt: |",
@@ -591,7 +643,7 @@ config_path.write_text(
             f"    url: http://host.docker.internal:{panel_port}/api/internal/openai/v1",
             f"    api_key: {proxy_token}",
             "TTS:",
-            "  EdgeTTS:",
+            f"  {tts_engine_module}:",
             "    type: edge",
             f"    voice: {tts_voice_name}",
             f"    speech_rate: {tts_speech_rate}",

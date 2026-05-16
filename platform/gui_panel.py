@@ -78,7 +78,7 @@ GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS = max(
 )
 ROBOT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 CONTROL_TRANSPORTS = {"cloud-mcp", "edge-hub", "local-ws"}
-USER_SERVICE_ORDER = ["knowledge", "memory", "telegram", "email", "music", "call"]
+USER_SERVICE_ORDER = ["knowledge", "memory", "telegram", "email", "call"]
 MOBILE_PANEL_TOKENS_PATH = MOBILE_DIR / "panel_client_tokens.json"
 MOBILE_CODE_TTL_SECONDS = max(0, int(os.environ.get("MOBILE_CODE_TTL_SECONDS", "2592000")))
 PANEL_OPERATOR_USER = env_or_file_value("PANEL_OPERATOR_USER", "PANEL_OPERATOR_USER_FILE")
@@ -125,36 +125,41 @@ SERVICE_TOOL_MAP = {
     "memory": "memory-tools",
     "telegram": "telegram-tools",
     "email": "email-tools",
-    "music": "music-tools",
     "call": "call-tools",
+}
+LEGACY_DISABLED_MCP_TOOLS = {
+    "music-tools": {
+        "reason": "reserved_for_future_gosha_media",
+        "stub_service": "gosha.media.stub",
+    },
 }
 PLAN_CATALOG = {
     "start": {
         "code": "start",
         "name": "Старт",
         "description": "Базовая база знаний и память клиента.",
-        "services": {"knowledge": True, "memory": True, "telegram": False, "email": False, "music": False, "call": False},
+        "services": {"knowledge": True, "memory": True, "telegram": False, "email": False, "call": False},
         "limits": {"clients": 100, "memory_mb": 256, "operators": 1},
     },
     "business": {
         "code": "business",
         "name": "Бизнес",
         "description": "Для клиентского сервиса с мессенджерами и email.",
-        "services": {"knowledge": True, "memory": True, "telegram": True, "email": True, "music": False, "call": False},
+        "services": {"knowledge": True, "memory": True, "telegram": True, "email": True, "call": False},
         "limits": {"clients": 1000, "memory_mb": 1024, "operators": 3},
     },
     "max": {
         "code": "max",
         "name": "MAX",
         "description": "Все доступные сервисы и расширенные лимиты.",
-        "services": {"knowledge": True, "memory": True, "telegram": True, "email": True, "music": True, "call": True},
+        "services": {"knowledge": True, "memory": True, "telegram": True, "email": True, "call": True},
         "limits": {"clients": 5000, "memory_mb": 4096, "operators": 10},
     },
     "custom": {
         "code": "custom",
         "name": "Индивидуальный",
         "description": "Ручная настройка сервисов и лимитов под клиента.",
-        "services": {"knowledge": True, "memory": True, "telegram": False, "email": False, "music": False, "call": False},
+        "services": {"knowledge": True, "memory": True, "telegram": False, "email": False, "call": False},
         "limits": {"clients": 100, "memory_mb": 256, "operators": 1},
     },
 }
@@ -1006,6 +1011,20 @@ def extract_services_from_servers(servers):
     return services
 
 
+def enforce_reserved_mcp_policy(servers):
+    if not isinstance(servers, dict):
+        return []
+    changed = []
+    for tool_name in LEGACY_DISABLED_MCP_TOOLS:
+        entry = servers.get(tool_name)
+        if not isinstance(entry, dict):
+            continue
+        if not bool(entry.get("disabled", False)):
+            entry["disabled"] = True
+            changed.append(tool_name)
+    return changed
+
+
 def normalize_subscription(raw, servers=None):
     servers = servers or {}
     base = default_subscription("start")
@@ -1051,6 +1070,13 @@ def normalize_subscription(raw, servers=None):
 
 def load_subscription(robot_id, servers=None):
     path = subscription_path(robot_id)
+    if isinstance(servers, dict):
+        changed = enforce_reserved_mcp_policy(servers)
+        if changed:
+            cfg_path = ROBOTS_DIR / robot_id / "mcp_config.json"
+            cfg = load_json(cfg_path, {"mcpServers": {}})
+            cfg["mcpServers"] = servers
+            save_json_atomic(cfg_path, cfg)
     raw = load_json(path, {})
     if not raw:
         raw = default_subscription("start")
@@ -1415,6 +1441,25 @@ def upsert_assistant_profile(payload):
     return {
         "ok": True,
         "profile": assistant_store.public_assistant_profile(profile),
+        "apply": apply_result,
+    }
+
+
+def list_tts_engine_profiles():
+    return [assistant_store.public_tts_engine_profile(item) for item in assistant_store.list_tts_engine_profiles()]
+
+
+def upsert_tts_engine_profile(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    profile_id = str(payload.get("profile_id", "") or "").strip()
+    if not agent_store.safe_profile_id(profile_id):
+        raise ValueError("invalid profile_id")
+    profile = assistant_store.save_tts_engine_profile(profile_id, payload)
+    apply_result = refresh_backend_runtime(f"tts_engine_profile:{profile_id}")
+    return {
+        "ok": True,
+        "profile": assistant_store.public_tts_engine_profile(profile),
         "apply": apply_result,
     }
 
@@ -1788,6 +1833,7 @@ def apply_subscription_to_config(robot_id, subscription):
         else:
             servers[tool_name]["disabled"] = True
 
+    enforce_reserved_mcp_policy(servers)
     save_json_atomic(cfg_path, cfg)
     return cfg
 
@@ -3055,6 +3101,14 @@ def set_tool_enabled(robot_id, tool_name, enabled):
     cfg_path = ROBOTS_DIR / robot_id / "mcp_config.json"
     cfg = load_json(cfg_path, {})
     servers = cfg.setdefault("mcpServers", {})
+    if tool_name in LEGACY_DISABLED_MCP_TOOLS:
+        if tool_name in servers:
+            servers[tool_name]["disabled"] = True
+            save_json_atomic(cfg_path, cfg)
+        return {
+            "ok": False,
+            "error": f"tool is reserved for future GOSHA media integration: {tool_name}",
+        }
     if tool_name not in servers:
         return {"ok": False, "error": f"tool not found: {tool_name}"}
     if enabled:
@@ -3905,6 +3959,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "data": {"profiles": list_assistant_profiles()}})
             return
 
+        if effective_path == "/api/tts-engine-profiles":
+            self._send_json(200, {"ok": True, "data": {"profiles": list_tts_engine_profiles()}})
+            return
+
         if effective_path == "/api/voice-profiles":
             self._send_json(200, {"ok": True, "data": {"profiles": list_voice_profiles()}})
             return
@@ -4270,6 +4328,13 @@ class Handler(BaseHTTPRequestHandler):
         if effective_path == "/api/assistant-profiles":
             try:
                 self._send_json(200, upsert_assistant_profile(payload))
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if effective_path == "/api/tts-engine-profiles":
+            try:
+                self._send_json(200, upsert_tts_engine_profile(payload))
             except Exception as exc:
                 self._send_json(400, {"ok": False, "error": str(exc)})
             return

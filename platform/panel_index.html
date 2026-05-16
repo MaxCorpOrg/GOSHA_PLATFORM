@@ -1655,6 +1655,57 @@
       </details>
 
       <details class="soft-box" style="margin-top:10px;">
+        <summary class="details-toggle">Движки синтеза речи</summary>
+        <div class="mini" style="max-width:none; margin-top:10px;">
+          Здесь хранится именно движок синтеза речи, а не конкретный голос. Сейчас живой контур гарантированно работает через `EdgeTTS`, а следующий русский `TTS` готовится как отдельный профиль без ломки текущего контура.
+        </div>
+        <div class="operator-grid" style="margin-top:10px;">
+          <div>
+            <div class="mini" style="max-width:none;margin-bottom:8px;">Сохранённые движки TTS</div>
+            <div id="ttsEngineProfilesList" class="attention-list">
+              <div class="attention-item"><span>Список движков синтеза речи ещё не загружен.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="ttsEngineProfileId">ID движка</label>
+                <input id="ttsEngineProfileId" type="text" placeholder="tts-engine-edge-default" />
+              </div>
+              <div class="field">
+                <label for="ttsEngineDisplayName">Понятное имя</label>
+                <input id="ttsEngineDisplayName" type="text" placeholder="EdgeTTS основной" />
+              </div>
+              <div class="field">
+                <label for="ttsEngineKind">Тип движка</label>
+                <select id="ttsEngineKind"></select>
+              </div>
+              <div class="field">
+                <label for="ttsEngineModuleName">Имя модуля backend</label>
+                <input id="ttsEngineModuleName" type="text" placeholder="EdgeTTS" />
+              </div>
+              <div class="field">
+                <label for="ttsEngineProviderLabel">Пояснение для оператора</label>
+                <input id="ttsEngineProviderLabel" type="text" placeholder="Текущий живой контур Microsoft Edge TTS" />
+              </div>
+              <div class="field">
+                <label for="ttsEngineRuntimeState">Состояние внедрения</label>
+                <select id="ttsEngineRuntimeState"></select>
+              </div>
+              <label class="check-item"><input id="ttsEngineSupportsSpeechRate" type="checkbox" checked /> Поддерживает скорость речи</label>
+              <label class="check-item"><input id="ttsEngineSupportsPitch" type="checkbox" checked /> Поддерживает высоту голоса</label>
+              <label class="check-item"><input id="ttsEngineEnabled" type="checkbox" checked /> Профиль включён</label>
+              <label class="check-item"><input id="ttsEngineIsDefault" type="checkbox" /> Профиль по умолчанию</label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn primary" onclick="saveTtsEngineProfileV1()">Сохранить движок TTS</button>
+              <button class="btn" onclick="resetTtsEngineProfileForm()">Очистить форму</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="soft-box" style="margin-top:10px;">
         <summary class="details-toggle">Голоса</summary>
         <div class="operator-grid" style="margin-top:10px;">
           <div>
@@ -1680,6 +1731,10 @@
               <div class="field">
                 <label for="voiceType">Тип голоса</label>
                 <select id="voiceType"></select>
+              </div>
+              <div class="field">
+                <label for="voiceTtsEngineProfileId">Движок синтеза речи</label>
+                <select id="voiceTtsEngineProfileId"></select>
               </div>
               <div class="field">
                 <label for="voiceName">Имя голоса у поставщика</label>
@@ -1767,7 +1822,7 @@
               </div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label for="mcpCustomServices">Пользовательские сервисы</label>
-                <textarea id="mcpCustomServices" placeholder="Например: crm.lookup, sales.report, music.player"></textarea>
+                <textarea id="mcpCustomServices" placeholder="Например: crm.lookup, sales.report, gosha.media.stub"></textarea>
               </div>
               <label class="check-item"><input id="mcpBundleEnabled" type="checkbox" checked /> Набор включён</label>
             </div>
@@ -2184,9 +2239,11 @@
           <label class="check-item"><input type="checkbox" id="svcMemory" /> Память клиента</label>
           <label class="check-item"><input type="checkbox" id="svcTelegram" /> Телеграм</label>
           <label class="check-item"><input type="checkbox" id="svcEmail" /> Почта</label>
-          <label class="check-item"><input type="checkbox" id="svcMusic" /> Музыка</label>
           <label class="check-item"><input type="checkbox" id="svcCall" /> Звонки</label>
         </div>
+      </div>
+      <div class="mini" style="max-width:none; margin-top:8px;">
+        Музыкальный слот временно отключён. Внешние чужие музыкальные сервисы сейчас не используются; для будущего собственного расширения зарезервирован нейтральный идентификатор `gosha.media.stub`.
       </div>
       <div id="subPolicyBox" class="hint-box"></div>
       <div class="row" style="margin-top:10px;">
@@ -2381,6 +2438,7 @@
     let currentAgentGatewayState = null;
     let currentAssistantControlData = null;
     let currentAssistantProfilesV1 = [];
+    let currentTtsEngineProfilesV1 = [];
     let currentVoiceProfilesV1 = [];
     let currentMemoryProfilesV1 = [];
     let currentMcpBundlesV1 = [];
@@ -2846,11 +2904,27 @@
       return renderGenericProfileListItem(item, meta, "loadAssistantProfileIntoFormV1", pills);
     }
 
+    function renderTtsEngineProfileListItem(profile) {
+      const item = profile || {};
+      const meta = [
+        item.engine_kind ? `тип: ${item.engine_kind}` : "",
+        item.module_name ? `модуль: ${item.module_name}` : "",
+        item.runtime_state ? `состояние: ${item.runtime_state}` : "",
+      ].filter(Boolean).join(" • ");
+      const pills = [];
+      if (item.is_default) pills.push('<span class="pill ok">по умолчанию</span>');
+      if (item.supports_speech_rate) pills.push('<span class="pill">скорость</span>');
+      if (item.supports_pitch) pills.push('<span class="pill">высота</span>');
+      return renderGenericProfileListItem(item, meta, "loadTtsEngineProfileIntoFormV1", pills, item.deferred_note || "");
+    }
+
     function renderVoiceProfileListItem(profile) {
       const item = profile || {};
+      const ttsEngine = item.tts_engine_profile || null;
       const meta = [
         item.language ? `язык: ${item.language}` : "",
         item.voice_type ? `тип: ${item.voice_type}` : "",
+        ttsEngine ? `движок: ${simpleProfileLabel(ttsEngine)}` : (item.tts_engine_profile_id ? `движок: ${item.tts_engine_profile_id}` : ""),
         item.voice_name ? `голос: ${item.voice_name}` : "",
         item.speech_rate ? `скорость: ${item.speech_rate}` : "",
         item.pitch ? `высота: ${item.pitch}` : "",
@@ -2910,11 +2984,14 @@
       fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], "ru-RU", "Выберите язык");
       fillProfileSelect("assistantProviderProfileId", currentAgentProfiles || [], "", "Выберите поставщика ИИ");
       fillProfileSelect("assistantVoiceProfileId", currentVoiceProfilesV1, "", "Без голоса");
+      fillProfileSelect("voiceTtsEngineProfileId", currentTtsEngineProfilesV1, "tts-engine-edge-default", "Выберите движок TTS");
       fillProfileSelect("assistantMemoryProfileId", currentMemoryProfilesV1, "", "Без памяти");
       fillProfileSelect("assistantMcpBundleId", currentMcpBundlesV1, "", "Без набора MCP");
       fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без базы знаний");
 
       fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "adult", "Выберите тип");
+      fillValueCatalogSelect("ttsEngineKind", currentAssistantCatalogs.tts_engine_kinds || [], "edge_tts", "Выберите тип");
+      fillValueCatalogSelect("ttsEngineRuntimeState", currentAssistantCatalogs.tts_engine_runtime_states || [], "ready", "Выберите состояние");
       fillValueCatalogSelect("memoryTypeV1", currentAssistantCatalogs.memory_types || [], "short_term", "Выберите тип памяти");
       fillValueCatalogSelect("knowledgeIndexingState", currentAssistantCatalogs.knowledge_states || [], "not_configured", "Выберите состояние");
       fillValueCatalogSelect("screenTheme", currentAssistantCatalogs.screen_themes || [], "dark", "Выберите тему");
@@ -2952,6 +3029,38 @@
       fillProfileSelect("assistantKnowledgeProfileId", currentKnowledgeProfilesV1, "", "Без базы знаний");
     }
 
+    function resetTtsEngineProfileForm() {
+      document.getElementById("ttsEngineProfileId").value = "";
+      document.getElementById("ttsEngineDisplayName").value = "";
+      document.getElementById("ttsEngineModuleName").value = "EdgeTTS";
+      document.getElementById("ttsEngineProviderLabel").value = "";
+      document.getElementById("ttsEngineSupportsSpeechRate").checked = true;
+      document.getElementById("ttsEngineSupportsPitch").checked = true;
+      document.getElementById("ttsEngineEnabled").checked = true;
+      document.getElementById("ttsEngineIsDefault").checked = false;
+      fillValueCatalogSelect("ttsEngineKind", currentAssistantCatalogs.tts_engine_kinds || [], "edge_tts", "Выберите тип");
+      fillValueCatalogSelect("ttsEngineRuntimeState", currentAssistantCatalogs.tts_engine_runtime_states || [], "ready", "Выберите состояние");
+    }
+
+    function loadTtsEngineProfileIntoFormV1(profileId) {
+      const profile = (currentTtsEngineProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
+      if (!profile) {
+        resetTtsEngineProfileForm();
+        document.getElementById("ttsEngineProfileId").value = profileId || "";
+        return;
+      }
+      document.getElementById("ttsEngineProfileId").value = profile.profile_id || "";
+      document.getElementById("ttsEngineDisplayName").value = profile.display_name || "";
+      document.getElementById("ttsEngineModuleName").value = profile.module_name || "";
+      document.getElementById("ttsEngineProviderLabel").value = profile.provider_label || "";
+      document.getElementById("ttsEngineSupportsSpeechRate").checked = profile.supports_speech_rate !== false;
+      document.getElementById("ttsEngineSupportsPitch").checked = profile.supports_pitch !== false;
+      document.getElementById("ttsEngineEnabled").checked = profile.enabled !== false;
+      document.getElementById("ttsEngineIsDefault").checked = !!profile.is_default;
+      fillValueCatalogSelect("ttsEngineKind", currentAssistantCatalogs.tts_engine_kinds || [], profile.engine_kind || "edge_tts", "Выберите тип");
+      fillValueCatalogSelect("ttsEngineRuntimeState", currentAssistantCatalogs.tts_engine_runtime_states || [], profile.runtime_state || "ready", "Выберите состояние");
+    }
+
     function loadAssistantProfileIntoFormV1(profileId) {
       const profile = (currentAssistantProfilesV1 || []).find((item) => item.profile_id === profileId) || null;
       if (!profile) {
@@ -2986,6 +3095,7 @@
       document.getElementById("voicePitch").value = "1";
       document.getElementById("voiceEnabled").checked = true;
       fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], "adult", "Выберите тип");
+      fillProfileSelect("voiceTtsEngineProfileId", currentTtsEngineProfilesV1, "tts-engine-edge-default", "Выберите движок TTS");
     }
 
     function loadVoiceProfileIntoFormV1(profileId) {
@@ -3004,6 +3114,7 @@
       document.getElementById("voicePitch").value = String(profile.pitch ?? 1);
       document.getElementById("voiceEnabled").checked = profile.enabled !== false;
       fillValueCatalogSelect("voiceType", currentAssistantCatalogs.voice_types || [], profile.voice_type || "adult", "Выберите тип");
+      fillProfileSelect("voiceTtsEngineProfileId", currentTtsEngineProfilesV1, profile.tts_engine_profile_id || "tts-engine-edge-default", "Выберите движок TTS");
     }
 
     function resetMemoryProfileForm() {
@@ -3160,6 +3271,7 @@
       ];
       if (data.assistant_profile) pills.push(`<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(data.assistant_profile))}</span>`);
       if (data.provider_profile) pills.push(`<span class="pill ok">поставщик ИИ: ${escapeHtml(agentProfileLabel(data.provider_profile))}</span>`);
+      if (data.tts_engine_profile) pills.push(`<span class="pill">движок TTS: ${escapeHtml(simpleProfileLabel(data.tts_engine_profile))}</span>`);
       if (data.voice_profile) pills.push(`<span class="pill">голос: ${escapeHtml(simpleProfileLabel(data.voice_profile))}</span>`);
       if (data.memory_profile) pills.push(`<span class="pill">память: ${escapeHtml(simpleProfileLabel(data.memory_profile))}</span>`);
       if (data.mcp_bundle) pills.push(`<span class="pill">MCP: ${escapeHtml(simpleProfileLabel(data.mcp_bundle))}</span>`);
@@ -3205,9 +3317,9 @@
       const gateway = currentAssistantControlData.gateway || {};
       const proxy = currentAssistantControlData.internal_openai_proxy || {};
       summaryEl.className = gateway.ok ? "pill ok" : "pill warn";
-      summaryEl.textContent = `ассистентов: ${currentAssistantProfilesV1.length}, голосов: ${currentVoiceProfilesV1.length}, MCP: ${currentMcpBundlesV1.length}`;
+      summaryEl.textContent = `ассистентов: ${currentAssistantProfilesV1.length}, движков TTS: ${currentTtsEngineProfilesV1.length}, голосов: ${currentVoiceProfilesV1.length}`;
       metaEl.textContent = gateway.ok
-        ? "Серверные части ассистента применяются без перепрошивки. Экран, лица, пробуждение и часть базы знаний помечены как отложенные до синхронизации с прошивкой."
+        ? "Серверные части ассистента применяются без перепрошивки. Движок синтеза речи теперь хранится отдельно от голоса. Экран, лица, пробуждение и часть базы знаний помечены как отложенные до синхронизации с прошивкой."
         : "Каталог профилей уже можно редактировать, но внутренний шлюз ИИ-агентов временно недоступен и это нужно исправить отдельно.";
       providerSummaryEl.textContent = currentAgentProfiles.length
         ? `В совместимом слое поставщиков ИИ сейчас ${currentAgentProfiles.length} профилей. Прокси для голосового узла ${proxy.enabled ? "включён" : "ещё не включён"}, профиль по умолчанию: ${proxy.default_profile ? simpleProfileLabel(proxy.default_profile) : "не выбран"}.`
@@ -3215,6 +3327,9 @@
       document.getElementById("assistantProfilesV1List").innerHTML = currentAssistantProfilesV1.length
         ? currentAssistantProfilesV1.map((item) => renderAssistantProfileListItemV1(item)).join("")
         : '<div class="attention-item"><span>Профили ассистента ещё не созданы.</span></div>';
+      document.getElementById("ttsEngineProfilesList").innerHTML = currentTtsEngineProfilesV1.length
+        ? currentTtsEngineProfilesV1.map((item) => renderTtsEngineProfileListItem(item)).join("")
+        : '<div class="attention-item"><span>Профили движков синтеза речи ещё не созданы.</span></div>';
       document.getElementById("voiceProfilesList").innerHTML = currentVoiceProfilesV1.length
         ? currentVoiceProfilesV1.map((item) => renderVoiceProfileListItem(item)).join("")
         : '<div class="attention-item"><span>Голосовые профили ещё не созданы.</span></div>';
@@ -3244,6 +3359,7 @@
       if (!res.ok) {
         currentAssistantControlData = null;
         currentAssistantProfilesV1 = [];
+        currentTtsEngineProfilesV1 = [];
         currentVoiceProfilesV1 = [];
         currentMemoryProfilesV1 = [];
         currentMcpBundlesV1 = [];
@@ -3258,6 +3374,7 @@
       const payload = res.data || {};
       currentAssistantControlData = payload;
       currentAssistantProfilesV1 = Array.isArray(payload.assistants) ? payload.assistants : [];
+      currentTtsEngineProfilesV1 = Array.isArray(payload.tts_engines) ? payload.tts_engines : [];
       currentVoiceProfilesV1 = Array.isArray(payload.voices) ? payload.voices : [];
       currentMemoryProfilesV1 = Array.isArray(payload.memory_profiles) ? payload.memory_profiles : [];
       currentMcpBundlesV1 = Array.isArray(payload.mcp_bundles) ? payload.mcp_bundles : [];
@@ -3309,6 +3426,39 @@
       notify(`Ассистент ${profileId} сохранён и применён в голосовом контуре`, "ok");
     }
 
+    async function saveTtsEngineProfileV1() {
+      const profileId = document.getElementById("ttsEngineProfileId").value.trim();
+      if (!profileId) {
+        notify("Сначала укажите ID движка синтеза речи", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("ttsEngineDisplayName").value.trim(),
+        engine_kind: document.getElementById("ttsEngineKind").value || "edge_tts",
+        module_name: document.getElementById("ttsEngineModuleName").value.trim(),
+        provider_label: document.getElementById("ttsEngineProviderLabel").value.trim(),
+        runtime_state: document.getElementById("ttsEngineRuntimeState").value || "ready",
+        supports_speech_rate: !!document.getElementById("ttsEngineSupportsSpeechRate").checked,
+        supports_pitch: !!document.getElementById("ttsEngineSupportsPitch").checked,
+        enabled: !!document.getElementById("ttsEngineEnabled").checked,
+        is_default: !!document.getElementById("ttsEngineIsDefault").checked,
+      };
+      const res = await apiPost(operatorUrl("/tts-engine-profiles"), payload);
+      if (!res.ok) {
+        notify(`Не удалось сохранить движок TTS ${profileId}: ${res.error || "неизвестная ошибка"}`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      loadTtsEngineProfileIntoFormV1(profileId);
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`Движок TTS ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`Движок TTS ${profileId} сохранён и применён в голосовом контуре`, "ok");
+    }
+
     async function saveVoiceProfileV1() {
       const profileId = document.getElementById("voiceProfileId").value.trim();
       if (!profileId) {
@@ -3320,6 +3470,7 @@
         display_name: document.getElementById("voiceDisplayName").value.trim(),
         language: document.getElementById("voiceLanguage").value.trim(),
         voice_type: document.getElementById("voiceType").value || "adult",
+        tts_engine_profile_id: document.getElementById("voiceTtsEngineProfileId").value || "tts-engine-edge-default",
         voice_name: document.getElementById("voiceName").value.trim(),
         provider_label: document.getElementById("voiceProviderLabel").value.trim(),
         speech_rate: Number(document.getElementById("voiceSpeechRate").value || 1),
@@ -3615,11 +3766,12 @@
       const cfg = robot?.assistant_control || {};
       const assistant = cfg.assistant_profile || null;
       const provider = cfg.provider_profile || null;
+      const ttsEngine = cfg.tts_engine_profile || null;
       const voice = cfg.voice_profile || null;
       const memory = cfg.memory_profile || null;
       const mcp = cfg.mcp_bundle || null;
       const warnings = Array.isArray(cfg.warnings) ? cfg.warnings : [];
-      if (!assistant && !provider && !voice && !memory && !mcp && !warnings.length) {
+      if (!assistant && !provider && !ttsEngine && !voice && !memory && !mcp && !warnings.length) {
         return renderAgentAssignmentHint(robot?.agent || {});
       }
       const pills = [
@@ -3627,6 +3779,7 @@
       ];
       if (assistant) pills.push(`<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(assistant))}</span>`);
       if (provider) pills.push(`<span class="pill ok">ИИ: ${escapeHtml(agentProfileLabel(provider))}</span>`);
+      if (ttsEngine) pills.push(`<span class="pill">TTS: ${escapeHtml(simpleProfileLabel(ttsEngine))}</span>`);
       if (voice) pills.push(`<span class="pill">голос: ${escapeHtml(simpleProfileLabel(voice))}</span>`);
       if (memory) pills.push(`<span class="pill">память: ${escapeHtml(simpleProfileLabel(memory))}</span>`);
       if (mcp) pills.push(`<span class="pill">MCP: ${escapeHtml(simpleProfileLabel(mcp))}</span>`);
@@ -4091,7 +4244,6 @@
         "memory": "Память",
         "telegram": "Телеграм",
         "email": "Почта",
-        "music": "Музыка",
         "call": "Звонки"
       }[name] || name;
     }
@@ -4102,7 +4254,7 @@
         "memory-tools": "память",
         "telegram-tools": "Телеграм",
         "email-tools": "почта",
-        "music-tools": "музыка",
+        "music-tools": "зарезервированный медиаслот",
         "call-tools": "звонки",
         "simple-tools": "базовые команды"
       }[name] || name;
@@ -6736,7 +6888,6 @@
       document.getElementById("svcMemory").checked = !!plan.services?.memory;
       document.getElementById("svcTelegram").checked = !!plan.services?.telegram;
       document.getElementById("svcEmail").checked = !!plan.services?.email;
-      document.getElementById("svcMusic").checked = !!plan.services?.music;
       document.getElementById("svcCall").checked = !!plan.services?.call;
     }
 
@@ -6811,7 +6962,6 @@
       document.getElementById("svcMemory").checked = !!sub.services?.memory;
       document.getElementById("svcTelegram").checked = !!sub.services?.telegram;
       document.getElementById("svcEmail").checked = !!sub.services?.email;
-      document.getElementById("svcMusic").checked = !!sub.services?.music;
       document.getElementById("svcCall").checked = !!sub.services?.call;
 
       const policyBox = document.getElementById("subPolicyBox");
@@ -6855,7 +7005,6 @@
           memory: document.getElementById("svcMemory").checked,
           telegram: document.getElementById("svcTelegram").checked,
           email: document.getElementById("svcEmail").checked,
-          music: document.getElementById("svcMusic").checked,
           call: document.getElementById("svcCall").checked,
         }
       };

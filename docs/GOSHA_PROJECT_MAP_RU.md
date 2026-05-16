@@ -35,7 +35,7 @@
   - операторские и мобильные маршруты;
   - внутренний шлюз ИИ-агентов;
   - совместимый голосовой серверный контур;
-  - профили ассистента, голоса, памяти, экрана, пробуждения и `MCP`.
+  - профили ассистента, движков синтеза речи, голоса, памяти, экрана, пробуждения и `MCP`.
 - Это текущий главный источник истины для серверного контура `Гоша`.
 
 ### `GOSHA_FIRMWARE`
@@ -126,6 +126,7 @@
 - Подпапки:
   - `/opt/gosha_platform/runtime/app_root/agents/providers`
   - `/opt/gosha_platform/runtime/app_root/agents/assistants`
+  - `/opt/gosha_platform/runtime/app_root/agents/tts_engines`
   - `/opt/gosha_platform/runtime/app_root/agents/voices`
   - `/opt/gosha_platform/runtime/app_root/agents/memory`
   - `/opt/gosha_platform/runtime/app_root/agents/mcp_bundles`
@@ -139,6 +140,16 @@
 - Эффективная конфигурация совместимого `backend`:
   - `/opt/gosha_platform/runtime/app_root/selfhost_xiaozhi/backend/data/.config.yaml`
 
+### Где смотреть, какой движок синтеза речи реально выбран
+
+- Каталог профилей движков:
+  - `/opt/gosha_platform/runtime/app_root/agents/tts_engines`
+- Живой server-side рендер:
+  - `/home/max/GOSHA_PLATFORM/ops/install_server.sh`
+- В итоговой конфигурации ищи строки:
+  - `requested-tts-engine-profile`
+  - `effective-tts-module`
+
 ### Текущий рабочий голосовой стек
 
 - Распознавание речи:
@@ -148,12 +159,26 @@
 - Синтез речи:
   - `EdgeTTS`
 
+Важно:
+- архитектурно `TTS` уже отделён от голосового профиля;
+- текущий живой `EdgeTTS` хранится как профиль `tts-engine-edge-default`;
+- следующий русский `TTS` пока подготовлен как профиль `tts-engine-silero-prep`, но ещё не внедрён в живой контур.
+
 ### Где лежит переопределение синтеза речи
 
 - Репозиторный слой:
   - `/home/max/GOSHA_PLATFORM/backend/overrides/edge.py`
 - Папка с переопределениями:
   - `/home/max/GOSHA_PLATFORM/backend/overrides`
+
+### Где лежит логика разделения движка и голоса
+
+- слой составных профилей:
+  - `/home/max/GOSHA_PLATFORM/platform/gosha_assistant_store.py`
+- операторские маршруты:
+  - `/home/max/GOSHA_PLATFORM/platform/gui_panel.py`
+- интерфейс панели:
+  - `/home/max/GOSHA_PLATFORM/platform/panel_index.html`
 
 ### Какие голоса сейчас реально доступны
 

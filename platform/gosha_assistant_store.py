@@ -11,6 +11,7 @@ import gosha_agent_store as provider_store
 APP_ROOT = Path(os.environ.get("APP_ROOT", "/opt/gosha_platform/runtime/app_root")).resolve()
 AGENTS_ROOT = APP_ROOT / "agents"
 ASSISTANTS_DIR = AGENTS_ROOT / "assistants"
+TTS_ENGINES_DIR = AGENTS_ROOT / "tts_engines"
 VOICES_DIR = AGENTS_ROOT / "voices"
 MEMORY_PROFILES_DIR = AGENTS_ROOT / "memory"
 MCP_BUNDLES_DIR = AGENTS_ROOT / "mcp_bundles"
@@ -21,6 +22,7 @@ APPLY_TARGET_SERVER = "server"
 APPLY_TARGET_FIRMWARE_SYNC_REQUIRED = "firmware_sync_required"
 DEFERRED_NOTE = "Сохранится в платформе сейчас и будет применено после отдельной синхронизации с прошивкой или следующего OTA-профиля."
 KNOWLEDGE_DEFERRED_NOTE = "Профиль базы знаний сохранён, но загрузка и индексация документов будут доведены отдельным серверным контуром."
+TTS_ENGINE_DEFERRED_NOTE = "Движок синтеза речи сохранён в платформе. Пока живой голосовой контур гарантированно поддерживает EdgeTTS, а новые движки добавляются через отдельный серверный модуль."
 
 
 def now_ts():
@@ -31,6 +33,7 @@ def ensure_layout():
     provider_store.ensure_agent_layout()
     for path in (
         ASSISTANTS_DIR,
+        TTS_ENGINES_DIR,
         VOICES_DIR,
         MEMORY_PROFILES_DIR,
         MCP_BUNDLES_DIR,
@@ -39,6 +42,47 @@ def ensure_layout():
         WAKE_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
+    for profile_id, payload in (
+        (
+            "tts-engine-edge-default",
+            {
+                "profile_id": "tts-engine-edge-default",
+                "display_name": "EdgeTTS основной",
+                "engine_kind": "edge_tts",
+                "module_name": "EdgeTTS",
+                "provider_label": "Текущий живой контур Microsoft Edge TTS",
+                "runtime_state": "ready",
+                "supports_speech_rate": True,
+                "supports_pitch": True,
+                "enabled": True,
+                "is_default": True,
+                "config": {"output_dir": "tmp/"},
+            },
+        ),
+        (
+            "tts-engine-silero-prep",
+            {
+                "profile_id": "tts-engine-silero-prep",
+                "display_name": "Silero TTS подготовка",
+                "engine_kind": "silero_tts",
+                "module_name": "SileroTTS",
+                "provider_label": "Подготовка архитектуры для нового русского TTS",
+                "runtime_state": "planned",
+                "supports_speech_rate": True,
+                "supports_pitch": False,
+                "enabled": False,
+                "is_default": False,
+                "config": {"sample_rate": 24000, "speaker": "xenia"},
+            },
+        ),
+    ):
+        path = _id_path(TTS_ENGINES_DIR, profile_id)
+        if path.exists():
+            continue
+        seeded = dict(payload)
+        seeded["created_at"] = now_ts()
+        seeded["updated_at"] = seeded["created_at"]
+        _save_json_atomic(path, seeded)
 
 
 def _safe_id(value):
@@ -155,6 +199,20 @@ def voice_type_catalog():
     ]
 
 
+def tts_engine_kind_catalog():
+    return [
+        _catalog_item("edge_tts", "EdgeTTS"),
+        _catalog_item("silero_tts", "Silero TTS"),
+    ]
+
+
+def tts_engine_runtime_state_catalog():
+    return [
+        _catalog_item("ready", "Готов к живому применению"),
+        _catalog_item("planned", "Подготовлен как следующий этап"),
+    ]
+
+
 def memory_type_catalog():
     return [
         _catalog_item("short_term", "Кратковременная память"),
@@ -222,6 +280,7 @@ def default_voice_profile(profile_id=""):
     return {
         "profile_id": _text(profile_id),
         "display_name": "",
+        "tts_engine_profile_id": "tts-engine-edge-default",
         "voice_name": "",
         "provider_label": "",
         "language": "ru-RU",
@@ -229,6 +288,24 @@ def default_voice_profile(profile_id=""):
         "speech_rate": 1.0,
         "pitch": 1.0,
         "enabled": True,
+        "created_at": 0,
+        "updated_at": 0,
+    }
+
+
+def default_tts_engine_profile(profile_id=""):
+    return {
+        "profile_id": _text(profile_id),
+        "display_name": "",
+        "engine_kind": "edge_tts",
+        "module_name": "EdgeTTS",
+        "provider_label": "",
+        "runtime_state": "ready",
+        "supports_speech_rate": True,
+        "supports_pitch": True,
+        "enabled": True,
+        "is_default": False,
+        "config": {},
         "created_at": 0,
         "updated_at": 0,
     }
@@ -352,6 +429,7 @@ def normalize_assistant_profile(profile_id, raw):
 
 def normalize_voice_profile(profile_id, raw):
     base, payload = _normalize_common(default_voice_profile, profile_id, raw)
+    base["tts_engine_profile_id"] = _text(_value(payload, "tts_engine_profile_id", default="tts-engine-edge-default"), "tts-engine-edge-default") or "tts-engine-edge-default"
     base["voice_name"] = _text(_value(payload, "voice_name", "provider_voice_name", default=""))
     base["provider_label"] = _text(_value(payload, "provider_label", "voice_role", default=""))
     base["language"] = _text(_value(payload, "language", "dialogue_language", default="ru-RU"), "ru-RU") or "ru-RU"
@@ -361,6 +439,28 @@ def normalize_voice_profile(profile_id, raw):
     base["voice_type"] = voice_type
     base["speech_rate"] = _float(_value(payload, "speech_rate", "speech_speed", default=1.0), 1.0, 0.5, 2.0)
     base["pitch"] = _float(_value(payload, "pitch", "voice_pitch", default=1.0), 1.0, 0.5, 2.0)
+    if base["tts_engine_profile_id"]:
+        _validate_ref(base["tts_engine_profile_id"], get_tts_engine_profile, "tts engine profile")
+    return base
+
+
+def normalize_tts_engine_profile(profile_id, raw):
+    base, payload = _normalize_common(default_tts_engine_profile, profile_id, raw)
+    engine_kind = _text(_value(payload, "engine_kind", default="edge_tts"), "edge_tts") or "edge_tts"
+    if engine_kind not in {item["value"] for item in tts_engine_kind_catalog()}:
+        engine_kind = "edge_tts"
+    base["engine_kind"] = engine_kind
+    base["module_name"] = _text(_value(payload, "module_name", default="EdgeTTS"), "EdgeTTS") or "EdgeTTS"
+    base["provider_label"] = _text(_value(payload, "provider_label", default=""))
+    runtime_state = _text(_value(payload, "runtime_state", default="ready"), "ready") or "ready"
+    if runtime_state not in {item["value"] for item in tts_engine_runtime_state_catalog()}:
+        runtime_state = "ready"
+    base["runtime_state"] = runtime_state
+    base["supports_speech_rate"] = _bool(_value(payload, "supports_speech_rate", default=True), True)
+    base["supports_pitch"] = _bool(_value(payload, "supports_pitch", default=True), True)
+    base["is_default"] = _bool(_value(payload, "is_default", "default", default=False), False)
+    config = payload.get("config", {})
+    base["config"] = dict(config) if isinstance(config, dict) else {}
     return base
 
 
@@ -484,6 +584,25 @@ def default_assistant():
     return None
 
 
+def list_tts_engine_profiles():
+    return _list_profiles(TTS_ENGINES_DIR, normalize_tts_engine_profile)
+
+
+def get_tts_engine_profile(profile_id):
+    return _get_profile(TTS_ENGINES_DIR, profile_id, normalize_tts_engine_profile)
+
+
+def save_tts_engine_profile(profile_id, payload):
+    return _save_profile(TTS_ENGINES_DIR, profile_id, payload, normalize_tts_engine_profile, unique_default=True)
+
+
+def default_tts_engine_profile_entry():
+    for item in list_tts_engine_profiles():
+        if item.get("is_default") and item.get("enabled"):
+            return item
+    return None
+
+
 def list_voice_profiles():
     return _list_profiles(VOICES_DIR, normalize_voice_profile)
 
@@ -566,9 +685,23 @@ def public_assistant_profile(profile):
     }
 
 
+def public_tts_engine_profile(profile):
+    item = normalize_tts_engine_profile(profile.get("profile_id", ""), profile)
+    return {
+        **item,
+        "apply_target": APPLY_TARGET_SERVER,
+        "deferred_note": TTS_ENGINE_DEFERRED_NOTE if item.get("runtime_state") != "ready" else "",
+    }
+
+
 def public_voice_profile(profile):
     item = normalize_voice_profile(profile.get("profile_id", ""), profile)
-    return {**item, "apply_target": APPLY_TARGET_SERVER}
+    tts_engine_profile = get_tts_engine_profile(item.get("tts_engine_profile_id", "")) if item.get("tts_engine_profile_id") else None
+    return {
+        **item,
+        "apply_target": APPLY_TARGET_SERVER,
+        "tts_engine_profile": public_tts_engine_profile(tts_engine_profile) if tts_engine_profile else None,
+    }
 
 
 def public_memory_profile(profile):
@@ -731,6 +864,19 @@ def effective_robot_assistant_config(robot_id):
         warnings,
         "Голос",
     )
+    tts_engine_view = None
+    tts_engine_source = ""
+    if voice_view and voice_view.get("tts_engine_profile_id"):
+        tts_engine_source = "voice_profile"
+        tts_engine_profile = get_tts_engine_profile(voice_view.get("tts_engine_profile_id", ""))
+        if not tts_engine_profile:
+            warnings.append("У выбранного голосового профиля не найден движок синтеза речи.")
+        elif not tts_engine_profile.get("enabled", True):
+            warnings.append("У выбранного голосового профиля движок синтеза речи отключён.")
+        else:
+            tts_engine_view = public_tts_engine_profile(tts_engine_profile)
+            if tts_engine_view.get("deferred_note"):
+                warnings.append(tts_engine_view["deferred_note"])
     memory_view, memory_source = _resolve_with_override(
         binding.get("memory_profile_id", ""),
         (assistant_view or {}).get("memory_profile_id", ""),
@@ -796,6 +942,11 @@ def effective_robot_assistant_config(robot_id):
             "source": voice_source,
             "profile": voice_view,
         },
+        "tts_engine": {
+            "apply_target": APPLY_TARGET_SERVER,
+            "source": tts_engine_source,
+            "profile": tts_engine_view,
+        },
         "memory": {
             "apply_target": APPLY_TARGET_SERVER,
             "source": memory_source,
@@ -838,6 +989,7 @@ def effective_robot_assistant_config(robot_id):
         "assistant_profile": assistant_view,
         "provider_profile": provider_view,
         "voice_profile": voice_view,
+        "tts_engine_profile": tts_engine_view,
         "memory_profile": memory_view,
         "mcp_bundle": mcp_view,
         "knowledge_profile": knowledge_view,
@@ -852,6 +1004,7 @@ def catalog_snapshot():
     return {
         "providers": [provider_store.profile_public_view(item) for item in provider_store.list_agent_profiles()],
         "assistants": [public_assistant_profile(item) for item in list_assistant_profiles()],
+        "tts_engines": [public_tts_engine_profile(item) for item in list_tts_engine_profiles()],
         "voices": [public_voice_profile(item) for item in list_voice_profiles()],
         "memory_profiles": [public_memory_profile(item) for item in list_memory_profiles()],
         "mcp_bundles": [public_mcp_bundle(item) for item in list_mcp_bundles()],
@@ -861,6 +1014,8 @@ def catalog_snapshot():
         "catalogs": {
             "dialogue_languages": assistant_language_catalog(),
             "voice_types": voice_type_catalog(),
+            "tts_engine_kinds": tts_engine_kind_catalog(),
+            "tts_engine_runtime_states": tts_engine_runtime_state_catalog(),
             "memory_types": memory_type_catalog(),
             "knowledge_states": knowledge_state_catalog(),
             "wake_modes": wake_mode_catalog(),
