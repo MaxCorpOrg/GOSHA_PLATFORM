@@ -39,7 +39,7 @@ if [[ ! -f "$ROBOT_DIR/robot.env" ]]; then
 ROBOT_ID=$ROBOT_ID
 ROBOT_NAME=$ROBOT_ID
 ROBOT_RUNTIME_CLASS=runtime
-ROBOT_BACKEND_MODE=xiaozhi_cloud
+ROBOT_BACKEND_MODE=self_hosted_xiaozhi
 ROBOT_CONTROL_TRANSPORT=cloud-mcp
 ROBOT_DEVICE_WS_URL=
 ROBOT_DEVICE_IP=
@@ -77,4 +77,3 @@ fi
 
 chmod 600 "$ROBOT_DIR/robot.env" "$ROBOT_DIR/mcp_endpoint.txt" "$ROBOT_DIR/mcp_config.json"
 echo "Robot created: $ROBOT_ID"
-

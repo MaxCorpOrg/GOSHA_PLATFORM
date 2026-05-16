@@ -387,7 +387,7 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
     claim = find_claim_by_robot(robot_id, state=active_state)
     backend = active_state.get("backend") or default_backend_config()
     backend_mode = str((details or {}).get("ROBOT_BACKEND_MODE", "") or "").strip().lower()
-    if backend_mode != BACKEND_MODE_SELF_HOSTED and not claim:
+    if backend_mode == BACKEND_MODE_XIAOZHI_CLOUD and not claim:
         return {
             "provider": BACKEND_MODE_XIAOZHI_CLOUD,
             "backend_mode": BACKEND_MODE_XIAOZHI_CLOUD,

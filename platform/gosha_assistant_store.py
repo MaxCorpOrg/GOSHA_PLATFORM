@@ -687,9 +687,16 @@ def public_assistant_profile(profile):
 
 def public_tts_engine_profile(profile):
     item = normalize_tts_engine_profile(profile.get("profile_id", ""), profile)
+    live_backend_supported = bool(
+        item.get("enabled", True)
+        and item.get("runtime_state") == "ready"
+        and item.get("engine_kind") == "edge_tts"
+    )
     return {
         **item,
         "apply_target": APPLY_TARGET_SERVER,
+        "live_backend_supported": live_backend_supported,
+        "fallback_profile_id": "" if live_backend_supported else "tts-engine-edge-default",
         "deferred_note": TTS_ENGINE_DEFERRED_NOTE if item.get("runtime_state") != "ready" else "",
     }
 
@@ -866,15 +873,60 @@ def effective_robot_assistant_config(robot_id):
     )
     tts_engine_view = None
     tts_engine_source = ""
+    tts_runtime = {
+        "state": "missing",
+        "requested_profile_id": "",
+        "effective_profile_id": "",
+        "reason": "",
+    }
     if voice_view and voice_view.get("tts_engine_profile_id"):
+        fallback_warning = "Для живого голосового контура сейчас используется совместимый резерв EdgeTTS."
         tts_engine_source = "voice_profile"
-        tts_engine_profile = get_tts_engine_profile(voice_view.get("tts_engine_profile_id", ""))
+        requested_profile_id = voice_view.get("tts_engine_profile_id", "")
+        tts_runtime["requested_profile_id"] = requested_profile_id
+        tts_engine_profile = get_tts_engine_profile(requested_profile_id)
         if not tts_engine_profile:
             warnings.append("У выбранного голосового профиля не найден движок синтеза речи.")
+            tts_runtime.update(
+                {
+                    "state": "fallback",
+                    "effective_profile_id": "tts-engine-edge-default",
+                    "reason": "requested_profile_missing",
+                }
+            )
+            warnings.append(fallback_warning)
         elif not tts_engine_profile.get("enabled", True):
+            tts_engine_view = public_tts_engine_profile(tts_engine_profile)
             warnings.append("У выбранного голосового профиля движок синтеза речи отключён.")
+            tts_runtime.update(
+                {
+                    "state": "fallback",
+                    "effective_profile_id": "tts-engine-edge-default",
+                    "reason": "requested_profile_disabled",
+                }
+            )
+            warnings.append(fallback_warning)
         else:
             tts_engine_view = public_tts_engine_profile(tts_engine_profile)
+            if tts_engine_view.get("live_backend_supported"):
+                tts_runtime.update(
+                    {
+                        "state": "ready",
+                        "effective_profile_id": tts_engine_view.get("profile_id", "") or requested_profile_id,
+                        "reason": "",
+                    }
+                )
+            else:
+                fallback_profile_id = tts_engine_view.get("fallback_profile_id", "") or "tts-engine-edge-default"
+                reason = "requested_profile_not_ready" if tts_engine_view.get("runtime_state") != "ready" else "requested_engine_not_live"
+                tts_runtime.update(
+                    {
+                        "state": "fallback",
+                        "effective_profile_id": fallback_profile_id,
+                        "reason": reason,
+                    }
+                )
+                warnings.append(fallback_warning)
             if tts_engine_view.get("deferred_note"):
                 warnings.append(tts_engine_view["deferred_note"])
     memory_view, memory_source = _resolve_with_override(
@@ -990,6 +1042,7 @@ def effective_robot_assistant_config(robot_id):
         "provider_profile": provider_view,
         "voice_profile": voice_view,
         "tts_engine_profile": tts_engine_view,
+        "tts_runtime": tts_runtime,
         "memory_profile": memory_view,
         "mcp_bundle": mcp_view,
         "knowledge_profile": knowledge_view,

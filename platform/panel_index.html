@@ -3767,6 +3767,7 @@
       const assistant = cfg.assistant_profile || null;
       const provider = cfg.provider_profile || null;
       const ttsEngine = cfg.tts_engine_profile || null;
+      const ttsRuntime = cfg.tts_runtime || null;
       const voice = cfg.voice_profile || null;
       const memory = cfg.memory_profile || null;
       const mcp = cfg.mcp_bundle || null;
@@ -3780,6 +3781,7 @@
       if (assistant) pills.push(`<span class="pill ok">ассистент: ${escapeHtml(simpleProfileLabel(assistant))}</span>`);
       if (provider) pills.push(`<span class="pill ok">ИИ: ${escapeHtml(agentProfileLabel(provider))}</span>`);
       if (ttsEngine) pills.push(`<span class="pill">TTS: ${escapeHtml(simpleProfileLabel(ttsEngine))}</span>`);
+      if (ttsRuntime?.state === "fallback" && ttsRuntime?.effective_profile_id) pills.push(`<span class="pill warn">живой резерв TTS: ${escapeHtml(ttsRuntime.effective_profile_id)}</span>`);
       if (voice) pills.push(`<span class="pill">голос: ${escapeHtml(simpleProfileLabel(voice))}</span>`);
       if (memory) pills.push(`<span class="pill">память: ${escapeHtml(simpleProfileLabel(memory))}</span>`);
       if (mcp) pills.push(`<span class="pill">MCP: ${escapeHtml(simpleProfileLabel(mcp))}</span>`);

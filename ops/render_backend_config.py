@@ -107,7 +107,7 @@ def resolve_voice_profile_id(app_root: Path, assistant_payload: dict) -> str:
     return ""
 
 
-def resolve_tts_selection(app_root: Path, voice_profile_id: str) -> tuple[str, dict, str, str]:
+def resolve_tts_selection(app_root: Path, voice_profile_id: str) -> tuple[str, dict, str, str, str]:
     voices_dir = app_root / "agents" / "voices"
     tts_engines_dir = app_root / "agents" / "tts_engines"
     voice_payload = load_json(voices_dir / f"{voice_profile_id}.json") if voice_profile_id else {}
@@ -118,9 +118,13 @@ def resolve_tts_selection(app_root: Path, voice_profile_id: str) -> tuple[str, d
     runtime_state = str(tts_engine_payload.get("runtime_state", "") or "").strip() or "ready"
     enabled = bool(tts_engine_payload.get("enabled", True))
 
-    if requested_kind != DEFAULT_TTS_KIND or runtime_state != "ready" or not enabled:
-        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE
-    return requested_profile_id, voice_payload, requested_kind, effective_module
+    if requested_kind != DEFAULT_TTS_KIND:
+        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_engine_not_live"
+    if runtime_state != "ready":
+        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_profile_not_ready"
+    if not enabled:
+        return requested_profile_id, voice_payload, DEFAULT_TTS_KIND, DEFAULT_TTS_MODULE, "requested_profile_disabled"
+    return requested_profile_id, voice_payload, requested_kind, effective_module, "ready"
 
 
 def resolve_prompt_lines(default_assistant_payload: dict) -> list[str]:
@@ -174,7 +178,7 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
 
     default_assistant_payload = resolve_default_assistant(app_root)
     voice_profile_id = resolve_voice_profile_id(app_root, default_assistant_payload)
-    requested_tts_engine_profile_id, voice_payload, effective_tts_kind, effective_tts_module = resolve_tts_selection(app_root, voice_profile_id)
+    requested_tts_engine_profile_id, voice_payload, effective_tts_kind, effective_tts_module, effective_tts_runtime = resolve_tts_selection(app_root, voice_profile_id)
 
     tts_voice_name = str(voice_payload.get("voice_name", "") or "").strip() or DEFAULT_TTS_VOICE
     tts_speech_rate = clamp_float(voice_payload.get("speech_rate", 1.0), 1.0, 0.5, 2.0)
@@ -191,6 +195,7 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
                 f"# requested-tts-engine-profile: {requested_tts_engine_profile_id or DEFAULT_TTS_ENGINE_PROFILE_ID}",
                 f"# effective-tts-kind: {effective_tts_kind}",
                 f"# effective-tts-module: {effective_tts_module}",
+                f"# effective-tts-runtime: {effective_tts_runtime}",
                 "server:",
                 f"  websocket: {ws_url}",
                 "prompt: |",

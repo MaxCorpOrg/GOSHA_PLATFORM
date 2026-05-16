@@ -299,7 +299,7 @@ def robot_fleet_state(robot_id, runtime_class=None, endpoint_ready=False, servic
 def build_fleet_readiness(robot_id, runtime_class, endpoint_ready, service_state_value, cloud_console):
     cloud = cloud_console if isinstance(cloud_console, dict) else {}
     cloud_state = str(cloud.get("state", "") or "").strip().lower() or "unknown"
-    provider = str(cloud.get("provider", "") or selfhost_xiaozhi.BACKEND_MODE_XIAOZHI_CLOUD).strip().lower()
+    provider = str(cloud.get("provider", "") or selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED).strip().lower()
     xiaozhi_configured = bool(cloud.get("configured"))
     if provider == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED:
         agent_meta_ready = bool(cloud.get("device_claimed") or cloud.get("mcp_endpoint_ready") or cloud.get("websocket_token_configured"))
@@ -485,6 +485,8 @@ def is_mcp_ws_endpoint(raw):
 def robot_backend_mode(env):
     details = env if isinstance(env, dict) else {}
     mode = str((details or {}).get("ROBOT_BACKEND_MODE", "") or "").strip().lower()
+    if not mode:
+        return selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED
     if mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED:
         return selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED
     return selfhost_xiaozhi.BACKEND_MODE_XIAOZHI_CLOUD
