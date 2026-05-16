@@ -1270,7 +1270,10 @@ def default_provider_profile_id():
         profile = agent_store.get_agent_profile(GOSHA_BACKEND_PROXY_PROFILE_ID)
         if profile and profile.get("enabled"):
             return GOSHA_BACKEND_PROXY_PROFILE_ID
-    for robot_id in list_robot_ids():
+    for robot in list_robots():
+        robot_id = str((robot or {}).get("robot_id", "") or "").strip()
+        if not robot_id:
+            continue
         try:
             binding = assistant_store.load_robot_binding(robot_id)
         except Exception:
