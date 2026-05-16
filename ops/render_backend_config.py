@@ -153,7 +153,7 @@ def build_tts_lines(tts_kind: str, tts_module: str, voice_payload: dict, tts_eng
         return [
             "TTS:",
             f"  {tts_module}:",
-            "    type: local",
+            "    type: silero_local",
             "    language: ru",
             f"    model_id: {model_id}",
             f"    speaker: {speaker}",
