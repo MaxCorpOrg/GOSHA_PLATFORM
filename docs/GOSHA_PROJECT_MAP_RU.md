@@ -149,9 +149,12 @@
 - Каталог профилей движков:
   - `/opt/gosha_platform/runtime/app_root/agents/tts_engines`
 - Живой server-side рендер:
+  - `/home/max/GOSHA_PLATFORM/ops/render_backend_config.py`
+- Серверный вызов рендера и этап установки:
   - `/home/max/GOSHA_PLATFORM/ops/install_server.sh`
 - В итоговой конфигурации ищи строки:
   - `requested-tts-engine-profile`
+  - `effective-tts-kind`
   - `effective-tts-module`
 
 ### Текущий рабочий голосовой стек

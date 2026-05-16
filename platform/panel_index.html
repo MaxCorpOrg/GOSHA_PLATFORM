@@ -7226,7 +7226,7 @@
       const agentRes = await apiGet(operatorUrl(`/robots/${robotId}/agent`));
       const cfg = res.data || {};
       document.getElementById("ctrlRobotName").value = brandRobotText(cfg.robot_name || robot.robot_name || robotId);
-      document.getElementById("ctrlBackendMode").value = cfg.backend_mode || robot.backend_mode || "xiaozhi_cloud";
+      document.getElementById("ctrlBackendMode").value = cfg.backend_mode || robot.backend_mode || "self_hosted_xiaozhi";
       document.getElementById("ctrlTransport").value = cfg.transport || "cloud-mcp";
       document.getElementById("ctrlCloudEndpoint").value = cfg.cloud_endpoint || "";
       document.getElementById("ctrlWsUrl").value = cfg.fallback_ws_url || cfg.ws_url || "";
@@ -7255,7 +7255,7 @@
       const robotLabel = robotDisplayNameById(controlRobot);
       const payload = {
         robot_name: document.getElementById("ctrlRobotName").value.trim(),
-        backend_mode: document.getElementById("ctrlBackendMode").value || "xiaozhi_cloud",
+        backend_mode: document.getElementById("ctrlBackendMode").value || "self_hosted_xiaozhi",
         transport: document.getElementById("ctrlTransport").value || "cloud-mcp",
         cloud_endpoint: document.getElementById("ctrlCloudEndpoint").value.trim(),
         ws_url: document.getElementById("ctrlWsUrl").value.trim(),
