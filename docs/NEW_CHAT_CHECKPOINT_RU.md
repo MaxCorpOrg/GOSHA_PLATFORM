@@ -136,6 +136,10 @@
     - `voice-ru-silero-kseniya`
   - серверный отчёт сохранён в:
     - `/opt/gosha_platform/runtime/reports/silero_vs_edge_eval_2026-05-16.json`
+  - формальный итог:
+    - `SileroTTS` уже поднят на живом сервере как тестовый `ready`-профиль
+    - сравнение с `EdgeTTS` по задержке и устойчивости выполнено
+    - текущий живой кандидат внутри `SileroTTS` — `kseniya`
 
 ## Где остановились
 
