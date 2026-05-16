@@ -188,6 +188,13 @@
     - после прогрева `SileroTTS` близок к `EdgeTTS` по задержке
     - холодный старт у `SileroTTS` всё ещё заметно медленнее
     - среди проверенных спикеров `kseniya` и `aidar` выглядят быстрее `baya`
+  - по итогам этого бенча живой тестовый профиль на сервере переведён с `baya` на `kseniya`
+  - текущее живое состояние `backend`:
+    - `requested-tts-engine-profile: tts-engine-silero-live-test`
+    - `effective-tts-module: SileroTTS`
+    - `speaker: kseniya`
+- Артефакт сравнения сохранён на сервере:
+  - `/opt/gosha_platform/runtime/reports/silero_vs_edge_eval_2026-05-16.json`
 - Для устойчивости `SileroTTS` найден и закрыт отдельный серверный риск:
   - старый `agent-base-prompt.txt` подталкивал совместимый backend к китайским коротким репликам:
     - `我在呢`
