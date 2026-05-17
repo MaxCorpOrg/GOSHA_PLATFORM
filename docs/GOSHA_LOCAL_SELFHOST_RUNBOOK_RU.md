@@ -38,6 +38,8 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+`init_local_lab.sh` теперь не только создаёт недостающие каталоги, но и автоматически нормализует локальные тестовые карточки в self-hosted режим. Это нужно, чтобы legacy `gosha-main` не оставался в `xiaozhi_cloud` и не отдавал старый локальный пакет подключения.
+
 Адрес:
 
 ```text
@@ -70,6 +72,14 @@ bash bin/check_gosha_panel_stack.sh
 - сессия оборвалась сразу после `initialize`;
 - handshake дошёл до `tools/call`, но робот не прислал `ACK`;
 - карточка в `Платформе Гоша`, но живой endpoint робота всё ещё указывает на внешний `api.xiaozhi.me`.
+
+Отдельно подтверждено для локальной лаборатории:
+
+- `gosha-main` после `init_local_lab.sh` теперь тоже переводится в `self_hosted_xiaozhi`;
+- локальный `create-code` для `gosha-main` отдаёт:
+  - `edge_hub_url = ws://127.0.0.1:18876/mcp`
+  - `backend_mode = self_hosted_xiaozhi`
+  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
 
 ## Что проверять первым
 

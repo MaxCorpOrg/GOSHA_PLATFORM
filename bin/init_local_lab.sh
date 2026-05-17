@@ -55,13 +55,57 @@ if [[ ! -f "$APP_ROOT/mobile/panel_client_tokens.json" ]]; then
 EOF
 fi
 
-if [[ ! -f "$APP_ROOT/bin/add_robot.sh" ]]; then
-  cp "$ROOT/platform/add_robot.sh" "$APP_ROOT/bin/add_robot.sh"
-  chmod 755 "$APP_ROOT/bin/add_robot.sh"
-fi
+cp "$ROOT/platform/add_robot.sh" "$APP_ROOT/bin/add_robot.sh"
+chmod 755 "$APP_ROOT/bin/add_robot.sh"
 
 if [[ ! -d "$APP_ROOT/robots/gosha-local" ]]; then
   APP_ROOT="$APP_ROOT" "$APP_ROOT/bin/add_robot.sh" "gosha-local"
 fi
+
+if [[ ! -d "$APP_ROOT/robots/gosha-main" ]]; then
+  APP_ROOT="$APP_ROOT" "$APP_ROOT/bin/add_robot.sh" "gosha-main"
+fi
+
+normalize_selfhost_robot_env() {
+  local robot_id="$1"
+  local env_path="$APP_ROOT/robots/$robot_id/robot.env"
+  [[ -f "$env_path" ]] || return 0
+  python3 - "$env_path" "$robot_id" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+robot_id = sys.argv[2]
+lines = env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+updates = {
+    "ROBOT_ID": robot_id,
+    "ROBOT_NAME": robot_id,
+    "ROBOT_RUNTIME_CLASS": "runtime",
+    "ROBOT_BACKEND_MODE": "self_hosted_xiaozhi",
+    "ROBOT_CONTROL_TRANSPORT": "cloud-mcp",
+}
+seen = set()
+out = []
+for raw in lines:
+    stripped = raw.strip()
+    if not stripped or stripped.startswith("#") or "=" not in raw:
+        out.append(raw)
+        continue
+    key, _ = raw.split("=", 1)
+    key = key.strip()
+    if key in updates:
+        out.append(f"{key}={updates[key]}")
+        seen.add(key)
+    else:
+        out.append(raw)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+PY
+}
+
+normalize_selfhost_robot_env "gosha-local"
+normalize_selfhost_robot_env "gosha-main"
 
 echo "Local lab ready: $APP_ROOT"

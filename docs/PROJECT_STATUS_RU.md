@@ -129,6 +129,14 @@
     - `GET /api/operator/robots` у панели
     - `GET /api/operator/assistant-control/catalog` у панели
     - и показывает по первому роботу `backend_mode`, `last_seen`, плату и версию прошивки
+- `init_local_lab.sh` теперь дополнительно нормализует legacy карточки локальной лаборатории:
+  - всегда синхронизирует актуальный `platform/add_robot.sh` в `local_only/runtime_lab/app_root/bin/add_robot.sh`
+  - создаёт `gosha-main`, если его ещё нет
+  - мигрирует локальный `gosha-main` из `xiaozhi_cloud` в `self_hosted_xiaozhi`
+- После этой миграции локальный onboarding bundle для `gosha-main` уже отдаёт честный self-hosted пакет:
+  - `edge_hub_url = ws://127.0.0.1:18876/mcp`
+  - `backend_mode = self_hosted_xiaozhi`
+  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
 - Главный экран панели упрощён ещё на один шаг:
   - в верхнюю часть карточки робота вынесены четыре операторских статуса:
     - робот на связи / не на связи

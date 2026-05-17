@@ -90,6 +90,8 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+`init_local_lab.sh` теперь ещё и автоматически мигрирует legacy карточки локальной лаборатории в self-hosted режим `Платформы Гоша`, чтобы `gosha-main` и похожие тестовые роботы не оставались в старом `xiaozhi_cloud`.
+
 Порты локального контура:
 
 ```text

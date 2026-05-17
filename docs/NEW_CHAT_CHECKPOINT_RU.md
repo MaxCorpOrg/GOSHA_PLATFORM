@@ -40,6 +40,7 @@
   - есть отдельный честный smoke-check:
     - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
     - alias: `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
+  - `init_local_lab.sh` теперь автоматически переводит legacy `gosha-main` в `self_hosted_xiaozhi`, поэтому локальный onboarding bundle больше не должен возвращать старый `18890` и `xiaozhi_cloud`
 - Поднят полный подготовительный серверный контур:
   - `gosha-panel.service`
   - `gosha-agent-gateway.service`
