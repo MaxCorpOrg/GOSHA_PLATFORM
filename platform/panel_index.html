@@ -5381,7 +5381,9 @@
       const physicalRobots = robots.filter((r) => !isSupportRobot(r) && !isTemplateRobot(r));
       const activeServices = physicalRobots.filter(r => r.service_state === "active").length;
       const configuredEndpoints = physicalRobots.filter(r => r.endpoint_configured).length;
-      const connectedRobots = physicalRobots.filter(r => robotWifiState(r).level === "ok").length;
+      const connectedRobots = physicalRobots.filter(r => robotPresenceConfirmed(r)).length;
+      const hotspotRobots = physicalRobots.filter(r => robotHasHotspotPresence(r)).length;
+      const freshSignalRobots = physicalRobots.filter(r => robotHasFreshSelfhostSignal(r)).length;
       const wifiNeedsCheck = physicalRobots.filter(r => robotWifiState(r).level !== "ok").length;
       const memoryOn = robots.filter(r => r.memory_enabled).length;
       const enabledTools = robots.reduce((sum, r) => sum + (r.tools || []).filter(t => t.enabled).length, 0);
@@ -5390,17 +5392,17 @@
       }, 0);
       const policyApplied = robots.filter(r => (r.admin_status || {}).tools_policy_applied).length;
 
-      document.getElementById("statRobots").textContent = `${liveRobots.length}/${physicalRobots.length}`;
-      document.getElementById("statRobotsMeta").textContent = `активных боевых: ${liveRobots.length}; подготовленных: ${stagedRobots.length}; шаблонов: ${templateRobots.length}; тестовых: ${supportRobots.length}`;
+      document.getElementById("statRobots").textContent = String(physicalRobots.length);
+      document.getElementById("statRobotsMeta").textContent = `боевых карточек: ${physicalRobots.length}; подготовленных: ${stagedRobots.length}; шаблонов: ${templateRobots.length}; тестовых: ${supportRobots.length}`;
 
       document.getElementById("statServices").textContent = `${activeServices}/${physicalRobots.length}`;
       document.getElementById("statServicesMeta").textContent = "Активные сервисы моста роботов";
 
       document.getElementById("statConnections").textContent = `${connectedRobots}/${physicalRobots.length}`;
-      document.getElementById("statConnectionsMeta").textContent = `${wifiNeedsCheck} требуют проверки, ${configuredEndpoints} MCP-адресов выдано`;
+      document.getElementById("statConnectionsMeta").textContent = `${hotspotRobots} в hotspot; ${freshSignalRobots} со свежим сигналом прошивки; ${wifiNeedsCheck} требуют проверки`;
 
       document.getElementById("statTools").textContent = String(enabledPaidTools);
-      document.getElementById("statToolsMeta").textContent = `${enabledTools} сервисов включено, политика применена у ${policyApplied} роботов`;
+      document.getElementById("statToolsMeta").textContent = `${enabledTools} сервисов включено; политика применена у ${policyApplied} роботов; MCP-адресов выдано: ${configuredEndpoints}`;
       updateOperatorOverview(robots);
     }
 
