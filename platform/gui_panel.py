@@ -97,6 +97,11 @@ SUPPORT_ROBOT_IDS = {"rustore-moderation"}
 DETECTION_SNAPSHOT_FILENAME = "panel_detection.json"
 MOBILE_PRESENCE_SNAPSHOT_FILENAME = "mobile_presence.json"
 MOBILE_PRESENCE_TTL_SECONDS = max(30, int(os.environ.get("MOBILE_PRESENCE_TTL_SECONDS", "180")))
+DETECTION_FRESH_SECONDS = max(30, int(os.environ.get("DETECTION_FRESH_SECONDS", "180")))
+DEVICE_CONTACT_FRESH_SECONDS = max(
+    DETECTION_FRESH_SECONDS,
+    int(os.environ.get("DEVICE_CONTACT_FRESH_SECONDS", "180")),
+)
 MOBILE_PRESENCE_STATES = {
     "home_wifi_local",
     "robot_hotspot_visible",
@@ -612,6 +617,10 @@ def normalize_detection_snapshot(data, *, fallback_mode=""):
         "lifecycle_path": str(raw.get("lifecycle_path", "") or ""),
         "last_seen": last_seen,
     }
+    age_seconds = max(0, now_ts() - checked_at) if checked_at > 0 else 0
+    snapshot["age_seconds"] = age_seconds
+    snapshot["fresh_seconds"] = DETECTION_FRESH_SECONDS
+    snapshot["fresh"] = bool(checked_at > 0 and age_seconds <= DETECTION_FRESH_SECONDS)
     return snapshot
 
 
@@ -702,6 +711,69 @@ def load_mobile_presence_snapshot(robot_id):
     path = mobile_presence_snapshot_path(robot_id)
     raw = load_json(path, {})
     return normalize_mobile_presence_snapshot(raw)
+
+
+def summarize_mobile_runtime_connectivity(*, control=None, diagnostics=None, detection=None, cloud_console=None, mobile_presence=None):
+    control_cfg = control if isinstance(control, dict) else {}
+    diagnostics_cfg = diagnostics if isinstance(diagnostics, dict) else {}
+    detection_cfg = detection if isinstance(detection, dict) else {}
+    cloud_cfg = cloud_console if isinstance(cloud_console, dict) else {}
+    mobile_cfg = mobile_presence if isinstance(mobile_presence, dict) else {}
+
+    target = str(diagnostics_cfg.get("target", "") or control_cfg.get("target", "") or control_cfg.get("fallback_ws_url", "") or "").strip()
+    mode = str(diagnostics_cfg.get("mode", "") or control_cfg.get("transport", "") or "").strip()
+
+    local_host = ""
+    if bool(mobile_cfg.get("fresh")) and str(mobile_cfg.get("state", "") or "") == "home_wifi_local":
+        local_host = normalize_mobile_presence_host(mobile_cfg.get("local_host"))
+
+    verified_now = bool(detection_cfg.get("verified_now"))
+    probe_fresh = bool(detection_cfg.get("fresh"))
+
+    try:
+        last_seen = int(cloud_cfg.get("last_seen") or 0)
+    except (TypeError, ValueError):
+        last_seen = 0
+    last_seen_age_seconds = max(0, now_ts() - last_seen) if last_seen > 0 else 0
+    fresh_device_contact = bool(
+        str(cloud_cfg.get("provider", "") or "").strip().lower() == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED
+        and str(cloud_cfg.get("state", "") or "").strip().lower() == "claimed"
+        and last_seen > 0
+        and last_seen_age_seconds <= DEVICE_CONTACT_FRESH_SECONDS
+    )
+
+    if local_host:
+        connected = True
+        evidence = "local_host"
+    elif verified_now and probe_fresh:
+        connected = True
+        evidence = "probe_verified"
+    elif fresh_device_contact and mode == "cloud-mcp" and bool(target):
+        connected = True
+        evidence = "fresh_device_contact"
+    else:
+        connected = False
+        evidence = ""
+
+    return {
+        "connected": connected,
+        "evidence": evidence,
+        "local_host": local_host,
+        "target": target,
+        "mode": mode,
+        "verified_now": verified_now,
+        "probe_fresh": probe_fresh,
+        "probe_state": str(detection_cfg.get("state", "") or ""),
+        "probe_error": str(detection_cfg.get("error", "") or ""),
+        "fresh_device_contact": fresh_device_contact,
+        "last_seen": last_seen,
+        "last_seen_iso": str(cloud_cfg.get("last_seen_iso", "") or ts_to_iso(last_seen)),
+        "last_seen_age_seconds": last_seen_age_seconds,
+        "last_seen_fresh_seconds": DEVICE_CONTACT_FRESH_SECONDS,
+        "board_name": str(cloud_cfg.get("board_name", "") or ""),
+        "app_version": str(cloud_cfg.get("app_version", "") or ""),
+        "remote_addr": str(cloud_cfg.get("remote_addr", "") or ""),
+    }
 
 
 def save_mobile_presence_snapshot(robot_id, *, state, source=MOBILE_PRESENCE_SOURCE_ANDROID, local_host=""):
@@ -3066,18 +3138,42 @@ def list_robots():
 
 def get_robot_runtime_snapshot(robot_id):
     require_robot_dir(robot_id)
+    edge_snapshot = fetch_edge_snapshot()
+    env = load_env(robot_env_path(robot_id))
     control_cfg = get_control_config(robot_id)
-    diagnostics = build_link_diagnostics(robot_id, control_cfg, fetch_edge_snapshot())
+    diagnostics = build_link_diagnostics(robot_id, control_cfg, edge_snapshot)
     cfg = load_json(ROBOTS_DIR / robot_id / "mcp_config.json", {"mcpServers": {}})
     activity = summarize_tool_activity(robot_id, cfg.get("mcpServers", {}))
+    cloud_console = summarize_robot_backend(robot_id, env=env)
+    detection = load_detection_snapshot(robot_id, fallback_mode=str(diagnostics.get("mode", "") or ""))
+    mobile_presence = load_mobile_presence_snapshot(robot_id)
+    activity_presence = summarize_activity_presence(activity)
+    runtime_class = robot_runtime_class(robot_id, env=env)
+    endpoint_ready = is_endpoint_configured(robot_id)
+    service = service_state(robot_id)
+    fleet = build_fleet_readiness(robot_id, runtime_class, endpoint_ready, service, cloud_console)
+    connectivity = summarize_mobile_runtime_connectivity(
+        control=control_cfg,
+        diagnostics=diagnostics,
+        detection=detection,
+        cloud_console=cloud_console,
+        mobile_presence=mobile_presence,
+    )
     return {
         "robot_id": robot_id,
         "robot_name": control_cfg.get("robot_name", robot_id) or robot_id,
+        "runtime_class": runtime_class,
+        "backend_mode": robot_backend_mode(env),
+        "service_state": service,
+        "fleet": fleet,
+        "cloud_console": cloud_console,
         "control": control_cfg,
         "diagnostics": diagnostics,
+        "detection": detection,
         "activity": activity,
-        "activity_presence": summarize_activity_presence(activity),
-        "mobile_presence": load_mobile_presence_snapshot(robot_id),
+        "activity_presence": activity_presence,
+        "mobile_presence": mobile_presence,
+        "connectivity": connectivity,
     }
 
 
