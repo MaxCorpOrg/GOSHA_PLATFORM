@@ -1134,6 +1134,44 @@
     .robot-workspace-kpi .robot-summary-block {
       background: #fff;
     }
+    .robot-control-center {
+      display: grid;
+      gap: 12px;
+    }
+    .robot-control-callout {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f8fbff, #ffffff);
+    }
+    .robot-control-callout.ok {
+      border-color: #91d9b5;
+      background: linear-gradient(135deg, #f0fff7, #ffffff);
+    }
+    .robot-control-callout.bad {
+      border-color: #efb5b5;
+      background: linear-gradient(135deg, #fff5f5, #ffffff);
+    }
+    .robot-control-callout-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .robot-control-callout-head strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 4px;
+      color: #163963;
+    }
+    .robot-control-callout-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
     .workspace-compact-form {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4174,8 +4212,7 @@
             <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>
           </div>
         </section>
-        ${renderRobotOperatorSnapshot(robot)}
-        ${renderRobotConnectivityDiagnosis(robot)}
+        ${renderRobotOperatorControlCenter(robot)}
         <div class="robot-workspace-kpi">
           <div class="robot-summary-block">
             <h3>Подключение</h3>
@@ -4199,7 +4236,6 @@
             <div style="margin-top:8px;">${renderCodeSnippet(robot)}</div>
           </div>
         </div>
-        ${renderNextActionPanel(robot)}
         ${renderSelfhostRuntimePanel(robot)}
         ${renderWifiStateCard(robot)}
       `;
@@ -4272,8 +4308,7 @@
             ${isTemplate ? "" : `<button class="btn" onclick="showPanelCard('selfhostPanel')">Привязки платформы</button>`}
           </div>
         </section>
-        ${renderRobotOperatorSnapshot(robot)}
-        ${renderRobotConnectivityDiagnosis(robot)}
+        ${renderRobotOperatorControlCenter(robot)}
         <section class="robot-panel">
           <h3>Подключение робота</h3>
           ${renderConnectionCell(robot)}
@@ -4889,50 +4924,6 @@
       `;
     }
 
-    function renderRobotOperatorSnapshot(robot) {
-      const wifi = robotWifiState(robot);
-      const signal = robotSelfhostSignalState(robot);
-      const cloud = robot.cloud_console || {};
-      const presenceConfirmed = robotPresenceConfirmed(robot);
-      const liveLabel = presenceConfirmed
-        ? "Робот на связи"
-        : signal.status === "stale"
-          ? "Давно не выходил на связь"
-          : robotHasHotspotPresence(robot)
-            ? "Режим hotspot"
-            : "Связь не подтверждена";
-      const liveClass = presenceConfirmed ? "ok" : signal.status === "stale" ? "bad" : "warn";
-      const lastSeenIso = cloud.last_seen_iso || "";
-      const boardLabel = [cloud.board_name || "", cloud.app_version || ""].filter(Boolean).join(" / ");
-      return `
-        <section class="robot-panel robot-panel-wide">
-          <h3>Краткий статус робота</h3>
-          <div class="robot-workspace-kpi">
-            <div class="robot-summary-block">
-              <h3>Связь</h3>
-              <div class="status-stack"><span class="pill ${liveClass}">${escapeHtml(liveLabel)}</span></div>
-              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(signal.detail)}</div>
-            </div>
-            <div class="robot-summary-block">
-              <h3>Сеть</h3>
-              <div class="status-stack"><span class="pill ${wifi.level === "ok" ? "ok" : wifi.level === "bad" ? "bad" : "warn"}">${escapeHtml(wifi.label)}</span></div>
-              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(wifi.detail)}</div>
-            </div>
-            <div class="robot-summary-block">
-              <h3>Последний выход на связь</h3>
-              <div class="status-stack"><span class="pill ${lastSeenIso ? "ok" : "warn"}">${escapeHtml(lastSeenIso ? formatIsoMoment(lastSeenIso) : "ещё не зафиксирован")}</span></div>
-              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(lastSeenIso ? "Это последний прямой контакт прошивки с платформой." : "Панель ещё не видела прямого сигнала от прошивки этого робота.")}</div>
-            </div>
-            <div class="robot-summary-block">
-              <h3>Плата и прошивка</h3>
-              <div class="status-stack"><span class="pill ${boardLabel ? "ok" : "warn"}">${escapeHtml(boardLabel || "ещё не получены")}</span></div>
-              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата или версия прошивки ещё не были переданы платформе.")}</div>
-            </div>
-          </div>
-        </section>
-      `;
-    }
-
     function renderRobotCardOperatorSnapshot(robot) {
       const wifi = robotWifiState(robot);
       const signal = robotSelfhostSignalState(robot);
@@ -4971,6 +4962,80 @@
             <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата и версия прошивки будут показаны после прямого сигнала устройства.")}</div>
           </div>
         </div>
+      `;
+    }
+
+    function renderRobotOperatorControlCenter(robot) {
+      const wifi = robotWifiState(robot);
+      const signal = robotSelfhostSignalState(robot);
+      const cloud = robot.cloud_console || {};
+      const diagnosis = robotConnectivityDiagnosis(robot);
+      const presenceConfirmed = robotPresenceConfirmed(robot);
+      const liveLabel = presenceConfirmed
+        ? "Робот на связи"
+        : signal.status === "stale"
+          ? "Давно не выходил на связь"
+          : robotHasHotspotPresence(robot)
+            ? "Режим hotspot"
+            : "Связь не подтверждена";
+      const liveClass = presenceConfirmed ? "ok" : signal.status === "stale" ? "bad" : "warn";
+      const lastSeenIso = cloud.last_seen_iso || "";
+      const boardLabel = [cloud.board_name || "", cloud.app_version || ""].filter(Boolean).join(" / ");
+      const diagnosisClass = diagnosis.level === "ok" ? "ok" : diagnosis.level === "bad" ? "bad" : "warn";
+      const evidence = Array.isArray(diagnosis.evidence) ? diagnosis.evidence.filter(Boolean) : [];
+      const evidenceHtml = evidence.length
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">Основание: ${escapeHtml(evidence.join(" • "))}</div>`
+        : "";
+      const actionHtml = diagnosis.action && diagnosis.actionCode
+        ? `<button class="btn primary" onclick="${diagnosis.actionCode}">${escapeHtml(diagnosis.action)}</button>`
+        : "";
+      const fallbackDetectButton = diagnosis.action === "Проверить связь"
+        ? ""
+        : `<button class="btn" onclick="detectRobotState('${robot.robot_id}', null, { expand: true })">Проверить связь</button>`;
+      return `
+        <section class="robot-panel robot-panel-wide robot-control-center">
+          <div>
+            <h3>Главный статус робота</h3>
+            <div class="robot-workspace-kpi">
+              <div class="robot-summary-block">
+                <h3>Связь</h3>
+                <div class="status-stack"><span class="pill ${liveClass}">${escapeHtml(liveLabel)}</span></div>
+                <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(signal.detail)}</div>
+              </div>
+              <div class="robot-summary-block">
+                <h3>Сеть</h3>
+                <div class="status-stack"><span class="pill ${wifi.level === "ok" ? "ok" : wifi.level === "bad" ? "bad" : "warn"}">${escapeHtml(wifi.label)}</span></div>
+                <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(wifi.detail)}</div>
+              </div>
+              <div class="robot-summary-block">
+                <h3>Последний выход на связь</h3>
+                <div class="status-stack"><span class="pill ${lastSeenIso ? "ok" : "warn"}">${escapeHtml(lastSeenIso ? formatIsoMoment(lastSeenIso) : "ещё не зафиксирован")}</span></div>
+                <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(lastSeenIso ? "Это последний прямой сигнал прошивки в платформу." : "Платформа ещё не видела прямой сигнал от прошивки этого робота.")}</div>
+              </div>
+              <div class="robot-summary-block">
+                <h3>Плата и прошивка</h3>
+                <div class="status-stack"><span class="pill ${boardLabel ? "ok" : "warn"}">${escapeHtml(boardLabel || "ещё не получены")}</span></div>
+                <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата и версия прошивки будут показаны после прямого сигнала устройства.")}</div>
+              </div>
+            </div>
+          </div>
+          <div class="robot-control-callout ${diagnosisClass}">
+            <div class="robot-control-callout-head">
+              <div>
+                <strong>${escapeHtml(diagnosis.title)}</strong>
+                <div class="mini" style="max-width:none;">${escapeHtml(diagnosis.detail)}</div>
+              </div>
+              <span class="pill ${diagnosisClass}">${escapeHtml(diagnosis.zone)}</span>
+            </div>
+            ${evidenceHtml}
+            <div class="operator-script"><strong>Следующий шаг:</strong> ${escapeHtml(diagnosis.nextStep)}</div>
+            <div class="robot-control-callout-actions">
+              ${actionHtml}
+              ${fallbackDetectButton}
+              <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'connection')">Подключение</button>
+            </div>
+          </div>
+        </section>
       `;
     }
 
@@ -5239,33 +5304,6 @@
         actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
         evidence: ["не хватает свежего подтверждения ответа"]
       };
-    }
-
-    function renderRobotConnectivityDiagnosis(robot) {
-      const diagnosis = robotConnectivityDiagnosis(robot);
-      const cls = diagnosis.level === "ok" ? "ok" : diagnosis.level === "bad" ? "bad" : "warn";
-      const evidence = Array.isArray(diagnosis.evidence) ? diagnosis.evidence.filter(Boolean) : [];
-      const evidenceHtml = evidence.length
-        ? `<div class="mini" style="max-width:none; margin-top:8px;">Основание: ${escapeHtml(evidence.join(" • "))}</div>`
-        : "";
-      const actionHtml = diagnosis.action && diagnosis.actionCode
-        ? `<div class="next-action-row"><button class="btn primary" onclick="${diagnosis.actionCode}">${escapeHtml(diagnosis.action)}</button></div>`
-        : "";
-      return `
-        <section class="robot-panel robot-panel-wide health-callout ${cls}">
-          <div class="health-title">
-            <div>
-              <h3>Где искать проблему</h3>
-              <strong>${escapeHtml(diagnosis.title)}</strong>
-            </div>
-            <span class="pill ${cls}">${escapeHtml(diagnosis.zone)}</span>
-          </div>
-          <div class="mini" style="max-width:none;">${escapeHtml(diagnosis.detail)}</div>
-          ${evidenceHtml}
-          <div class="operator-script"><strong>Следующий шаг:</strong> ${escapeHtml(diagnosis.nextStep)}</div>
-          ${actionHtml}
-        </section>
-      `;
     }
 
     function serviceLabel(name) {
@@ -7329,27 +7367,6 @@
         <span class="pill ${pillClass}">${escapeHtml(health.title)}</span>
         ${renderWifiPill(robot)}
         <span class="pill">${escapeHtml(health.level === "ok" ? "можно работать" : "следующий шаг")}</span>
-      `;
-    }
-
-    function renderNextActionPanel(robot) {
-      const health = robotHealthStatus(robot);
-      const boxClass = `robot-panel robot-panel-wide health-callout ${health.level === "ok" ? "ok" : health.level === "bad" ? "bad" : ""}`;
-      return `
-        <section class="${boxClass}">
-          <div class="health-title">
-            <div>
-              <h3>Следующее действие</h3>
-              <strong>${escapeHtml(health.title)}</strong>
-            </div>
-            <span class="pill ${health.level === "ok" ? "ok" : health.level === "bad" ? "bad" : "warn"}">${escapeHtml(health.level === "ok" ? "готово" : "проверить")}</span>
-          </div>
-          <div class="mini" style="max-width:none;">${escapeHtml(health.detail)}</div>
-          <div class="next-action-row">
-            <button class="btn primary" onclick="${health.actionCode}">${escapeHtml(health.action)}</button>
-            <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}">Страница робота</a>
-          </div>
-        </section>
       `;
     }
 

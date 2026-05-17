@@ -40,6 +40,7 @@
   - есть отдельный честный smoke-check:
     - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
     - alias: `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
+    - теперь он дополнительно печатает `diagnosis_hint`, `protocol_phase` и `error_type` по первому роботу
   - `init_local_lab.sh` теперь автоматически переводит legacy `gosha-main` в `self_hosted_xiaozhi`, поэтому локальный onboarding bundle больше не должен возвращать старый `18890` и `xiaozhi_cloud`
 - Поднят полный подготовительный серверный контур:
   - `gosha-panel.service`
@@ -68,6 +69,9 @@
     - сессия оборвалась сразу после `initialize`
     - handshake дошёл до `tools/call`, но робот не прислал `ACK`
     - self-hosted карточка ещё смотрит на внешний `api.xiaozhi.me`
+  - верх рабочей страницы робота дополнительно упрощён:
+    - теперь у оператора есть единый блок `Главный статус робота`
+    - в нём сразу видны связь, сеть, последний выход на связь, плата/прошивка и следующий безопасный шаг
   - над карточками теперь есть короткая сводка по флоту:
     - сколько реально на связи
     - сколько в hotspot

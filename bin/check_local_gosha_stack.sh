@@ -115,6 +115,32 @@ def is_support_robot(robot: dict) -> bool:
     return fleet_state == "test" or robot_id == "rustore-moderation"
 
 
+def diagnosis_hint(robot: dict) -> str:
+    detection = robot.get("detection") or {}
+    service_state = str(robot.get("service_state", "") or "").strip().lower()
+    verified_now = bool(detection.get("verified_now"))
+    phase = str(detection.get("protocol_phase", "") or "").strip().lower()
+    error_type = str(detection.get("error_type", "") or "").strip().lower()
+    backend_mode = str(robot.get("backend_mode", "") or "").strip().lower()
+    cloud = robot.get("cloud_console") or {}
+
+    if service_state and service_state != "active":
+        return "сервис робота не активен"
+    if verified_now:
+        return "живой ACK от робота подтверждён"
+    if phase == "initialize_sent" and error_type == "request_failed":
+        return "сессия рвётся сразу после initialize"
+    if phase == "waiting_tools_call_ack" and error_type == "timeout":
+        return "handshake дошёл до tools/call, но ACK не пришёл"
+    if phase == "waiting_initialize_ack" and error_type == "timeout":
+        return "нет ACK на initialize"
+    if phase == "waiting_remote_lifecycle":
+        return "удалённая сторона не завершает MCP lifecycle"
+    if backend_mode == "self_hosted_xiaozhi" and not (cloud.get("last_seen_iso") or ""):
+        return "прошивка ещё не отметилась напрямую в платформе"
+    return "нужна ручная проверка связи по панели"
+
+
 gateway = None
 if gateway_url and gateway_url != "-":
     try:
@@ -183,12 +209,19 @@ print(f"- claimed устройств: {len(selfhost_state.get('claimed_devices')
 if first_robot:
     print("- первый робот:")
     print(f"  - robot_id: {first_robot.get('robot_id')}")
+    print(f"  - service_state: {first_robot.get('service_state')}")
     print(f"  - backend_mode: {first_robot.get('backend_mode')}")
     print(f"  - cloud_state: {cloud.get('state')}")
     print(f"  - last_seen_iso: {cloud.get('last_seen_iso') or '—'}")
     print(f"  - board_name: {cloud.get('board_name') or '—'}")
     print(f"  - app_version: {cloud.get('app_version') or '—'}")
     print(f"  - remote_addr: {cloud.get('remote_addr') or '—'}")
+    detection = first_robot.get("detection") or {}
+    print(f"  - detection_state: {detection.get('state') or '—'}")
+    print(f"  - protocol_phase: {detection.get('protocol_phase') or '—'}")
+    print(f"  - error_type: {detection.get('error_type') or '—'}")
+    print(f"  - verified_now: {bool(detection.get('verified_now'))}")
+    print(f"  - diagnosis_hint: {diagnosis_hint(first_robot)}")
 
 gateway_ok = bool(gateway_status.get("ok"))
 if not gateway_ok:
