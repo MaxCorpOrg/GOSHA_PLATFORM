@@ -118,6 +118,11 @@
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
 - Панель:
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+- Если запуск идёт прямо из `/home/max`, на этой машине также работают совместимые wrapper-скрипты:
+  - `bash /home/max/bin/run_local_gosha_gateway.sh`
+  - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Локальный smoke-check всей цепочки:
+  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
 - После этого локально открывается:
   - `http://127.0.0.1:18876`
 - Важно:

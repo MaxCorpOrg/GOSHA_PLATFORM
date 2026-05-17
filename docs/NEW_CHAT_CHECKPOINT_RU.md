@@ -29,6 +29,15 @@
 
 ## Что уже сделано
 
+- Локальный запуск теперь задокументирован без неоднозначности:
+  - канонические команды из репозитория:
+    - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
+    - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+  - на этой машине из `/home/max` дополнительно работают wrapper-скрипты:
+    - `bash /home/max/bin/run_local_gosha_gateway.sh`
+    - `bash /home/max/bin/run_local_gosha_panel.sh`
+  - есть отдельный честный smoke-check:
+    - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
 - Поднят полный подготовительный серверный контур:
   - `gosha-panel.service`
   - `gosha-agent-gateway.service`

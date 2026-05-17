@@ -113,6 +113,22 @@
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
   - только после этого локально открывается:
     - `http://127.0.0.1:18876`
+- Для запуска прямо из `/home/max` на этой машине добавлены совместимые wrapper-скрипты:
+  - `bash /home/max/bin/run_local_gosha_gateway.sh`
+  - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Для честной проверки всей локальной цепочки добавлен отдельный smoke-check:
+  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - он проверяет не только наличие порта, а живые ответы:
+    - `GET /healthz` у gateway
+    - `GET /api/operator/robots` у панели
+    - `GET /api/operator/assistant-control/catalog` у панели
+    - и показывает по первому роботу `backend_mode`, `last_seen`, плату и версию прошивки
+- Главный экран панели упрощён ещё на один шаг:
+  - в верхнюю часть карточки робота вынесены четыре операторских статуса:
+    - робот на связи / не на связи
+    - домашний Wi-Fi / hotspot / неопределённо
+    - когда робот последний раз выходил на связь
+    - какая плата и прошивка сейчас у робота
 - В рабочем окне робота уже есть быстрая смена:
   - ассистента
   - голоса

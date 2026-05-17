@@ -67,6 +67,8 @@
 
 ## Быстрый старт локально
 
+Из корня репозитория:
+
 ```bash
 cd /home/max/GOSHA_PLATFORM
 bash bin/init_local_lab.sh
@@ -79,11 +81,25 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+Из `/home/max` на этой машине тоже можно запускать, потому что добавлены локальные wrapper-скрипты:
+
+```bash
+bash bin/run_local_gosha_gateway.sh
+bash bin/run_local_gosha_panel.sh
+```
+
 Порты локального контура:
 
 ```text
 панель: http://127.0.0.1:18876
 внутренний шлюз ИИ-агентов: http://127.0.0.1:18110
+```
+
+Быстрая честная smoke-проверка всей локальной цепочки:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+bash bin/check_local_gosha_stack.sh
 ```
 
 Совместимые и продуктовые пути текущего этапа:

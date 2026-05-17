@@ -4102,6 +4102,7 @@
             <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>
           </div>
         </section>
+        ${renderRobotOperatorSnapshot(robot)}
         <div class="robot-workspace-kpi">
           <div class="robot-summary-block">
             <h3>Подключение</h3>
@@ -4198,6 +4199,7 @@
             ${isTemplate ? "" : `<button class="btn" onclick="showPanelCard('selfhostPanel')">Привязки платформы</button>`}
           </div>
         </section>
+        ${renderRobotOperatorSnapshot(robot)}
         <section class="robot-panel">
           <h3>Подключение робота</h3>
           ${renderConnectionCell(robot)}
@@ -4810,6 +4812,91 @@
           <div class="status-stack">${statusPills}</div>
           <div class="mini" style="max-width:none; margin-top:8px;">${detailLines.map(escapeHtml).join("<br>")}</div>
         </section>
+      `;
+    }
+
+    function renderRobotOperatorSnapshot(robot) {
+      const wifi = robotWifiState(robot);
+      const signal = robotSelfhostSignalState(robot);
+      const cloud = robot.cloud_console || {};
+      const presenceConfirmed = robotPresenceConfirmed(robot);
+      const liveLabel = presenceConfirmed
+        ? "Робот на связи"
+        : signal.status === "stale"
+          ? "Давно не выходил на связь"
+          : robotHasHotspotPresence(robot)
+            ? "Режим hotspot"
+            : "Связь не подтверждена";
+      const liveClass = presenceConfirmed ? "ok" : signal.status === "stale" ? "bad" : "warn";
+      const lastSeenIso = cloud.last_seen_iso || "";
+      const boardLabel = [cloud.board_name || "", cloud.app_version || ""].filter(Boolean).join(" / ");
+      return `
+        <section class="robot-panel robot-panel-wide">
+          <h3>Краткий статус робота</h3>
+          <div class="robot-workspace-kpi">
+            <div class="robot-summary-block">
+              <h3>Связь</h3>
+              <div class="status-stack"><span class="pill ${liveClass}">${escapeHtml(liveLabel)}</span></div>
+              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(signal.detail)}</div>
+            </div>
+            <div class="robot-summary-block">
+              <h3>Сеть</h3>
+              <div class="status-stack"><span class="pill ${wifi.level === "ok" ? "ok" : wifi.level === "bad" ? "bad" : "warn"}">${escapeHtml(wifi.label)}</span></div>
+              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(wifi.detail)}</div>
+            </div>
+            <div class="robot-summary-block">
+              <h3>Последний выход на связь</h3>
+              <div class="status-stack"><span class="pill ${lastSeenIso ? "ok" : "warn"}">${escapeHtml(lastSeenIso ? formatIsoMoment(lastSeenIso) : "ещё не зафиксирован")}</span></div>
+              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(lastSeenIso ? "Это последний прямой контакт прошивки с платформой." : "Панель ещё не видела прямого сигнала от прошивки этого робота.")}</div>
+            </div>
+            <div class="robot-summary-block">
+              <h3>Плата и прошивка</h3>
+              <div class="status-stack"><span class="pill ${boardLabel ? "ok" : "warn"}">${escapeHtml(boardLabel || "ещё не получены")}</span></div>
+              <div class="mini" style="max-width:none; margin-top:6px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата или версия прошивки ещё не были переданы платформе.")}</div>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderRobotCardOperatorSnapshot(robot) {
+      const wifi = robotWifiState(robot);
+      const signal = robotSelfhostSignalState(robot);
+      const cloud = robot.cloud_console || {};
+      const presenceConfirmed = robotPresenceConfirmed(robot);
+      const liveLabel = presenceConfirmed
+        ? "на связи"
+        : signal.status === "stale"
+          ? "давно не выходил"
+          : robotHasHotspotPresence(robot)
+            ? "режим hotspot"
+            : "связь не подтверждена";
+      const liveClass = presenceConfirmed ? "ok" : signal.status === "stale" ? "bad" : "warn";
+      const lastSeenIso = cloud.last_seen_iso || "";
+      const boardLabel = [cloud.board_name || "", cloud.app_version || ""].filter(Boolean).join(" / ");
+      return `
+        <div class="robot-summary-meta">
+          <div class="robot-summary-block">
+            <h3>Связь</h3>
+            <div class="status-stack"><span class="pill ${liveClass}">${escapeHtml(liveLabel)}</span></div>
+            <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(signal.detail)}</div>
+          </div>
+          <div class="robot-summary-block">
+            <h3>Сеть</h3>
+            <div class="status-stack"><span class="pill ${wifi.level === "ok" ? "ok" : wifi.level === "bad" ? "bad" : "warn"}">${escapeHtml(wifi.label)}</span></div>
+            <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(wifi.detail)}</div>
+          </div>
+          <div class="robot-summary-block">
+            <h3>Последний выход на связь</h3>
+            <div class="status-stack"><span class="pill ${lastSeenIso ? "ok" : "warn"}">${escapeHtml(lastSeenIso ? formatIsoMoment(lastSeenIso) : "ещё не зафиксирован")}</span></div>
+            <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(lastSeenIso ? "Это прямой сигнал прошивки в платформу." : "Платформа ещё не получила прямой сигнал от прошивки.")}</div>
+          </div>
+          <div class="robot-summary-block">
+            <h3>Плата и прошивка</h3>
+            <div class="status-stack"><span class="pill ${boardLabel ? "ok" : "warn"}">${escapeHtml(boardLabel || "ещё не получены")}</span></div>
+            <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата и версия прошивки будут показаны после прямого сигнала устройства.")}</div>
+          </div>
+        </div>
       `;
     }
 
@@ -7194,6 +7281,7 @@
                 ${cloudStatusPill(robot)}
                 ${renderRobotAgentPill(robot)}
               </div>
+              ${renderRobotCardOperatorSnapshot(robot)}
               <div class="robot-summary-meta">
                 <div class="robot-summary-block">
                   <h3>Следующий шаг</h3>

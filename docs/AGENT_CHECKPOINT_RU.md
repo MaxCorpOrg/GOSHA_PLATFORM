@@ -44,6 +44,12 @@
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
   - только после этого доступен:
     - `http://127.0.0.1:18876`
+- Если разработчик запускает команды из `/home/max`, на этой машине уже есть совместимые wrapper-скрипты:
+  - `bash /home/max/bin/run_local_gosha_gateway.sh`
+  - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Для честной локальной проверки всей цепочки теперь есть отдельная команда:
+  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - она подтверждает не только открытый порт, а живые ответы panel → gateway и выводит след первого робота в платформе
 - Новая панель управления ассистентом:
   - поставщики ИИ
   - ассистенты

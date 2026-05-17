@@ -16,6 +16,8 @@
 
 ## Локальный запуск панели
 
+Из корня репозитория:
+
 ```bash
 cd /home/max/GOSHA_PLATFORM
 bash bin/run_local_gosha_gateway.sh
@@ -27,12 +29,33 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+Из `/home/max` на этой машине доступны совместимые wrapper-скрипты:
+
+```bash
+bash bin/run_local_gosha_gateway.sh
+bash bin/run_local_gosha_panel.sh
+```
+
 Адрес:
 
 ```text
 панель: http://127.0.0.1:18876
 шлюз ИИ-агентов: http://127.0.0.1:18110
 ```
+
+Проверка, что вся локальная цепочка реально жива:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+bash bin/check_local_gosha_stack.sh
+```
+
+Этот smoke-check честно проверяет:
+
+1. что gateway отвечает на `/healthz`;
+2. что панель отвечает на `/api/operator/robots`;
+3. что панель отвечает на `/api/operator/assistant-control/catalog`;
+4. что по первому роботу уже видны `backend_mode`, `last_seen`, плата и версия прошивки.
 
 ## Что проверять первым
 

@@ -11,6 +11,8 @@
 ## Что проверено
 
 - локальный запуск `bash bin/run_local_gosha_panel.sh`
+- теперь для повторной проверки есть отдельная команда:
+  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
 - `GET /api/mobile/plans`
 - `GET /api/operator/selfhost-xiaozhi`
 - `POST /xiaozhi/ota/` с тестовым `Device-Id`
