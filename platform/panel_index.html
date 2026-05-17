@@ -160,6 +160,9 @@
       border-radius: 10px;
       padding: 7px 10px;
       font-size: 13px;
+      line-height: 1.25;
+      min-height: 36px;
+      white-space: normal;
       cursor: pointer;
       transition:
         transform .12s ease,
@@ -307,10 +310,181 @@
       gap: 6px;
     }
     .field label {
-      font-size: 12px;
+      font-size: 13px;
+      font-weight: 600;
       color: #4b6281;
-      text-transform: uppercase;
-      letter-spacing: .3px;
+      line-height: 1.35;
+      letter-spacing: .12px;
+    }
+    .label-line {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .label-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .help-btn {
+      width: 24px;
+      height: 24px;
+      min-height: 24px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid #b7cae6;
+      background: #f5f9ff;
+      color: #15508a;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      cursor: pointer;
+    }
+    .help-btn:hover {
+      background: #e8f1ff;
+      border-color: #8fb1de;
+    }
+    .help-btn.inline {
+      width: 22px;
+      height: 22px;
+      min-height: 22px;
+      font-size: 12px;
+    }
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .guide-card {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(135deg, #fbfdff, #f4f8ff);
+    }
+    .guide-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .guide-card h4 {
+      margin: 0;
+      font-size: 14px;
+      color: #153860;
+    }
+    .guide-card p {
+      margin: 0;
+      color: #4b6281;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .summary-card {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+    }
+    .summary-card h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      color: #153860;
+    }
+    .summary-card p {
+      margin: 0;
+      color: #4b6281;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .summary-card .status-stack {
+      margin-top: 8px;
+      margin-bottom: 0;
+    }
+    .microcopy {
+      margin-top: 8px;
+      color: #5f7290;
+      font-size: 12px;
+      line-height: 1.45;
+      max-width: none;
+    }
+    .help-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(9, 23, 43, .45);
+      z-index: 10002;
+    }
+    .help-overlay[hidden] {
+      display: none;
+    }
+    .help-dialog {
+      width: min(860px, 100%);
+      max-height: min(86vh, 900px);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background: #ffffff;
+      border: 1px solid #d8dfeb;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 20px 42px rgba(9, 23, 43, .24);
+      overflow: hidden;
+    }
+    .help-body {
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .help-section {
+      display: grid;
+      gap: 12px;
+    }
+    .help-section h4 {
+      margin: 0 0 6px;
+      color: #153860;
+      font-size: 15px;
+    }
+    .help-section p {
+      margin: 0;
+      color: #4b6281;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+    .help-list {
+      margin: 0;
+      padding-left: 18px;
+      color: #365272;
+      line-height: 1.5;
+      font-size: 13px;
+    }
+    .help-list li + li {
+      margin-top: 6px;
+    }
+    .help-callout {
+      padding: 12px 14px;
+      border: 1px solid #c8daf3;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f8fbff, #eef5ff);
+      color: #24456f;
+      font-size: 13px;
+      line-height: 1.5;
     }
     .checkbox-grid {
       display: grid;
@@ -1547,6 +1721,8 @@
       .workspace-compact-form { grid-template-columns: 1fr; }
       .operator-grid { grid-template-columns: 1fr; }
       .operator-summary-strip { grid-template-columns: 1fr 1fr; }
+      .guide-grid { grid-template-columns: 1fr; }
+      .summary-grid { grid-template-columns: 1fr; }
       .wifi-map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .fleet-map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wrap { padding: 14px; }
@@ -1563,6 +1739,10 @@
       .fleet-map-grid { grid-template-columns: 1fr; }
       .wifi-diagram { grid-template-columns: 1fr; }
       .wifi-link { width: 6px; height: 26px; margin: 0 auto; }
+      .help-dialog {
+        max-height: min(92vh, 940px);
+        padding: 14px;
+      }
     }
   </style>
 </head>
@@ -1576,6 +1756,7 @@
         </div>
         <div class="hero-actions">
           <button id="operatorHomeBtn" class="btn" style="display:none;" onclick="goOperatorHome()">На пульт оператора</button>
+          <button class="btn" onclick="openHelpTopic('operator-home')">Справка</button>
           <span id="sessionPill" class="pill">Проверка сеанса...</span>
           <button id="logoutBtn" class="btn" style="display:none;" onclick="logoutOperator()">Выйти</button>
         </div>
@@ -1638,6 +1819,32 @@
           <div class="mini">Жду данные панели</div>
         </div>
       </div>
+      <details class="soft-box" style="margin-top:12px;">
+        <summary class="details-toggle">Как пользоваться пультом оператора</summary>
+        <div class="guide-grid">
+          <div class="guide-card">
+            <div class="guide-card-head">
+              <h4>1. Сначала смотри на флот</h4>
+              <button type="button" class="help-btn inline" onclick="openHelpTopic('fleet-state')" title="Что показывает состояние флота?" aria-label="Что показывает состояние флота?">?</button>
+            </div>
+            <p>На первом экране оставлены только сводка, карта Wi‑Fi, состояние флота, мобильное приложение и подключение нового робота. Это точка входа, а не место для тонкой настройки.</p>
+          </div>
+          <div class="guide-card">
+            <div class="guide-card-head">
+              <h4>2. Открой карточку нужного робота</h4>
+              <button type="button" class="help-btn inline" onclick="openHelpTopic('robot-page')" title="Что есть на странице робота?" aria-label="Что есть на странице робота?">?</button>
+            </div>
+            <p>По нажатию на робота открывается его отдельная рабочая страница. Там уже лежат обзор, личность, голос, подключение, память, инструменты и клиентские данные.</p>
+          </div>
+          <div class="guide-card">
+            <div class="guide-card-head">
+              <h4>3. Если термин непонятен</h4>
+              <button type="button" class="help-btn inline" onclick="openHelpTopic('help-system')" title="Как пользоваться подсказками?" aria-label="Как пользоваться подсказками?">?</button>
+            </div>
+            <p>Нажми на значок <strong>?</strong> рядом с полем или разделом. Панель откроет короткую подсказку: что означает поле, когда его трогать и какие варианты выбора безопасны.</p>
+          </div>
+        </div>
+      </details>
       <div class="operator-grid">
         <div>
           <div class="mini" style="max-width:none;margin-bottom:8px;">Что стоит проверить первым</div>
@@ -2396,11 +2603,11 @@
         <button id="robotWorkspaceTabOverview" class="btn active" onclick="setRobotWorkspaceTab('overview')">Обзор</button>
         <button id="robotWorkspaceTabPersonality" class="btn" onclick="setRobotWorkspaceTab('personality')">Личность, модель и голос</button>
         <button id="robotWorkspaceTabConnection" class="btn" onclick="setRobotWorkspaceTab('connection')">Подключение</button>
-        <button id="robotWorkspaceTabClient" class="btn" onclick="setRobotWorkspaceTab('client')">Клиент, память и коды</button>
+        <button id="robotWorkspaceTabClient" class="btn" onclick="setRobotWorkspaceTab('client')">Клиент, память и инструменты</button>
       </div>
       <div id="robotWorkspaceBody" class="robot-workspace-grid">
         <div class="robot-panel robot-panel-wide">
-          <div class="mini" style="max-width:none;">Открой робота из состояния флота, чтобы перейти в его отдельную рабочую страницу с обзором, личностью, голосом, подключением, памятью и клиентскими данными.</div>
+          <div class="mini" style="max-width:none;">Открой робота из состояния флота, чтобы перейти в его отдельную рабочую страницу с обзором, личностью, голосом, подключением, памятью, инструментами и клиентскими данными.</div>
         </div>
       </div>
     </div>
@@ -2558,7 +2765,7 @@
     </div>
 
     <div id="controlPanel" class="card" style="margin-top:12px; display:none;">
-      <h2>Подключение и MCP</h2>
+      <h2>Подключение, каналы и профили</h2>
       <div class="row" style="margin-bottom:10px;">
         <span id="controlRobotLabel" class="pill"></span>
         <button class="btn" onclick="hideControl()">Закрыть</button>
@@ -2569,14 +2776,14 @@
           <input id="ctrlRobotName" type="text" placeholder="Например: Гоша 02" />
         </div>
         <div class="field">
-          <label for="ctrlBackendMode">Режим платформы</label>
+          <label for="ctrlBackendMode"><span class="label-line"><span class="label-text">Режим платформы</span><button type="button" class="help-btn inline" onclick="openHelpTopic('backend-mode')" title="Что значит режим платформы?" aria-label="Что значит режим платформы?">?</button></span></label>
           <select id="ctrlBackendMode">
             <option value="self_hosted_xiaozhi">Платформа Гоша</option>
             <option value="xiaozhi_cloud">Совместимый облачный режим</option>
           </select>
         </div>
         <div class="field">
-          <label for="ctrlTransport">Режим подключения</label>
+          <label for="ctrlTransport"><span class="label-line"><span class="label-text">Режим подключения</span><button type="button" class="help-btn inline" onclick="openHelpTopic('connection-mode')" title="Что значит режим подключения?" aria-label="Что значит режим подключения?">?</button></span></label>
           <select id="ctrlTransport">
             <option value="cloud-mcp">Облачный MCP</option>
             <option value="edge-hub">Резервный шлюз</option>
@@ -2584,24 +2791,24 @@
           </select>
         </div>
         <div class="field">
-          <label for="ctrlAgentProfile">Активный профиль ИИ-агента</label>
+          <label for="ctrlAgentProfile"><span class="label-line"><span class="label-text">Активный профиль ИИ-агента</span><button type="button" class="help-btn inline" onclick="openHelpTopic('active-agent-profile')" title="Что значит активный профиль агента?" aria-label="Что значит активный профиль агента?">?</button></span></label>
           <select id="ctrlAgentProfile"></select>
         </div>
         <div class="field">
-          <label for="ctrlAgentFallbackProfile">Резервный профиль</label>
+          <label for="ctrlAgentFallbackProfile"><span class="label-line"><span class="label-text">Резервный профиль агента</span><button type="button" class="help-btn inline" onclick="openHelpTopic('fallback-agent-profile')" title="Что значит резервный профиль?" aria-label="Что значит резервный профиль?">?</button></span></label>
           <select id="ctrlAgentFallbackProfile"></select>
         </div>
         <div class="field" style="grid-column: 1 / -1;">
-          <label for="ctrlCloudEndpoint">Совместимый облачный MCP-адрес</label>
+          <label for="ctrlCloudEndpoint"><span class="label-line"><span class="label-text">Совместимый облачный MCP-адрес</span><button type="button" class="help-btn inline" onclick="openHelpTopic('cloud-endpoint')" title="Что значит облачный MCP-адрес?" aria-label="Что значит облачный MCP-адрес?">?</button></span></label>
           <input id="ctrlCloudEndpoint" type="text" placeholder="Можно вставить позже, если робот временно работает через совместимый облачный контур" />
         </div>
         <div class="field" style="grid-column: 1 / -1;">
-          <label for="ctrlWsUrl">Локальный или резервный WS URL</label>
+          <label for="ctrlWsUrl"><span class="label-line"><span class="label-text">Резервный адрес прямого канала (WebSocket)</span><button type="button" class="help-btn inline" onclick="openHelpTopic('reserve-ws')" title="Что значит резервный WebSocket-адрес?" aria-label="Что значит резервный WebSocket-адрес?">?</button></span></label>
           <input id="ctrlWsUrl" type="text" placeholder="ws://192.168.0.50:8080/ws" />
         </div>
       </div>
       <div id="controlHintBox" class="hint-box">
-        Если робот ещё не зарегистрирован во внешнем облачном контуре совместимости, поле совместимого облачного MCP-адреса можно оставить пустым и заполнить позже в закрытом режиме настройки.
+        Если робот работает в нашей платформе, облачный MCP-адрес часто не нужен вообще. Резервный шлюз, резервный профиль и прямой WebSocket трогай только тогда, когда сознательно готовишь запасной или локальный маршрут.
       </div>
       <div id="controlAgentHintBox" class="hint-box" style="margin-top:10px;">
         После загрузки карточки здесь появится итоговый активный профиль ИИ-агента и предупреждения по его готовности.
@@ -2697,6 +2904,20 @@
         class="legal-frame"
         title="Юридический документ Гоши"
         loading="lazy"></iframe>
+    </div>
+  </div>
+  <div id="helpOverlay" class="help-overlay" hidden onclick="handleHelpOverlayClick(event)">
+    <div class="help-dialog">
+      <div class="legal-head">
+        <div>
+          <h3 id="helpDialogTitle">Справка панели</h3>
+          <p id="helpDialogSubtitle">Короткая подсказка по выбранному разделу или полю.</p>
+        </div>
+        <div class="legal-actions">
+          <button class="btn warn" onclick="closeHelpDrawer()">Закрыть</button>
+        </div>
+      </div>
+      <div id="helpDialogBody" class="help-body"></div>
     </div>
   </div>
 
@@ -4357,6 +4578,30 @@
       return (currentVoiceProfilesV1 || []).find((item) => item.profile_id === selectedId) || null;
     }
 
+    function selectedWorkspaceMemoryProfile(config) {
+      const binding = robotWorkspaceBindingState(config);
+      const selectedId = binding.memory_profile_id || config?.memory_profile?.profile_id || "";
+      return (currentMemoryProfilesV1 || []).find((item) => item.profile_id === selectedId) || null;
+    }
+
+    function selectedWorkspaceMcpBundle(config) {
+      const binding = robotWorkspaceBindingState(config);
+      const selectedId = binding.mcp_bundle_id || config?.mcp_bundle?.profile_id || "";
+      return (currentMcpBundlesV1 || []).find((item) => item.profile_id === selectedId) || null;
+    }
+
+    function renderGuideCardHtml(topicKey, title, text) {
+      return `
+        <div class="guide-card">
+          <div class="guide-card-head">
+            <h4>${escapeHtml(title)}</h4>
+            ${renderHelpButton(topicKey)}
+          </div>
+          <p>${escapeHtml(text)}</p>
+        </div>
+      `;
+    }
+
     function renderWorkspaceAssistantEditor(config) {
       const profile = selectedWorkspaceAssistantProfile(config);
       if (!profile) {
@@ -4372,7 +4617,7 @@
           <h3>Личность, промпт и модель</h3>
           <div class="workspace-compact-form">
             <div class="field">
-              <label for="workspaceAssistantProfileEditorId">Профиль ассистента</label>
+              <label for="workspaceAssistantProfileEditorId">${fieldLabelHtml("Профиль ассистента", "assistant-profile")}</label>
               <input id="workspaceAssistantProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
             </div>
             <div class="field">
@@ -4388,27 +4633,27 @@
               <select id="workspaceAssistantLanguage">${valueCatalogOptionsHtml(currentAssistantCatalogs.dialogue_languages || [], profile.dialogue_language || "ru-RU", "Выберите язык")}</select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantProviderProfileId">Поставщик ИИ</label>
+              <label for="workspaceAssistantProviderProfileId">${fieldLabelHtml("Поставщик ИИ", "active-agent-profile")}</label>
               <select id="workspaceAssistantProviderProfileId">${profileSelectOptionsHtml(currentAgentProfiles || [], profile.provider_profile_id || "", "Выберите поставщика ИИ", agentProfileLabel)}</select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantModelOverride">Модель</label>
+              <label for="workspaceAssistantModelOverride">${fieldLabelHtml("Модель", "model-override")}</label>
               <input id="workspaceAssistantModelOverride" type="text" value="${escapeHtml(profile.model_override || "")}" placeholder="Оставьте пустым, чтобы брать модель поставщика" />
             </div>
             <div class="field">
-              <label for="workspaceAssistantVoiceProfileId">Голос по умолчанию</label>
+              <label for="workspaceAssistantVoiceProfileId">${fieldLabelHtml("Голос по умолчанию", "voice-profile")}</label>
               <select id="workspaceAssistantVoiceProfileId">${profileSelectOptionsHtml(currentVoiceProfilesV1, profile.voice_profile_id || "", "Без голоса")}</select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantMemoryProfileId">Память по умолчанию</label>
+              <label for="workspaceAssistantMemoryProfileId">${fieldLabelHtml("Память по умолчанию", "memory-profile")}</label>
               <select id="workspaceAssistantMemoryProfileId">${profileSelectOptionsHtml(currentMemoryProfilesV1, profile.memory_profile_id || "", "Без памяти")}</select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantMcpBundleId">Набор MCP по умолчанию</label>
+              <label for="workspaceAssistantMcpBundleId">${fieldLabelHtml("Набор инструментов по умолчанию", "mcp-bundle")}</label>
               <select id="workspaceAssistantMcpBundleId">${profileSelectOptionsHtml(currentMcpBundlesV1, profile.mcp_bundle_id || "", "Без набора MCP")}</select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantKnowledgeProfileId">База знаний по умолчанию</label>
+              <label for="workspaceAssistantKnowledgeProfileId">${fieldLabelHtml("База знаний по умолчанию", "knowledge-profile")}</label>
               <select id="workspaceAssistantKnowledgeProfileId">${profileSelectOptionsHtml(currentKnowledgeProfilesV1, profile.knowledge_profile_id || "", "Без базы знаний")}</select>
             </div>
             <div class="field full">
@@ -4420,7 +4665,7 @@
               <input id="workspaceAssistantRoleDescription" type="text" value="${escapeHtml(profile.role_description || "")}" placeholder="Что это за профиль и зачем он нужен оператору" />
             </div>
             <div class="field full">
-              <label for="workspaceAssistantSystemPrompt">Системный промпт</label>
+              <label for="workspaceAssistantSystemPrompt">${fieldLabelHtml("Системный промпт", "assistant-profile")}</label>
               <textarea id="workspaceAssistantSystemPrompt" placeholder="Главная инструкция для ассистента">${escapeHtml(profile.system_prompt || "")}</textarea>
             </div>
             <label class="check-item"><input id="workspaceAssistantEnabled" type="checkbox" ${profile.enabled !== false ? "checked" : ""} /> Профиль включён</label>
@@ -4452,7 +4697,7 @@
           <h3>Голос и движок TTS</h3>
           <div class="workspace-compact-form">
             <div class="field">
-              <label for="workspaceVoiceProfileEditorId">Голосовой профиль</label>
+              <label for="workspaceVoiceProfileEditorId">${fieldLabelHtml("Голосовой профиль", "voice-profile")}</label>
               <input id="workspaceVoiceProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
             </div>
             <div class="field">
@@ -4468,7 +4713,7 @@
               <select id="workspaceVoiceType">${valueCatalogOptionsHtml(currentAssistantCatalogs.voice_types || [], profile.voice_type || "adult", "Выберите тип")}</select>
             </div>
             <div class="field">
-              <label for="workspaceVoiceTtsEngineProfileId">Движок синтеза речи</label>
+              <label for="workspaceVoiceTtsEngineProfileId">${fieldLabelHtml("Движок синтеза речи", "tts-engine")}</label>
               <select id="workspaceVoiceTtsEngineProfileId">${profileSelectOptionsHtml(currentTtsEngineProfilesV1, profile.tts_engine_profile_id || "tts-engine-edge-default", "Выберите движок TTS")}</select>
             </div>
             <div class="field">
@@ -4500,6 +4745,90 @@
       `;
     }
 
+    function renderWorkspaceMemoryEditor(config) {
+      const profile = selectedWorkspaceMemoryProfile(config);
+      if (!profile) {
+        return `
+          <section class="robot-panel">
+            <h3>Профиль памяти</h3>
+            <div class="empty-state">У этого робота пока не выбран профиль памяти. Сначала привяжи память в верхнем блоке личности или в связке ассистента.</div>
+          </section>
+        `;
+      }
+      return `
+        <section class="robot-panel">
+          <h3>Профиль памяти</h3>
+          <div class="workspace-compact-form">
+            <div class="field">
+              <label for="workspaceMemoryProfileEditorId">${fieldLabelHtml("Профиль памяти", "memory-profile")}</label>
+              <input id="workspaceMemoryProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
+            </div>
+            <div class="field">
+              <label for="workspaceMemoryDisplayName">Понятное имя</label>
+              <input id="workspaceMemoryDisplayName" type="text" value="${escapeHtml(profile.display_name || "")}" />
+            </div>
+            <div class="field">
+              <label for="workspaceMemoryType">${fieldLabelHtml("Тип памяти", "memory-type")}</label>
+              <select id="workspaceMemoryType">${valueCatalogOptionsHtml(currentAssistantCatalogs.memory_types || [], profile.memory_type || "short_term", "Выберите тип памяти")}</select>
+            </div>
+            <label class="check-item"><input id="workspaceMemoryBySpeaker" type="checkbox" ${profile.memory_by_speaker ? "checked" : ""} /> Память по говорящему</label>
+            <label class="check-item"><input id="workspaceMemoryAllowClear" type="checkbox" ${profile.allow_clear_memory !== false ? "checked" : ""} /> Разрешить очистку памяти</label>
+            <label class="check-item"><input id="workspaceMemoryEnabled" type="checkbox" ${profile.enabled !== false ? "checked" : ""} /> Профиль включён</label>
+          </div>
+          <div class="workspace-profile-note">
+            Память редактируется как отдельный профиль. Это удобно: один и тот же сценарий памяти можно переиспользовать на нескольких роботах или у нескольких личностей.
+          </div>
+          <div class="robot-workspace-card-actions">
+            <button class="btn primary" onclick="saveWorkspaceMemoryProfile()">Сохранить память</button>
+            <button class="btn" onclick="showPanelCard('assistantControlPanel')">Открыть каталог памяти</button>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderWorkspaceMcpEditor(config) {
+      const profile = selectedWorkspaceMcpBundle(config);
+      if (!profile) {
+        return `
+          <section class="robot-panel robot-panel-wide">
+            <h3>Инструменты и MCP</h3>
+            <div class="empty-state">У этого робота пока не выбран набор инструментов. Сначала привяжи MCP-набор в верхнем блоке личности.</div>
+          </section>
+        `;
+      }
+      return `
+        <section class="robot-panel robot-panel-wide">
+          <h3>Инструменты и MCP</h3>
+          <div class="workspace-compact-form">
+            <div class="field">
+              <label for="workspaceMcpProfileEditorId">${fieldLabelHtml("Набор инструментов", "mcp-bundle")}</label>
+              <input id="workspaceMcpProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
+            </div>
+            <div class="field">
+              <label for="workspaceMcpDisplayName">Понятное имя</label>
+              <input id="workspaceMcpDisplayName" type="text" value="${escapeHtml(profile.display_name || "")}" />
+            </div>
+            <div class="field full">
+              <label for="workspaceMcpOfficialServices">${fieldLabelHtml("Официальные сервисы", "tools-mcp")}</label>
+              <textarea id="workspaceMcpOfficialServices" placeholder="Например: weather, timer, calendar">${escapeHtml(Array.isArray(profile.official_services) ? profile.official_services.join("\n") : "")}</textarea>
+            </div>
+            <div class="field full">
+              <label for="workspaceMcpCustomServices">${fieldLabelHtml("Пользовательские сервисы", "tools-mcp")}</label>
+              <textarea id="workspaceMcpCustomServices" placeholder="Например: crm.lookup, gosha.media.stub">${escapeHtml(Array.isArray(profile.custom_services) ? profile.custom_services.join("\n") : "")}</textarea>
+            </div>
+            <label class="check-item"><input id="workspaceMcpEnabled" type="checkbox" ${profile.enabled !== false ? "checked" : ""} /> Набор включён</label>
+          </div>
+          <div class="workspace-profile-note">
+            MCP-набор — это список инструментов, которыми робот может пользоваться. Здесь не нужно указывать адрес сервера: здесь настраивается именно состав разрешённых сервисов.
+          </div>
+          <div class="robot-workspace-card-actions">
+            <button class="btn primary" onclick="saveWorkspaceMcpBundle()">Сохранить инструменты</button>
+            <button class="btn" onclick="showPanelCard('assistantControlPanel')">Открыть каталог MCP</button>
+          </div>
+        </section>
+      `;
+    }
+
     function renderRobotWorkspacePersonality(robot) {
       const config = robotWorkspaceConfigData?.config || robot.assistant_control || {};
       const binding = robotWorkspaceBindingState(config);
@@ -4524,26 +4853,33 @@
           </div>
         </section>
         <section class="robot-panel robot-panel-wide">
+          <div class="guide-grid">
+            ${renderGuideCardHtml("assistant-profile", "Сначала выбери ассистента", "Верхняя привязка отвечает за то, какой профиль личности сейчас назначен именно этому роботу.")}
+            ${renderGuideCardHtml("model-override", "Потом уточни модель", "Если поле модели пустое, робот берёт модель из профиля поставщика. Заполняй только если нужен отдельный override.")}
+            ${renderGuideCardHtml("voice-profile", "И только потом голос", "Голос хранится отдельно от личности. Так проще менять тембр, не ломая сам промпт и поставщика ИИ.")}
+          </div>
+        </section>
+        <section class="robot-panel robot-panel-wide">
           <h3>Привязка профилей к роботу</h3>
           <div class="workspace-compact-form">
             <div class="field">
-              <label for="workspaceAssistantProfileId">Ассистент</label>
+              <label for="workspaceAssistantProfileId">${fieldLabelHtml("Ассистент", "assistant-profile")}</label>
               <select id="workspaceAssistantProfileId" onchange="updateRobotWorkspaceBindingField('assistant_profile_id', this.value)">${profileSelectOptionsHtml(currentAssistantProfilesV1, binding.assistant_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field">
-              <label for="workspaceVoiceProfileId">Голос</label>
+              <label for="workspaceVoiceProfileId">${fieldLabelHtml("Голос", "voice-profile")}</label>
               <select id="workspaceVoiceProfileId" onchange="updateRobotWorkspaceBindingField('voice_profile_id', this.value)">${profileSelectOptionsHtml(currentVoiceProfilesV1, binding.voice_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field">
-              <label for="workspaceMemoryProfileId">Память</label>
+              <label for="workspaceMemoryProfileId">${fieldLabelHtml("Память", "memory-profile")}</label>
               <select id="workspaceMemoryProfileId" onchange="updateRobotWorkspaceBindingField('memory_profile_id', this.value)">${profileSelectOptionsHtml(currentMemoryProfilesV1, binding.memory_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field">
-              <label for="workspaceMcpBundleId">Набор MCP</label>
+              <label for="workspaceMcpBundleId">${fieldLabelHtml("Инструменты и MCP", "mcp-bundle")}</label>
               <select id="workspaceMcpBundleId" onchange="updateRobotWorkspaceBindingField('mcp_bundle_id', this.value)">${profileSelectOptionsHtml(currentMcpBundlesV1, binding.mcp_bundle_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field full">
-              <label for="workspaceKnowledgeProfileId">База знаний</label>
+              <label for="workspaceKnowledgeProfileId">${fieldLabelHtml("База знаний", "knowledge-profile")}</label>
               <select id="workspaceKnowledgeProfileId" onchange="updateRobotWorkspaceBindingField('knowledge_profile_id', this.value)">${profileSelectOptionsHtml(currentKnowledgeProfilesV1, binding.knowledge_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field full">
@@ -4572,17 +4908,63 @@
 
     function renderRobotWorkspaceConnection(robot) {
       const isTemplate = isTemplateRobot(robot);
+      const cfg = robot.control || {};
+      const backendMode = String(cfg.backend_mode || robot.backend_mode || "self_hosted_xiaozhi");
+      const transport = String(cfg.transport || "cloud-mcp");
+      const endpoint = robotEndpointStatus(robot);
+      const token = robotTokenStatus(robot);
+      const fallbackWs = String(cfg.fallback_ws_url || cfg.ws_url || "").trim();
+      const cloudEndpoint = String(cfg.cloud_endpoint || "").trim();
+      const backendModeLabel = backendMode === "self_hosted_xiaozhi" ? "Платформа Гоша" : "совместимый облачный режим";
       return `
         <section class="robot-panel robot-panel-wide robot-workspace-hero">
           <div class="robot-summary-block">
-            <h3>Подключение</h3>
-            <div class="mini" style="max-width:none;">В этом окне собраны только основные действия оператора: проверить связь, открыть настройки MCP, выдать код и посмотреть, как робот подключён к платформе. Прошивка и OTA остаются внутренним сервисным контуром и не выдаются в открытом операторском интерфейсе.</div>
+            <h3>Подключение и каналы связи</h3>
+            <div class="mini" style="max-width:none;">Здесь оператор проверяет живое состояние робота, понимает, через какой канал он работает, и при необходимости меняет только служебные параметры подключения. Прошивка и OTA остаются внутренним контуром и здесь не публикуются.</div>
           </div>
           <div class="robot-workspace-card-actions">
             <button class="btn primary" onclick="detectRobotState('${robot.robot_id}', null, { expand: true })">Проверить связь</button>
-            <button class="btn" onclick="openControl('${robot.robot_id}')">Открыть MCP</button>
+            <button class="btn" onclick="openControl('${robot.robot_id}')">Настроить подключение</button>
             <button class="btn" onclick="openCodePanel('${robot.robot_id}')">Коды подключения</button>
             ${isTemplate ? "" : `<button class="btn" onclick="showPanelCard('selfhostPanel')">Привязки платформы</button>`}
+          </div>
+        </section>
+        <section class="robot-panel robot-panel-wide">
+          <div class="guide-grid">
+            ${renderGuideCardHtml("connection-mode", "Обычный путь", "Для рабочего Гоши используй облачный MCP внутри нашей платформы. Это основной сценарий, а не запасной.")}
+            ${renderGuideCardHtml("fallback-agent-profile", "Резерв нужен не всегда", "Резервный профиль и резервный шлюз трогают только тогда, когда у робота должен быть запасной маршрут на случай отказа основного.")}
+            ${renderGuideCardHtml("cloud-endpoint", "Не путай адрес и инструменты", "MCP-адрес — это канал связи. Набор инструментов и память настраиваются отдельно на вкладках личности и клиента.")}
+          </div>
+        </section>
+        <section class="robot-panel robot-panel-wide">
+          <h3>Текущая схема подключения</h3>
+          <div class="summary-grid">
+            <div class="summary-card">
+              <h4>Режим платформы ${renderHelpButton("backend-mode")}</h4>
+              <p>${escapeHtml(backendModeLabel)}</p>
+              <div class="microcopy">Выбирает, где робот считается основным: в нашей платформе или во временном совместимом облачном контуре.</div>
+            </div>
+            <div class="summary-card">
+              <h4>Режим подключения ${renderHelpButton("connection-mode")}</h4>
+              <p>${escapeHtml(formatDiagValue(transport))}</p>
+              <div class="microcopy">Сейчас робот использует канал: ${escapeHtml(formatDiagValue(transport))}. Для большинства боевых роботов это облачный MCP.</div>
+            </div>
+            <div class="summary-card">
+              <h4>Облачный адрес ${renderHelpButton("cloud-endpoint")}</h4>
+              <div class="status-stack">
+                <span class="pill ${endpoint.level}">${escapeHtml(endpoint.label)}</span>
+                <span class="pill ${cloudEndpoint ? "ok" : "warn"}">${escapeHtml(cloudEndpoint ? "поле заполнено" : "поле пусто")}</span>
+              </div>
+              <div class="microcopy">${escapeHtml(cloudEndpoint ? "Адрес уже задан в конфигурации подключения." : "Если робот полностью работает в Платформе Гоша, поле может оставаться пустым.")}</div>
+            </div>
+            <div class="summary-card">
+              <h4>Запасной прямой канал ${renderHelpButton("reserve-ws")}</h4>
+              <div class="status-stack">
+                <span class="pill ${token.level}">${escapeHtml(token.label)}</span>
+                <span class="pill ${fallbackWs ? "ok" : "warn"}">${escapeHtml(fallbackWs ? "адрес задан" : "адрес не задан")}</span>
+              </div>
+              <div class="microcopy">${escapeHtml(fallbackWs ? "Прямой или резервный WebSocket-адрес уже задан." : "Это поле обычно пустое, пока не нужен локальный или аварийный канал.")}</div>
+            </div>
           </div>
         </section>
         ${renderRobotOperatorControlCenter(robot)}
@@ -4603,17 +4985,28 @@
 
     function renderRobotWorkspaceClient(robot) {
       const memory = robot.memory || {};
+      const config = robotWorkspaceConfigData?.config || {};
+      const memoryProfile = selectedWorkspaceMemoryProfile(config);
+      const mcpBundle = selectedWorkspaceMcpBundle(config);
+      const enabledTools = Array.isArray(robot.tools) ? robot.tools.filter((item) => item.enabled) : [];
       return `
         <section class="robot-panel robot-panel-wide robot-workspace-hero">
           <div class="robot-summary-block">
-            <h3>Клиент, память и коды</h3>
-            <div class="mini" style="max-width:none;">Здесь собраны все операционные действия вокруг клиента: владелец, тариф, коды подключения, память и дальнейшие пользовательские проверки.</div>
+            <h3>Клиент, память и инструменты</h3>
+            <div class="mini" style="max-width:none;">Здесь собраны все операционные действия вокруг клиента: владелец, тариф, коды подключения, память, инструменты и дальнейшие пользовательские проверки.</div>
           </div>
           <div class="robot-workspace-card-actions">
             <button class="btn" onclick="openOwner('${robot.robot_id}')">Открыть карточку клиента</button>
             <button class="btn" onclick="openSubscription('${robot.robot_id}')">Подписка</button>
             <button class="btn" onclick="openCodePanel('${robot.robot_id}')">Коды</button>
             <button class="btn primary" onclick="openMemory('${robot.robot_id}')">Память</button>
+          </div>
+        </section>
+        <section class="robot-panel robot-panel-wide">
+          <div class="guide-grid">
+            ${renderGuideCardHtml("memory-profile", "Память — это профиль", "Память робота включается не одним переключателем, а через отдельный профиль: тип, память по говорящему и очистка живут там.")}
+            ${renderGuideCardHtml("tools-mcp", "Инструменты — это отдельный слой", "Погода, CRM, память, календарь и другие сервисы не сидят внутри промпта. Они приходят через MCP-набор.")}
+            ${renderGuideCardHtml("cloud-endpoint", "Коды и связь — не одно и то же", "Код подключения нужен клиенту в приложении. Адреса каналов и MCP-настройки оператор меняет отдельно на вкладке подключения.")}
           </div>
         </section>
         <section class="robot-panel">
@@ -4632,12 +5025,22 @@
             <span class="pill">${escapeHtml(String(memory.files || 0))} файлов</span>
             <span class="pill">${escapeHtml(formatBytes(memory.bytes))}</span>
           </div>
-          <div class="mini" style="max-width:none; margin-top:8px;">История клиента и файлы памяти остаются под отдельной рабочей кнопкой, чтобы оператор не терялся в слишком длинной форме.</div>
+          <div class="microcopy">${escapeHtml(memoryProfile ? `Сейчас привязан профиль памяти «${simpleProfileLabel(memoryProfile)}».` : "Профиль памяти ещё не выбран. Его можно назначить и настроить прямо здесь ниже.")}</div>
+        </section>
+        <section class="robot-panel">
+          <h3>Инструменты и MCP</h3>
+          <div class="status-stack">
+            <span class="pill ${mcpBundle ? "ok" : "warn"}">${escapeHtml(mcpBundle ? simpleProfileLabel(mcpBundle) : "набор не выбран")}</span>
+            <span class="pill">${escapeHtml(String(enabledTools.length))} сервисов включено</span>
+          </div>
+          <div class="microcopy">${escapeHtml(mcpBundle ? "Ниже можно редактировать сам набор инструментов: официальные и пользовательские сервисы." : "Сначала назначь MCP-набор во вкладке личности, затем здесь откроется его настройка.")}</div>
         </section>
         <section class="robot-panel">
           <h3>Код подключения</h3>
           ${renderCodeSnippet(robot)}
         </section>
+        ${renderWorkspaceMemoryEditor(config)}
+        ${renderWorkspaceMcpEditor(config)}
       `;
     }
 
@@ -4681,7 +5084,7 @@
         overview: "обзор",
         personality: "личность, модель и голос",
         connection: "подключение",
-        client: "клиент, память и коды"
+        client: "клиент, память и инструменты"
       }[activeTab] || "обзор";
       setStatus(`${robotDisplayName(robot)}: открыт раздел «${tabLabel}».`);
     }
@@ -4796,6 +5199,57 @@
         return;
       }
       notify(`${robotDisplayNameById(robotWorkspaceId)}: голос и движок TTS сохранены`, "ok");
+    }
+
+    async function saveWorkspaceMemoryProfile() {
+      const profileId = document.getElementById("workspaceMemoryProfileEditorId")?.value.trim();
+      if (!profileId) {
+        notify("Сначала выберите профиль памяти", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("workspaceMemoryDisplayName")?.value.trim() || "",
+        memory_type: document.getElementById("workspaceMemoryType")?.value || "short_term",
+        memory_by_speaker: !!document.getElementById("workspaceMemoryBySpeaker")?.checked,
+        allow_clear_memory: !!document.getElementById("workspaceMemoryAllowClear")?.checked,
+        enabled: !!document.getElementById("workspaceMemoryEnabled")?.checked,
+      };
+      setStatus(`${robotDisplayNameById(robotWorkspaceId)}: сохраняю профиль памяти ${profileId}...`);
+      const res = await apiPost(operatorUrl("/memory-profiles"), payload);
+      if (!res.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: не удалось сохранить память`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      await loadRobotWorkspaceConfig(robotWorkspaceId, true);
+      renderRobotWorkspace();
+      notify(`${robotDisplayNameById(robotWorkspaceId)}: профиль памяти сохранён`, "ok");
+    }
+
+    async function saveWorkspaceMcpBundle() {
+      const profileId = document.getElementById("workspaceMcpProfileEditorId")?.value.trim();
+      if (!profileId) {
+        notify("Сначала выберите набор инструментов", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("workspaceMcpDisplayName")?.value.trim() || "",
+        official_services: document.getElementById("workspaceMcpOfficialServices")?.value || "",
+        custom_services: document.getElementById("workspaceMcpCustomServices")?.value || "",
+        enabled: !!document.getElementById("workspaceMcpEnabled")?.checked,
+      };
+      setStatus(`${robotDisplayNameById(robotWorkspaceId)}: сохраняю набор инструментов ${profileId}...`);
+      const res = await apiPost(operatorUrl("/mcp-bundles"), payload);
+      if (!res.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: не удалось сохранить набор инструментов`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      await loadRobotWorkspaceConfig(robotWorkspaceId, true);
+      renderRobotWorkspace();
+      notify(`${robotDisplayNameById(robotWorkspaceId)}: набор инструментов сохранён`, "ok");
     }
 
     function applySessionState(session) {
@@ -4946,6 +5400,239 @@
         .replaceAll("'", "&#039;");
     }
 
+    const HELP_TOPICS = {
+      "operator-home": {
+        title: "Как пользоваться панелью Гоши",
+        subtitle: "Главный экран — это пульт оператора, а не место для тонкой настройки каждого поля.",
+        intro: "Сначала смотри на состояние флота и карточки проблем, потом переходи в конкретного робота. Детальная настройка личности, голоса, памяти и инструментов живёт уже на отдельной странице робота.",
+        bullets: [
+          "Первый экран показывает только общую ситуацию по флоту, Wi‑Fi и привязке новых устройств.",
+          "По нажатию на карточку робота открывается его отдельная рабочая страница.",
+          "Если термин непонятен, нажми на значок ? рядом с полем или разделом."
+        ]
+      },
+      "help-system": {
+        title: "Как работает обучающий контур",
+        subtitle: "Подсказки встроены прямо в интерфейс.",
+        intro: "Значок ? открывает короткое пояснение: что означает поле, когда его менять и какой вариант выбора безопасен для типового робота.",
+        bullets: [
+          "Сначала читай короткий смысл поля.",
+          "Потом смотри блок «Когда менять» или «Как выбирать».",
+          "Если поле не нужно в обычном сценарии, подсказка прямо говорит об этом."
+        ]
+      },
+      "robot-page": {
+        title: "Что есть на странице робота",
+        subtitle: "Это главное рабочее место оператора по одному устройству.",
+        intro: "Страница робота собрана по блокам: обзор, личность и голос, подключение, клиентские данные, память и инструменты.",
+        bullets: [
+          "В «Обзоре» видно живое состояние и вероятную зону проблемы.",
+          "В «Личности, модели и голосе» меняются ассистент, модель, движок TTS и голос.",
+          "Во вкладке «Подключение» лежат режимы канала связи и служебные параметры.",
+          "Во вкладке «Клиент, память и коды» — подписка, память, инструменты и коды подключения."
+        ]
+      },
+      "fleet-state": {
+        title: "Что значит «Состояние флота»",
+        subtitle: "Это не полный каталог полей, а краткая карта по всем роботам.",
+        intro: "Раздел нужен, чтобы быстро понять, кто на связи, кто в hotspot, кто давно не выходил на связь и кому нужен разбор. Отсюда оператор открывает нужного робота.",
+        bullets: [
+          "Здесь нет скрытых ключей, MCP-адресов и служебных токенов.",
+          "Красный или жёлтый статус — это приглашение перейти в робота, а не редактировать всё на месте."
+        ]
+      },
+      "backend-mode": {
+        title: "Режим платформы",
+        subtitle: "Определяет, где робот считается «родным домом».",
+        intro: "Для Гоши нормальный рабочий режим — «Платформа Гоша». Совместимый облачный режим нужен только для переходного или внешнего совместимого контура.",
+        bullets: [
+          "Платформа Гоша — основной режим для нашей панели, шлюза и новой прошивки.",
+          "Совместимый облачный режим — только если робот временно работает через внешний совместимый контур."
+        ]
+      },
+      "connection-mode": {
+        title: "Режим подключения",
+        subtitle: "Определяет, каким каналом робот или панель должны достучаться до MCP-инструментов.",
+        intro: "В обычном случае для боевого робота используется облачный MCP внутри нашего контура. Остальные варианты — резерв или локальная диагностика.",
+        bullets: [
+          "Облачный MCP — основной рабочий путь для обычного подключения.",
+          "Резервный шлюз — запасной путь, если основной канал надо обойти.",
+          "Локальный WebSocket — прямой локальный адрес робота или стенда, чаще для диагностики."
+        ]
+      },
+      "active-agent-profile": {
+        title: "Активный профиль ИИ-агента",
+        subtitle: "Главный профиль, через который робот думает и отвечает.",
+        intro: "Здесь выбирается не просто модель, а весь профиль провайдера: базовый адрес, ключ из окружения, модель по умолчанию и совместимые настройки.",
+        bullets: [
+          "Если нужен другой поставщик или другая модель, сначала проверь профиль в каталоге ассистента.",
+          "Сам робот потом может переопределять модель через профиль личности."
+        ]
+      },
+      "fallback-agent-profile": {
+        title: "Резервный профиль агента",
+        subtitle: "Запасной вариант на случай, если основной профиль временно не может обслужить запрос.",
+        intro: "Резервный профиль нужен не каждому роботу. Он полезен, когда основной профиль зависит от внешнего контура и нужен мягкий откат на второй маршрут.",
+        bullets: [
+          "Если не используешь резервную схему, поле можно оставить пустым.",
+          "Резерв не заменяет личность робота — он только даёт запасной путь до ИИ."
+        ]
+      },
+      "cloud-endpoint": {
+        title: "Совместимый облачный MCP-адрес",
+        subtitle: "Адрес внешнего совместимого MCP-контура, если робот работает через него.",
+        intro: "Для робота, который уже живёт на Платформе Гоша, это поле часто вообще не нужно. Его заполняют только в подготовленном закрытом сценарии, когда есть реальный внешний совместимый адрес.",
+        bullets: [
+          "Не показывай этот адрес клиенту.",
+          "Если робот полностью работает в нашей платформе, оставь поле пустым.",
+          "Если адрес нужен, он берётся из закрытого этапа подготовки совместимого облачного контура."
+        ]
+      },
+      "reserve-ws": {
+        title: "Резервный адрес прямого канала",
+        subtitle: "Прямой WebSocket-адрес робота или стенда для обходного или локального режима.",
+        intro: "Поле трогают редко. Обычно оно нужно только для локальной отладки, прямой диагностики в сети клиента или временного обхода основного MCP-маршрута.",
+        bullets: [
+          "Пример: локальный адрес робота `ws://192.168.x.x:8080/ws`.",
+          "Если работаешь в обычном облачном режиме платформы, поле можно оставить пустым."
+        ]
+      },
+      "assistant-profile": {
+        title: "Профиль ассистента",
+        subtitle: "Готовая личность робота: имя, роль, системный промпт и связи с голосом, памятью и MCP.",
+        intro: "Через этот профиль робот получает характер, язык ответа, связанный голос и набор сервисов по умолчанию.",
+        bullets: [
+          "Выбирай профиль, если хочешь быстро назначить роботу уже готовую личность.",
+          "Если готового профиля нет, сначала настрой его ниже в той же странице."
+        ]
+      },
+      "voice-profile": {
+        title: "Голосовой профиль",
+        subtitle: "Готовая связка «движок синтеза + конкретный голос + темп + высота».",
+        intro: "Это не просто имя голоса. Профиль хранит ещё и выбранный движок TTS, темп и высоту ответа.",
+        bullets: [
+          "Если нужен другой тембр, сначала выбери другой голосовой профиль.",
+          "Если нужно тонко менять темп или высоту, открывай сам профиль голоса."
+        ]
+      },
+      "tts-engine": {
+        title: "Движок синтеза речи",
+        subtitle: "Технология, которая превращает текст в голос робота.",
+        intro: "Сейчас у нас есть как минимум резервный EdgeTTS и живой тестовый SileroTTS. Движок и голос разведены специально, чтобы масштабировать систему аккуратно.",
+        bullets: [
+          "Сначала выбирается движок TTS.",
+          "Потом уже внутри голосового профиля задаются голос, темп и высота."
+        ]
+      },
+      "model-override": {
+        title: "Модель",
+        subtitle: "Локальное переопределение модели для выбранной личности.",
+        intro: "Если поле пустое, ассистент берёт модель из профиля поставщика ИИ. Если заполнено, именно это значение становится основным для этого профиля личности.",
+        bullets: [
+          "Оставляй пустым, если не нужен специальный override.",
+          "Заполняй вручную, если конкретной личности нужна другая модель, чем у провайдера по умолчанию."
+        ]
+      },
+      "memory-profile": {
+        title: "Профиль памяти",
+        subtitle: "Правила, по которым робот запоминает пользователя и диалог.",
+        intro: "Через профиль памяти задаются тип памяти, раздельная память по говорящему и возможность очистки памяти.",
+        bullets: [
+          "Кратковременная память полезна для обычного разговора.",
+          "Память по говорящему нужна, если робот должен различать нескольких людей.",
+          "Отключение памяти не удаляет старые файлы мгновенно — оно выключает сервис."
+        ]
+      },
+      "memory-type": {
+        title: "Тип памяти",
+        subtitle: "Определяет глубину и сценарий удержания контекста.",
+        intro: "В первой версии тип памяти выбирается через профиль: кратковременная, более длинная или специальная схема под отдельный сценарий.",
+        bullets: [
+          "Если не уверен, оставляй кратковременную память.",
+          "Для долгой истории общения лучше завести отдельный профиль памяти, а не смешивать всё в одном."
+        ]
+      },
+      "mcp-bundle": {
+        title: "Набор инструментов (MCP)",
+        subtitle: "Список сервисов, которые робот может вызывать как инструменты.",
+        intro: "Именно здесь лежат погода, таймеры, память, пользовательские сервисы и будущие внутренние интеграции. MCP — это не один адрес, а набор разрешённых инструментов.",
+        bullets: [
+          "Официальные сервисы — базовые функции платформы.",
+          "Пользовательские сервисы — свои расширения вроде `crm.lookup` или будущего `gosha.media.stub`."
+        ]
+      },
+      "knowledge-profile": {
+        title: "Профиль базы знаний",
+        subtitle: "Ссылка на подготовленный набор документов или каталогов знаний.",
+        intro: "Сейчас база знаний пока больше хранится и привязывается, чем полностью применяется в живом контуре. Это подготовительный слой для следующего этапа.",
+        bullets: [
+          "Если база знаний ещё не готова, поле можно не трогать.",
+          "Не путай это поле с системным промптом: промпт задаёт поведение, база знаний — источник фактов."
+        ]
+      },
+      "tools-mcp": {
+        title: "Инструменты и MCP",
+        subtitle: "Сервисы, которые робот может вызывать по запросу.",
+        intro: "Если ассистент должен смотреть погоду, работать с памятью, CRM или внутренними сервисами, это определяется не голосом и не моделью, а именно набором инструментов.",
+        bullets: [
+          "Набор инструментов виден на уровне профиля MCP.",
+          "Живая активность по инструментам показывает, пользуется ли робот ими на самом деле."
+        ]
+      }
+    };
+
+    function helpTopic(topicKey) {
+      return HELP_TOPICS[topicKey] || HELP_TOPICS["operator-home"];
+    }
+
+    function renderHelpButton(topicKey, label = "Открыть подсказку") {
+      return `<button type="button" class="help-btn inline" onclick="openHelpTopic('${escapeHtml(topicKey)}')" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">?</button>`;
+    }
+
+    function fieldLabelHtml(text, topicKey, label = "") {
+      const action = label || `Что значит: ${text}`;
+      return `<span class="label-line"><span class="label-text">${escapeHtml(text)}</span>${renderHelpButton(topicKey, action)}</span>`;
+    }
+
+    function renderHelpTopicHtml(topicKey) {
+      const topic = helpTopic(topicKey);
+      const bullets = Array.isArray(topic.bullets) && topic.bullets.length
+        ? `<div class="help-section"><h4>Как это понимать</h4><ul class="help-list">${topic.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`
+        : "";
+      return `
+        <div class="help-section">
+          <div class="help-callout">${escapeHtml(topic.intro || "Подсказка для этого поля пока не заполнена.")}</div>
+          ${bullets}
+        </div>
+      `;
+    }
+
+    function openHelpTopic(topicKey) {
+      const topic = helpTopic(topicKey);
+      const overlay = document.getElementById("helpOverlay");
+      const title = document.getElementById("helpDialogTitle");
+      const subtitle = document.getElementById("helpDialogSubtitle");
+      const body = document.getElementById("helpDialogBody");
+      if (!overlay || !title || !subtitle || !body) return;
+      title.textContent = topic.title || "Справка панели";
+      subtitle.textContent = topic.subtitle || "Короткая подсказка по выбранному разделу.";
+      body.innerHTML = renderHelpTopicHtml(topicKey);
+      overlay.hidden = false;
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeHelpDrawer() {
+      const overlay = document.getElementById("helpOverlay");
+      if (overlay) overlay.hidden = true;
+      document.body.style.overflow = "";
+    }
+
+    function handleHelpOverlayClick(event) {
+      if (event.target?.id === "helpOverlay") {
+        closeHelpDrawer();
+      }
+    }
+
     function formatBytes(bytes) {
       const value = Number(bytes || 0);
       if (!value) return "размер не указан";
@@ -4986,6 +5673,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeLegalDialog();
+        closeHelpDrawer();
       }
     });
 
@@ -8861,7 +9549,10 @@
       const assignment = agentRes.ok ? (agentRes.data || {}).assignment || {} : (robot.agent || {});
       fillAgentProfileSelect("ctrlAgentProfile", assignment?.binding?.active_profile_id || "");
       fillAgentProfileSelect("ctrlAgentFallbackProfile", assignment?.binding?.fallback_profile_id || "", "Без резервного профиля");
-      document.getElementById("controlAgentHintBox").innerHTML = renderAgentAssignmentHint(assignment);
+      document.getElementById("controlAgentHintBox").innerHTML = `
+        <div class="microcopy" style="margin-top:0;">Активный профиль — это основной маршрут до ИИ. Резервный профиль нужен только если для этого робота готовится запасной путь на случай отказа основного.</div>
+        <div style="margin-top:8px;">${renderAgentAssignmentHint(assignment)}</div>
+      `;
       if (!agentRes.ok) {
         notify(`${robotDisplayNameById(robotId)}: профиль ИИ-агента временно не удалось прочитать`, "warn");
       }
@@ -8872,7 +9563,7 @@
     function hideControl() {
       controlRobot = null;
       document.getElementById("controlPanel").style.display = "none";
-      document.getElementById("controlAgentHintBox").innerHTML = "После загрузки карточки здесь появится итоговый активный профиль ИИ-агента и предупреждения по его готовности.";
+      document.getElementById("controlAgentHintBox").innerHTML = "После загрузки карточки здесь появится итоговый активный профиль ИИ-агента, смысл резервного профиля и предупреждения по его готовности.";
     }
 
     async function saveControl() {
