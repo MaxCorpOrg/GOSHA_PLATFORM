@@ -4103,6 +4103,7 @@
           </div>
         </section>
         ${renderRobotOperatorSnapshot(robot)}
+        ${renderRobotConnectivityDiagnosis(robot)}
         <div class="robot-workspace-kpi">
           <div class="robot-summary-block">
             <h3>Подключение</h3>
@@ -4200,6 +4201,7 @@
           </div>
         </section>
         ${renderRobotOperatorSnapshot(robot)}
+        ${renderRobotConnectivityDiagnosis(robot)}
         <section class="robot-panel">
           <h3>Подключение робота</h3>
           ${renderConnectionCell(robot)}
@@ -4897,6 +4899,248 @@
             <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(cloud.board_ip ? `Робот сообщил IP ${cloud.board_ip}.` : "Плата и версия прошивки будут показаны после прямого сигнала устройства.")}</div>
           </div>
         </div>
+      `;
+    }
+
+    function robotConnectivityDiagnosis(robot) {
+      const wifi = robotWifiState(robot);
+      const smoke = robotSmokeStatus(robot);
+      const selfhostSignal = robotSelfhostSignalState(robot);
+      const cloud = robot.cloud_console || {};
+      const mobilePresence = robotMobilePresenceState(robot);
+      const probe = freshRobotProbe(robot) || robotProbe(robot);
+
+      if (isTemplateRobot(robot)) {
+        return {
+          level: "warn",
+          title: "Это шаблон, а не боевой робот",
+          zone: "служебная карточка",
+          detail: "Для шаблона не нужно проверять питание, Wi-Fi или живую связность. Его задача — быть заготовкой для нового робота.",
+          nextStep: "Оставьте шаблон как служебную основу и работайте уже с отдельной карточкой реального робота.",
+          action: "Страница робота",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'overview')`,
+          evidence: ["служебный шаблон"]
+        };
+      }
+
+      if (isRuStoreModerationRobot(robot)) {
+        return {
+          level: "ok",
+          title: "Это техническая карточка без физического железа",
+          zone: "тестовый контур",
+          detail: "Здесь не нужно ждать ответ от реального робота. Карточка нужна для входа по коду и проверки клиентского сценария.",
+          nextStep: "Проверяйте код подключения и вход клиента, а не питание или Wi-Fi робота.",
+          action: "Коды подключения",
+          actionCode: `openCodePanel('${robot.robot_id}')`,
+          evidence: ["карточка RuStore"]
+        };
+      }
+
+      if (!robotEndpointReady(robot)) {
+        return {
+          level: "bad",
+          title: "Панель ещё не выдала роботу рабочий канал",
+          zone: "панель / MCP-адрес",
+          detail: "Без MCP-адреса панель не может честно проверить живой ответ робота.",
+          nextStep: "Откройте MCP-настройку, выдайте адрес и только потом запускайте обнаружение робота.",
+          action: "Открыть MCP",
+          actionCode: `openControl('${robot.robot_id}')`,
+          evidence: ["endpoint не настроен"]
+        };
+      }
+
+      if (!robotTokenReady(robot)) {
+        return {
+          level: "bad",
+          title: "Для робота не готов ключ доступа",
+          zone: "панель / ключ доступа",
+          detail: "Адрес канала уже есть, но без рабочего ключа доступа панель не получит честный ответ от робота.",
+          nextStep: "Завершите привязку устройства или перевыпустите ключ доступа, затем повторите проверку связи.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: ["нет готового токена или серверной привязки"]
+        };
+      }
+
+      if (robot.service_state !== "active") {
+        return {
+          level: "bad",
+          title: "Локальный мост робота остановлен",
+          zone: "gateway / bridge",
+          detail: "Карточка робота есть, но сервис не работает, поэтому панель не сможет получить живой ответ и обновлять состояние.",
+          nextStep: "Запустите мост робота и затем повторите обнаружение.",
+          action: "Запустить мост",
+          actionCode: `serviceAction('${robot.robot_id}', 'start')`,
+          evidence: ["service_state != active"]
+        };
+      }
+
+      if (robotHasHotspotPresence(robot)) {
+        return {
+          level: "warn",
+          title: "Робот остался в режиме настройки Wi‑Fi",
+          zone: "домашний Wi‑Fi / hotspot",
+          detail: wifi.detail,
+          nextStep: "Верните робота в домашнюю сеть через приложение и только потом проверяйте рабочий голосовой контур.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [mobilePresence.detail || "виден hotspot робота"]
+        };
+      }
+
+      if (robotVerifiedOnline(robot)) {
+        return {
+          level: "ok",
+          title: "Робот дал прямой подтверждённый ответ",
+          zone: "panel → gateway → robot",
+          detail: smoke.detail,
+          nextStep: "Связность подтверждена. Можно работать с личностью, голосом и клиентом.",
+          action: "Проверить связь ещё раз",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [probe ? probeSummaryText(probe) : "подтверждённый ответ робота"]
+        };
+      }
+
+      if (robotHasFreshSelfhostSignal(robot)) {
+        return {
+          level: "ok",
+          title: "Прошивка сама вышла на связь с платформой",
+          zone: "robot → panel",
+          detail: selfhostSignal.detail,
+          nextStep: "Можно считать робота подключённым к платформе. Если нужен отдельный прямой handshake, повторите обнаружение.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [cloud.last_seen_iso ? `last_seen: ${formatIsoMoment(cloud.last_seen_iso)}` : "свежий прямой след прошивки"]
+        };
+      }
+
+      if (probeIsAuthError(probe)) {
+        return {
+          level: "bad",
+          title: "Проверка упёрлась в авторизацию",
+          zone: "MCP / ключ доступа",
+          detail: smoke.detail,
+          nextStep: "Проверьте токен, серверную привязку и рабочий канал, затем повторите обнаружение.",
+          action: "Открыть MCP",
+          actionCode: `openControl('${robot.robot_id}')`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (probeIsMcpClientMissing(probe)) {
+        return {
+          level: "bad",
+          title: "Gateway не смог дойти до MCP-клиента",
+          zone: "gateway / MCP-клиент",
+          detail: smoke.detail,
+          nextStep: "Проверьте мост робота, MCP-контур и затем снова выполните явную проверку.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (probeIsMcpBridgeOnly(probe)) {
+        return {
+          level: "warn",
+          title: "Endpoint жив, но прямого ACK от робота нет",
+          zone: "robot / firmware / канал",
+          detail: smoke.detail,
+          nextStep: "Проверьте питание, реальный ответ прошивки и повторите handshake.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (smoke.level === "bad") {
+        return {
+          level: "bad",
+          title: "Робот не ответил на активную проверку",
+          zone: "питание / Wi‑Fi / MCP",
+          detail: smoke.detail,
+          nextStep: "Проверьте питание, домашний Wi‑Fi, адрес канала и затем повторите обнаружение робота.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [wifi.evidence || "нет прямого ответа от робота"]
+        };
+      }
+
+      if (wifi.level === "bad") {
+        return {
+          level: "bad",
+          title: "Робот не выглядит доступным в рабочем канале",
+          zone: "домашний Wi‑Fi / питание",
+          detail: wifi.detail,
+          nextStep: "Проверьте питание, домашнюю сеть 2.4 GHz и только потом повторяйте handshake.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [wifi.evidence || wifi.label]
+        };
+      }
+
+      if (smoke.level === "warn" || wifi.level === "warn") {
+        return {
+          level: "warn",
+          title: "Есть только частичные сигналы связности",
+          zone: "нужен новый handshake",
+          detail: smoke.detail,
+          nextStep: "Повторите явную проверку робота. Не считайте его полностью живым только по last_seen, endpoint, токену или облачной записи.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [wifi.evidence || wifi.label, selfhostSignal.detail || ""].filter(Boolean)
+        };
+      }
+
+      if (cloud.configured) {
+        return {
+          level: "warn",
+          title: "Есть только косвенный серверный след",
+          zone: "last_seen / облачный след",
+          detail: cloudConsoleSummaryText(cloud),
+          nextStep: "Используйте прямую проверку робота. Один только last_seen или серверная запись не считаются подтверждением живой связи.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [cloudConsoleSummaryText(cloud)]
+        };
+      }
+
+      return {
+        level: "warn",
+        title: "Связность требует ручной проверки",
+        zone: "нужно уточнение",
+        detail: "Панель видит недостаточно сильных сигналов, чтобы честно назвать робота живым или недоступным без новой активной проверки.",
+        nextStep: "Запустите обнаружение робота и уже по его результату решайте, это питание, Wi‑Fi, hotspot, bridge или MCP.",
+        action: "Проверить связь",
+        actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+        evidence: ["не хватает свежего подтверждения ответа"]
+      };
+    }
+
+    function renderRobotConnectivityDiagnosis(robot) {
+      const diagnosis = robotConnectivityDiagnosis(robot);
+      const cls = diagnosis.level === "ok" ? "ok" : diagnosis.level === "bad" ? "bad" : "warn";
+      const evidence = Array.isArray(diagnosis.evidence) ? diagnosis.evidence.filter(Boolean) : [];
+      const evidenceHtml = evidence.length
+        ? `<div class="mini" style="max-width:none; margin-top:8px;">Основание: ${escapeHtml(evidence.join(" • "))}</div>`
+        : "";
+      const actionHtml = diagnosis.action && diagnosis.actionCode
+        ? `<div class="next-action-row"><button class="btn primary" onclick="${diagnosis.actionCode}">${escapeHtml(diagnosis.action)}</button></div>`
+        : "";
+      return `
+        <section class="robot-panel robot-panel-wide health-callout ${cls}">
+          <div class="health-title">
+            <div>
+              <h3>Где искать проблему</h3>
+              <strong>${escapeHtml(diagnosis.title)}</strong>
+            </div>
+            <span class="pill ${cls}">${escapeHtml(diagnosis.zone)}</span>
+          </div>
+          <div class="mini" style="max-width:none;">${escapeHtml(diagnosis.detail)}</div>
+          ${evidenceHtml}
+          <div class="operator-script"><strong>Следующий шаг:</strong> ${escapeHtml(diagnosis.nextStep)}</div>
+          ${actionHtml}
+        </section>
       `;
     }
 
@@ -7259,6 +7503,8 @@
       const memory = robot.memory || {};
       const health = robotHealthStatus(robot);
       const isTemplate = isTemplateRobot(robot);
+      const diagnosis = robotConnectivityDiagnosis(robot);
+      const diagnosisClass = diagnosis.level === "ok" ? "ok" : diagnosis.level === "bad" ? "bad" : "warn";
       return `
         <article class="robot-card robot-shell-card">
           <div class="robot-summary">
@@ -7289,8 +7535,10 @@
                   <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(health.detail)}</div>
                 </div>
                 <div class="robot-summary-block">
-                  <h3>Подключение</h3>
-                  ${renderConnectionCell(robot)}
+                  <h3>Где проблема</h3>
+                  <div class="status-stack"><span class="pill ${diagnosisClass}">${escapeHtml(diagnosis.zone)}</span></div>
+                  <div class="mini" style="max-width:none; margin-top:8px;"><strong>${escapeHtml(diagnosis.title)}</strong></div>
+                  <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(diagnosis.nextStep)}</div>
                 </div>
                 <div class="robot-summary-block">
                   <h3>Личность и голос</h3>
