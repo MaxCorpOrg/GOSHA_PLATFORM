@@ -1341,6 +1341,33 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .robot-action-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .robot-action-grid .btn {
+      width: 100%;
+      min-height: 44px;
+    }
+    .robot-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .robot-overview-grid .robot-panel {
+      height: 100%;
+    }
+    .robot-overview-grid .robot-panel-wide {
+      grid-column: 1 / -1;
+    }
+    .workspace-section-note {
+      margin-top: 8px;
+      color: #5f7290;
+      font-size: 12px;
+      line-height: 1.45;
+      max-width: none;
+    }
     .robot-workspace-kpi .robot-summary-block {
       background: #fff;
     }
@@ -1718,6 +1745,8 @@
       .robot-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .robot-workspace-grid { grid-template-columns: 1fr; }
       .robot-workspace-hero { grid-template-columns: 1fr; }
+      .robot-action-grid { grid-template-columns: 1fr 1fr; }
+      .robot-overview-grid { grid-template-columns: 1fr; }
       .workspace-compact-form { grid-template-columns: 1fr; }
       .operator-grid { grid-template-columns: 1fr; }
       .operator-summary-strip { grid-template-columns: 1fr 1fr; }
@@ -4518,50 +4547,130 @@
       }
     }
 
+    function renderWorkspacePersonalitySnapshot(config) {
+      const assistant = config?.assistant_profile || null;
+      if (!assistant) {
+        return `
+          <div class="status-stack"><span class="pill warn">профиль не выбран</span></div>
+          <div class="workspace-section-note">Сначала назначь профиль ассистента. После этого на вкладке личности можно будет вручную редактировать промпт, язык и поведение робота.</div>
+        `;
+      }
+      const pills = [
+        `<span class="pill ok">${escapeHtml(simpleProfileLabel(assistant))}</span>`,
+        assistant.assistant_name ? `<span class="pill">${escapeHtml(assistant.assistant_name)}</span>` : "",
+        assistant.dialogue_language ? `<span class="pill">${escapeHtml(assistant.dialogue_language)}</span>` : ""
+      ].filter(Boolean).join("");
+      const detail = assistant.role_description || assistant.role_template || "Личность задана через профиль ассистента и может редактироваться без перехода в общий каталог.";
+      const promptPreview = assistant.system_prompt
+        ? `<div class="microcopy" style="margin-top:8px;">Промпт: ${escapeHtml(String(assistant.system_prompt).slice(0, 180))}${assistant.system_prompt.length > 180 ? "…" : ""}</div>`
+        : "";
+      return `
+        <div class="status-stack">${pills}</div>
+        <div class="workspace-section-note">${escapeHtml(detail)}</div>
+        ${promptPreview}
+      `;
+    }
+
+    function renderWorkspaceModelVoiceSnapshot(config) {
+      const assistant = config?.assistant_profile || null;
+      const provider = config?.provider_profile || null;
+      const ttsEngine = config?.tts_engine_profile || null;
+      const voice = config?.voice_profile || null;
+      const ttsRuntime = config?.tts_runtime || {};
+      const effectiveModel = assistant?.model_override || provider?.model || "";
+      const toneBits = [];
+      if (voice?.speech_rate != null) toneBits.push(`темп ${Number(voice.speech_rate).toFixed(1)}`);
+      if (voice?.pitch != null) toneBits.push(`высота ${Number(voice.pitch).toFixed(1)}`);
+      const pills = [
+        provider ? `<span class="pill ok">ИИ: ${escapeHtml(agentProfileLabel(provider))}</span>` : '<span class="pill warn">поставщик не выбран</span>',
+        effectiveModel ? `<span class="pill">${escapeHtml(effectiveModel)}</span>` : '<span class="pill warn">модель не задана</span>',
+        ttsEngine ? `<span class="pill">TTS: ${escapeHtml(simpleProfileLabel(ttsEngine))}</span>` : '<span class="pill warn">TTS не выбран</span>',
+        voice ? `<span class="pill">голос: ${escapeHtml(simpleProfileLabel(voice))}</span>` : '<span class="pill warn">голос не выбран</span>'
+      ].join("");
+      const runtimeLine = [
+        ttsRuntime.effective_profile_id ? `живой контур: ${ttsRuntime.effective_profile_id}` : "",
+        ttsRuntime.module ? `модуль: ${ttsRuntime.module}` : "",
+        ttsRuntime.reason ? `причина: ${ttsRuntime.reason}` : ""
+      ].filter(Boolean).join(" • ");
+      return `
+        <div class="status-stack">${pills}</div>
+        <div class="workspace-section-note">${escapeHtml(runtimeLine || "Здесь собраны именно модель, движок TTS, голос и тон ответа для этого робота.")}</div>
+        ${toneBits.length ? `<div class="microcopy" style="margin-top:8px;">${escapeHtml(toneBits.join(" • "))}</div>` : ""}
+      `;
+    }
+
+    function renderWorkspaceMemoryToolsSnapshot(robot, config) {
+      const memory = robot.memory || {};
+      const memoryProfile = config?.memory_profile || null;
+      const mcpBundle = config?.mcp_bundle || null;
+      const enabledTools = Array.isArray(robot.tools) ? robot.tools.filter((item) => item.enabled) : [];
+      return `
+        <div class="status-stack">
+          <span class="pill ${robot.memory_enabled ? "ok" : "warn"}">${escapeHtml(robot.memory_enabled ? "память включена" : "память выключена")}</span>
+          <span class="pill">${escapeHtml(String(memory.clients || 0))} клиентов</span>
+          <span class="pill">${escapeHtml(formatBytes(memory.bytes))}</span>
+          <span class="pill ${mcpBundle ? "ok" : "warn"}">${escapeHtml(mcpBundle ? simpleProfileLabel(mcpBundle) : "MCP не выбран")}</span>
+        </div>
+        <div class="workspace-section-note">${escapeHtml(memoryProfile ? `Профиль памяти: ${simpleProfileLabel(memoryProfile)}.` : "Профиль памяти пока не назначен.")} ${escapeHtml(enabledTools.length ? `Сейчас включено сервисов: ${enabledTools.length}.` : "Сервисы и MCP можно выбрать на вкладке клиента.")}</div>
+      `;
+    }
+
     function renderRobotWorkspaceOverview(robot) {
       const health = robotHealthStatus(robot);
-      const memory = robot.memory || {};
+      const healthClass = health.level === "ok" ? "ok" : health.level === "bad" ? "bad" : "";
       const assistantConfig = robotWorkspaceConfigData?.config || robot.assistant_control || {};
       return `
-        <section class="robot-panel robot-panel-wide robot-workspace-hero">
-          <div class="robot-summary-block">
-            <h3>Что делать с этим роботом сейчас</h3>
-            <strong>${escapeHtml(health.title)}</strong>
-            <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(health.detail)}</div>
+        ${renderRobotOperatorControlCenter(robot)}
+        <section class="robot-panel robot-panel-wide health-callout ${healthClass}">
+          <div class="health-title">
+            <div>
+              <h3>Что делать с этим роботом сейчас</h3>
+              <strong>${escapeHtml(health.title)}</strong>
+            </div>
+            <span class="pill ${health.level === "ok" ? "ok" : health.level === "bad" ? "bad" : "warn"}">${escapeHtml(health.level === "ok" ? "можно работать" : "нужен следующий шаг")}</span>
           </div>
-          <div class="robot-workspace-card-actions">
+          <div class="mini" style="max-width:none;">${escapeHtml(health.detail)}</div>
+          <div class="workspace-section-note">Этот блок нужен как короткая операторская памятка: сначала видно, жив ли робот, а потом уже куда заходить для подробной настройки.</div>
+        </section>
+        <section class="robot-panel robot-panel-wide">
+          <h3>Кнопки управления</h3>
+          <div class="robot-action-grid">
             <button class="btn primary" onclick="detectRobotState('${robot.robot_id}', null, { expand: true })">Проверить связь</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность, модель и голос</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'connection')">Подключение</button>
-            <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент и коды</button>
+            <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент, память и инструменты</button>
+            <button class="btn" onclick="openOwner('${robot.robot_id}')">Карточка клиента</button>
+            <button class="btn" onclick="openCodePanel('${robot.robot_id}')">Коды подключения</button>
+            <button class="btn" onclick="openSubscription('${robot.robot_id}')">Подписка</button>
             <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>
           </div>
+          <div class="workspace-section-note">Все основные действия собраны отдельно, чтобы оператор не искал кнопки среди статусов и технических карточек.</div>
         </section>
-        ${renderRobotOperatorControlCenter(robot)}
-        <div class="robot-workspace-kpi">
-          <div class="robot-summary-block">
+        <div class="robot-overview-grid">
+          <section class="robot-panel">
             <h3>Подключение</h3>
             ${renderConnectionCell(robot)}
-          </div>
-          <div class="robot-summary-block">
-            <h3>Личность, модель и голос</h3>
-            ${renderAssistantConfigSummary(assistantConfig)}
-          </div>
-          <div class="robot-summary-block">
-            <h3>Клиент</h3>
+            <div class="workspace-section-note">Здесь видно, каким каналом робот выходит в платформу и нет ли проблем с MCP, ключом доступа или live-probe.</div>
+          </section>
+          <section class="robot-panel">
+            <h3>Личность</h3>
+            ${renderWorkspacePersonalitySnapshot(assistantConfig)}
+          </section>
+          <section class="robot-panel">
+            <h3>Модель и голос</h3>
+            ${renderWorkspaceModelVoiceSnapshot(assistantConfig)}
+          </section>
+          <section class="robot-panel">
+            <h3>Клиент и коды</h3>
             <div class="mini" style="max-width:none;">${renderOwnerSnippet(robot)}</div>
-          </div>
-          <div class="robot-summary-block">
-            <h3>Память и код</h3>
-            <div class="status-stack">
-              <span class="pill ${robot.memory_enabled ? "ok" : "warn"}">${escapeHtml(robot.memory_enabled ? "память включена" : "память выключена")}</span>
-              <span class="pill">${escapeHtml(String(memory.clients || 0))} клиентов</span>
-              <span class="pill">${escapeHtml(formatBytes(memory.bytes))}</span>
-            </div>
             <div style="margin-top:8px;">${renderCodeSnippet(robot)}</div>
-          </div>
+          </section>
+          <section class="robot-panel">
+            <h3>Память и инструменты</h3>
+            ${renderWorkspaceMemoryToolsSnapshot(robot, assistantConfig)}
+          </section>
+          ${renderSelfhostRuntimePanel(robot)}
         </div>
-        ${renderSelfhostRuntimePanel(robot)}
         ${renderWifiStateCard(robot)}
       `;
     }
@@ -6519,6 +6628,21 @@
       return robotDisplayName(robot || { robot_id: robotId });
     }
 
+    function robotIsMainOperatorRobot(robot) {
+      return String(robot?.robot_id || "").trim().toLowerCase() === "gosha-main";
+    }
+
+    function compareRobotsForOperator(a, b, fallback = 0) {
+      const priorityDiff = (robotIsMainOperatorRobot(a) ? 0 : 1) - (robotIsMainOperatorRobot(b) ? 0 : 1);
+      if (priorityDiff) return priorityDiff;
+      if (fallback) return fallback;
+      return robotDisplayName(a).localeCompare(robotDisplayName(b), "ru");
+    }
+
+    function sortRobotsForOperator(items = []) {
+      return [...items].sort((a, b) => compareRobotsForOperator(a, b));
+    }
+
     function nowTs() {
       return Math.floor(Date.now() / 1000);
     }
@@ -6528,6 +6652,7 @@
       const index = currentRobots.findIndex((item) => item.robot_id === robot.robot_id);
       if (index >= 0) currentRobots[index] = robot;
       else currentRobots.unshift(robot);
+      currentRobots = sortRobotsForOperator(currentRobots);
       if (robot?.detection?.checked_at) {
         latestRobotProbes[robot.robot_id] = robot.detection;
       }
@@ -8223,7 +8348,11 @@
 
       const sorted = [...realRobots].sort((a, b) => {
         const rank = { bad: 0, warn: 1, ok: 2 };
-        return rank[robotWifiState(a).level] - rank[robotWifiState(b).level] || robotDisplayName(a).localeCompare(robotDisplayName(b), "ru");
+        return compareRobotsForOperator(
+          a,
+          b,
+          rank[robotWifiState(a).level] - rank[robotWifiState(b).level]
+        );
       });
       map.innerHTML = sorted.slice(0, 8).map(renderWifiMapCard).join("");
     }
@@ -8469,7 +8598,11 @@
         const rank = { staged: 0, live: 1, test: 2, template: 3 };
         const aRisk = risk.has(a.robot_id) ? -1 : 0;
         const bRisk = risk.has(b.robot_id) ? -1 : 0;
-        return aRisk - bRisk || (rank[robotFleetState(a)] ?? 4) - (rank[robotFleetState(b)] ?? 4) || robotDisplayName(a).localeCompare(robotDisplayName(b), "ru");
+        return compareRobotsForOperator(
+          a,
+          b,
+          aRisk - bRisk || (rank[robotFleetState(a)] ?? 4) - (rank[robotFleetState(b)] ?? 4)
+        );
       });
 
       map.innerHTML = sorted.map(renderFleetCard).join("");
@@ -8783,7 +8916,7 @@
         setStatus("Ошибка загрузки роботов");
         return;
       }
-      currentRobots = res.robots || [];
+      currentRobots = sortRobotsForOperator(res.robots || []);
       syncRobotDetectionsFromRecords(currentRobots);
       await reloadSelfhostState(true);
       await reloadAgentProfiles(true);
