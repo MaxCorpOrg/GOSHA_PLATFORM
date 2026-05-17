@@ -2581,6 +2581,8 @@
     let robotFilterMode = "all";
     let robotSearchQuery = "";
     const DETECTION_FRESH_SECONDS = 90;
+    const SELFHOST_SIGNAL_FRESH_SECONDS = 180;
+    const SELFHOST_SIGNAL_RECENT_SECONDS = 1800;
     const AUTO_DETECT_LIMIT = 3;
     const ROBOT_WORKSPACE_TABS = ["overview", "personality", "connection", "client"];
     const robotFilterOptions = [
@@ -4124,6 +4126,7 @@
           </div>
         </div>
         ${renderNextActionPanel(robot)}
+        ${renderSelfhostRuntimePanel(robot)}
         ${renderWifiStateCard(robot)}
       `;
     }
@@ -4205,6 +4208,7 @@
           ${renderDetectionMeta(robot)}
           ${renderMobilePresenceMeta(robot)}
         </section>
+        ${renderSelfhostRuntimePanel(robot)}
         ${renderWifiStateCard(robot)}
       `;
     }
@@ -4709,6 +4713,7 @@
       const admin = robot.admin_status || {};
       const cloud = robot.cloud_console || {};
       const detection = robotDetectionStatus(robot);
+      const selfhostSignal = robotSelfhostSignalState(robot);
       const rustoreTest = isRuStoreModerationRobot(robot);
       const pills = [
         renderWifiPill(robot),
@@ -4734,6 +4739,10 @@
         const cloudLabel = String(cloud.state || "").toLowerCase() === "online" ? "видит устройство, но связь не подтверждена" : formatDiagValue(cloud.state || "unknown");
         pills.push(`<span class="pill ${cloudConsolePillClass(cloud)}">${escapeHtml(backendProviderName(cloud))}: ${escapeHtml(cloudLabel)}</span>`);
       }
+      if (isSelfhostRobot(robot)) {
+        const selfhostClass = selfhostSignal.level === "ok" ? "ok" : selfhostSignal.level === "bad" ? "bad" : "warn";
+        pills.push(`<span class="pill ${selfhostClass}">${escapeHtml(selfhostSignal.label)}</span>`);
+      }
 
       const details = [];
       const wifi = robotWifiState(robot);
@@ -4749,6 +4758,15 @@
       if (cloud.configured && isSelfhostRobot(robot)) details.push("Платформа Гоша включена для этого робота.");
       if (cloud.configured && !isSelfhostRobot(robot)) details.push("Метаданные совместимого облачного агента: есть");
       if (cloud.configured) details.push(`Облачный контур: ${cloudConsoleSummaryText(cloud)}`);
+      if (isSelfhostRobot(robot)) details.push(`Прямой след устройства: ${selfhostSignal.label}. ${selfhostSignal.detail}`);
+      if (cloud.device_id) details.push(`device_id: ${cloud.device_id}`);
+      if (cloud.serial_number) details.push(`serial_number: ${cloud.serial_number}`);
+      if (cloud.board_name) details.push(`Плата: ${cloud.board_name}`);
+      if (cloud.app_version) details.push(`Прошивка: ${cloud.app_version}`);
+      if (cloud.board_ip) details.push(`IP, который робот сам сообщил: ${cloud.board_ip}`);
+      if (cloud.remote_addr) details.push(`IP, который увидел сервер: ${cloud.remote_addr}`);
+      if (cloud.claimed_at_iso) details.push(`Привязано к платформе: ${formatIsoMoment(cloud.claimed_at_iso)}`);
+      if (cloud.last_seen_iso) details.push(`Последний прямой контакт прошивки: ${formatIsoMoment(cloud.last_seen_iso)}`);
       if (cloud.latest_connected_at) details.push(`Последнее подключение во внешнем облачном контуре: ${formatIsoMoment(cloud.latest_connected_at)}`);
       if (cloud.checked_at_iso) details.push(`Последняя проверка серверного узла: ${formatIsoMoment(cloud.checked_at_iso)}`);
       if (d.hub_error) details.push(`Ошибка шлюза: ${d.hub_error}`);
@@ -4761,6 +4779,37 @@
           <summary class="details-toggle">Подробнее о подключении</summary>
           <div class="details-body">${details.join("<br>") || "Без дополнительных данных"}</div>
         </details>
+      `;
+    }
+
+    function renderSelfhostRuntimePanel(robot) {
+      if (!isSelfhostRobot(robot)) return "";
+      const cloud = robot.cloud_console || {};
+      const signal = robotSelfhostSignalState(robot);
+      const cls = signal.level === "ok" ? "ok" : signal.level === "bad" ? "bad" : "warn";
+      const statusPills = [
+        `<span class="pill ${cls}">${escapeHtml(signal.label)}</span>`,
+        cloud.device_claimed
+          ? '<span class="pill ok">устройство привязано</span>'
+          : '<span class="pill warn">ждёт серверную привязку</span>',
+        cloud.board_name ? `<span class="pill">${escapeHtml(cloud.board_name)}</span>` : "",
+        cloud.app_version ? `<span class="pill">${escapeHtml(cloud.app_version)}</span>` : "",
+      ].filter(Boolean).join("");
+      const detailLines = [
+        signal.detail,
+        cloud.device_id ? `device_id: ${cloud.device_id}` : "",
+        cloud.serial_number ? `serial_number: ${cloud.serial_number}` : "",
+        cloud.board_ip ? `IP, который робот сам сообщил: ${cloud.board_ip}` : "",
+        cloud.remote_addr ? `IP, который увидел сервер: ${cloud.remote_addr}` : "",
+        cloud.claimed_at_iso ? `Привязан к карточке: ${formatIsoMoment(cloud.claimed_at_iso)}` : "",
+        cloud.last_seen_iso ? `Последний прямой контакт прошивки: ${formatIsoMoment(cloud.last_seen_iso)}` : "",
+      ].filter(Boolean);
+      return `
+        <section class="robot-panel">
+          <h3>След устройства в платформе</h3>
+          <div class="status-stack">${statusPills}</div>
+          <div class="mini" style="max-width:none; margin-top:8px;">${detailLines.map(escapeHtml).join("<br>")}</div>
+        </section>
       `;
     }
 
@@ -5274,8 +5323,14 @@
       const provider = backendProviderName(cloud);
       if ((cloud?.provider || cloud?.backend_mode || "") === "self_hosted_xiaozhi") {
         if (state === "claimed") {
-          const seen = cloud.last_seen_iso ? ` Последний контакт устройства: ${formatIsoMoment(cloud.last_seen_iso)}.` : "";
-          return `${provider}: устройство уже привязано к нашей платформе.${seen}`;
+          const parts = [
+            `${provider}: устройство уже привязано к нашей платформе.`,
+            cloud.last_seen_iso ? `Последний контакт устройства: ${formatIsoMoment(cloud.last_seen_iso)}.` : "",
+            cloud.board_name ? `Плата: ${cloud.board_name}.` : "",
+            cloud.app_version ? `Прошивка: ${cloud.app_version}.` : "",
+            cloud.board_ip ? `IP, который робот сам сообщил: ${cloud.board_ip}.` : "",
+          ].filter(Boolean);
+          return parts.join(" ");
         }
         if (state === "awaiting_claim") {
           return `${provider}: режим включён, но устройство ещё не прошло серверную привязку.`;
@@ -5305,6 +5360,116 @@
         return `Совместимый облачный контур ответил ошибкой.${status}${detail ? ` ${detail}` : ""}`;
       }
       return String(cloud?.detail || "Совместимый облачный контур пока не дал уверенного статуса.");
+    }
+
+    function robotSelfhostSignalState(robot, freshSeconds = SELFHOST_SIGNAL_FRESH_SECONDS, recentSeconds = SELFHOST_SIGNAL_RECENT_SECONDS) {
+      if (isTemplateRobot(robot)) {
+        return {
+          level: "warn",
+          label: "След устройства не требуется",
+          short: "шаблон",
+          detail: "Шаблон не должен показывать реальный след живого устройства в платформе.",
+          status: "not_required",
+          lastSeen: 0,
+        };
+      }
+      if (isSupportRobot(robot)) {
+        return {
+          level: "warn",
+          label: "След устройства не требуется",
+          short: "служебная карточка",
+          detail: "Для служебной карточки без физического робота след живого устройства не собирается.",
+          status: "not_required",
+          lastSeen: 0,
+        };
+      }
+      if (!isSelfhostRobot(robot)) {
+        return {
+          level: "warn",
+          label: "Работает через другой контур",
+          short: "другой backend",
+          detail: "Для этого робота не используется прямой след собственной платформы Гоша.",
+          status: "not_applicable",
+          lastSeen: 0,
+        };
+      }
+
+      const cloud = robot.cloud_console || {};
+      const state = String(cloud.state || "").toLowerCase();
+      const claimed = Boolean(cloud.device_claimed || state === "claimed");
+      const lastSeen = Number(cloud.last_seen || 0);
+      const ageText = lastSeen ? formatProbeAge(lastSeen) : "время не записано";
+      const boardBits = [
+        cloud.board_name ? `плата ${cloud.board_name}` : "",
+        cloud.app_version ? `прошивка ${cloud.app_version}` : "",
+        cloud.board_ip ? `IP ${cloud.board_ip}` : "",
+      ].filter(Boolean).join(", ");
+      const suffix = boardBits ? ` (${boardBits})` : "";
+
+      if (!cloud.configured) {
+        return {
+          level: "warn",
+          label: "Платформа не настроена",
+          short: "не настроено",
+          detail: "Для этого робота ещё не настроен рабочий контур Платформы Гоша.",
+          status: "missing",
+          lastSeen: 0,
+        };
+      }
+      if (state === "awaiting_claim" || !claimed) {
+        return {
+          level: "warn",
+          label: "Ждёт серверную привязку",
+          short: "ждёт привязку",
+          detail: "Режим Платформы Гоша уже включён, но само устройство ещё не закреплено за карточкой робота.",
+          status: "awaiting_claim",
+          lastSeen: 0,
+        };
+      }
+      if (!lastSeen) {
+        return {
+          level: "warn",
+          label: "Привязан, но без свежего сигнала",
+          short: "нет свежего сигнала",
+          detail: `Робот уже привязан, но панель пока не видела свежего контакта от его прошивки.${suffix ? ` Последний известный профиль устройства:${suffix}.` : ""}`,
+          status: "missing",
+          lastSeen: 0,
+        };
+      }
+
+      const ageSeconds = Math.max(0, nowTs() - lastSeen);
+      if (ageSeconds <= freshSeconds) {
+        return {
+          level: "ok",
+          label: "Робот сам вышел на связь",
+          short: "свежий след",
+          detail: `Панель видела прямой контакт прошивки ${ageText}.${suffix ? ` Последний известный профиль устройства:${suffix}.` : ""}`,
+          status: "fresh",
+          lastSeen,
+        };
+      }
+      if (ageSeconds <= recentSeconds) {
+        return {
+          level: "warn",
+          label: "Был на связи недавно",
+          short: "недавний след",
+          detail: `Прямой контакт прошивки был ${ageText}.${suffix ? ` Последний известный профиль устройства:${suffix}.` : ""} Это хороший след, но не подтверждение связи прямо сейчас.`,
+          status: "recent",
+          lastSeen,
+        };
+      }
+      return {
+        level: "bad",
+        label: "Давно не выходил на связь",
+        short: "след старый",
+        detail: `Последний прямой контакт прошивки был ${ageText}.${suffix ? ` Последний известный профиль устройства:${suffix}.` : ""}`,
+        status: "stale",
+        lastSeen,
+      };
+    }
+
+    function robotHasFreshSelfhostSignal(robot) {
+      return robotSelfhostSignalState(robot).status === "fresh";
     }
 
     function probeSummaryText(probe) {
@@ -5771,7 +5936,7 @@
     }
 
     function robotPresenceConfirmed(robot) {
-      return robotVerifiedOnline(robot) || robotHasFreshServerActivity(robot) || robotHasFreshHomeWifiPresence(robot);
+      return robotVerifiedOnline(robot) || robotHasFreshServerActivity(robot) || robotHasFreshHomeWifiPresence(robot) || robotHasFreshSelfhostSignal(robot);
     }
 
     function mobilePresencePill(robot) {
@@ -6018,7 +6183,7 @@
     }
 
     function robotTransportIsGood(robot) {
-      return robotVerifiedOnline(robot) || robotHasFreshServerActivity(robot) || robotHasFreshHomeWifiPresence(robot);
+      return robotVerifiedOnline(robot) || robotHasFreshServerActivity(robot) || robotHasFreshHomeWifiPresence(robot) || robotHasFreshSelfhostSignal(robot);
     }
 
     function robotWifiState(robot) {
@@ -6026,6 +6191,7 @@
       const diag = robot.diagnostics || {};
       const control = robot.control || {};
       const cloud = robot.cloud_console || {};
+      const selfhostSignal = robotSelfhostSignalState(robot);
       const mobile = robotMobilePresenceState(robot);
       const activity = robotActivityPresenceState(robot);
       const transport = String(diag.transport_state || "").toLowerCase();
@@ -6044,6 +6210,8 @@
       const freshNotFound = mobile.status === "fresh" && mobile.state === "not_found";
       const freshServerActivity = activity.status === "fresh" && ["request", "tool_call"].includes(activity.source);
       const recentServerActivity = ["fresh", "recent"].includes(activity.status) && ["request", "tool_call"].includes(activity.source);
+      const freshSelfhostSignal = selfhostSignal.status === "fresh";
+      const recentSelfhostSignal = ["fresh", "recent"].includes(selfhostSignal.status);
       const transportLooksOnline = false;
       const transportLooksOffline = ["unreachable", "offline", "missing"].includes(transport);
 
@@ -6095,6 +6263,18 @@
         };
       }
 
+      if (freshSelfhostSignal) {
+        return {
+          level: "ok",
+          label: "На связи с платформой",
+          short: "robot -> panel",
+          confidence: 88,
+          detail: `${selfhostSignal.detail} Для новой прошивки это прямой сигнал, что робот сам достучался до нашей платформы и уже работает в домашней сети или через доступный интернет-контур.`,
+          operatorText: "Можно считать робота подключённым к платформе. Если нужен отдельный локальный сценарий клиента, проверьте его через приложение, но связь с панелью уже подтверждена самой прошивкой.",
+          evidence: "прямой контакт прошивки с Платформой Гоша"
+        };
+      }
+
       if (freshHomeLocal && freshServerActivity) {
         return {
           level: "ok",
@@ -6128,6 +6308,18 @@
           detail: `${mobile.detail} Даже если отдельное подтверждение MCP ещё не получено, для панели это уже честный сигнал, что робот подключён к домашней сети клиента.`,
           operatorText: "Робот локально подтверждён приложением. Если нужен ещё и живой серверный канал, попросите клиента поговорить с роботом или нажмите «Обнаружить робота».",
           evidence: "локальное подтверждение приложением"
+        };
+      }
+
+      if (recentSelfhostSignal) {
+        return {
+          level: "warn",
+          label: "Недавно был на связи с платформой",
+          short: "robot -> panel",
+          confidence: 76,
+          detail: `${selfhostSignal.detail} Это хороший сигнал для оператора, но если нужен статус прямо сейчас, попросите клиента снова обратиться к роботу или нажмите «Проверить связь».`,
+          operatorText: "Робот недавно сам выходил на связь с платформой. Для статуса прямо сейчас запросите новую реплику от робота или выполните явную проверку.",
+          evidence: "недавний прямой контакт прошивки с Платформой Гоша"
         };
       }
 

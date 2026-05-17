@@ -292,6 +292,43 @@ def list_claimed_devices(state=None):
     return items
 
 
+def extract_device_runtime_meta(item):
+    payload = item.get("payload") if isinstance(item, dict) else {}
+    board_raw = payload.get("board") if isinstance(payload, dict) else {}
+    application_raw = payload.get("application") if isinstance(payload, dict) else {}
+
+    board_name = str((item or {}).get("board", "") or "").strip()
+    board_ip = ""
+    if isinstance(board_raw, dict):
+        board_name = str(
+            board_raw.get("type")
+            or board_raw.get("name")
+            or board_raw.get("board_name")
+            or board_name
+            or ""
+        ).strip()
+        board_ip = str(
+            board_raw.get("ip")
+            or board_raw.get("local_ip")
+            or board_raw.get("wifi_ip")
+            or board_raw.get("sta_ip")
+            or ""
+        ).strip()
+    elif isinstance(board_raw, str) and board_raw.strip():
+        board_name = board_raw.strip()
+
+    app_version = str((item or {}).get("app_version", "") or "").strip()
+    if not app_version and isinstance(application_raw, dict):
+        app_version = str(application_raw.get("version", "") or "").strip()
+
+    return {
+        "board_name": board_name,
+        "board_ip": board_ip,
+        "app_version": app_version,
+        "remote_addr": str((item or {}).get("remote_addr", "") or "").strip(),
+    }
+
+
 def record_device_contact(*, device_id, client_id="", serial_number="", payload=None, headers=None, remote_addr=""):
     device_key = str(device_id or "").strip()
     if not device_key:
@@ -396,6 +433,7 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
             "state": "missing",
             "detail": "Платформа Гоша ещё не настроена",
         }
+    runtime_meta = extract_device_runtime_meta(claim or {})
     return {
         "provider": BACKEND_MODE_SELF_HOSTED,
         "backend_mode": BACKEND_MODE_SELF_HOSTED,
@@ -411,6 +449,10 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
         "claimed_at_iso": (claim or {}).get("claimed_at_iso", ""),
         "last_seen": (claim or {}).get("last_seen", 0),
         "last_seen_iso": (claim or {}).get("last_seen_iso", ""),
+        "board_name": runtime_meta.get("board_name", ""),
+        "board_ip": runtime_meta.get("board_ip", ""),
+        "app_version": runtime_meta.get("app_version", ""),
+        "remote_addr": runtime_meta.get("remote_addr", ""),
         "control_mcp_endpoint": (claim or {}).get("control_mcp_endpoint", ""),
         "websocket_url": (claim or {}).get("websocket_url", backend.get("websocket_url", "")),
         "websocket_token_configured": bool((claim or {}).get("websocket_token")),
