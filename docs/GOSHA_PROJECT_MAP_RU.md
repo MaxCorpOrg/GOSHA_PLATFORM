@@ -61,6 +61,10 @@
 
 - Путь:
   - `/home/max/GOSHA_MOBILE`
+- Git remote:
+  - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
+- GitHub URL:
+  - `https://github.com/MaxCorpOrg/GOSHA_MOBILE`
 - Назначение:
   - отдельный Android-клиент `Гоша`;
   - ввод кода подключения;

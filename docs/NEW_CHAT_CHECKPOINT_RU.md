@@ -90,6 +90,10 @@
   - просить повторить по-русски при плохом распознавании
 - Пакет подключения `mobile API` расширен новым разделом `bundle.mobile_profile`.
 - Создан отдельный Android-проект `/home/max/GOSHA_MOBILE`.
+- Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
+  - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
+- Ветка `main` уже отправлена в GitHub и отслеживает:
+  - `origin/main`
 - Новый мобильный проект уже подтверждён локальной сборкой:
   - `assembleClientDebug`
   - `testClientDebugUnitTest`

@@ -264,6 +264,10 @@
   - предпочитаемый режим `self_hosted_xiaozhi`
 - Создан отдельный мобильный проект:
   - `/home/max/GOSHA_MOBILE`
+- Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
+  - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
+- Выполнен первый `push` мобильного проекта:
+  - ветка `main` уже отслеживает `origin/main`
 - Новый клиент `GOSHA_MOBILE` уже подтверждён как самостоятельная локальная сборка:
   - `assembleClientDebug`
   - `testClientDebugUnitTest`

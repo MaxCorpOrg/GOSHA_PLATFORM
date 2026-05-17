@@ -130,6 +130,10 @@
 - Пакет `mobile API` уже расширен новым разделом `bundle.mobile_profile`.
 - Для платформы создан отдельный Android-проект:
   - `/home/max/GOSHA_MOBILE`
+- Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
+  - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
+- Ветка `main` уже отправлена в GitHub и отслеживает:
+  - `origin/main`
 - Новый мобильный проект уже собирается локально как самостоятельный клиент:
   - `assembleClientDebug`
   - `testClientDebugUnitTest`
