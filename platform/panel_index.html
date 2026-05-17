@@ -382,6 +382,42 @@
       gap: 12px;
       margin-top: 12px;
     }
+    .operator-summary-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .operator-summary-item {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .92);
+      color: #27466f;
+    }
+    .operator-summary-item strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 24px;
+      line-height: 1.1;
+      color: #143862;
+    }
+    .operator-summary-item .mini {
+      margin-top: 6px;
+      max-width: none;
+    }
+    .operator-summary-item.ok {
+      border-color: #9cdbbd;
+      background: #f0fff7;
+    }
+    .operator-summary-item.warn {
+      border-color: #f1cf9d;
+      background: #fffaf1;
+    }
+    .operator-summary-item.bad {
+      border-color: #f3c5c5;
+      background: #fff3f3;
+    }
     .attention-list {
       display: grid;
       gap: 8px;
@@ -498,6 +534,13 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+    }
+    .quick-actions-primary,
+    .quick-actions-advanced {
+      display: contents;
+    }
+    .quick-actions-advanced[hidden] {
+      display: none !important;
     }
     .quick-actions .btn {
       min-height: 38px;
@@ -1423,6 +1466,7 @@
       .robot-workspace-hero { grid-template-columns: 1fr; }
       .workspace-compact-form { grid-template-columns: 1fr; }
       .operator-grid { grid-template-columns: 1fr; }
+      .operator-summary-strip { grid-template-columns: 1fr 1fr; }
       .wifi-map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .fleet-map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .wrap { padding: 14px; }
@@ -1430,6 +1474,7 @@
     }
     @media (max-width: 700px) {
       .stats-grid { grid-template-columns: 1fr; }
+      .operator-summary-strip { grid-template-columns: 1fr; }
       .checkbox-grid { grid-template-columns: 1fr; }
       .robot-title-row { flex-direction: column; }
       .robot-actions { grid-template-columns: 1fr; }
@@ -1490,6 +1535,28 @@
         </div>
         <span id="operatorHealthPill" class="pill warn">Проверка...</span>
       </div>
+      <div id="operatorSummaryStrip" class="operator-summary-strip">
+        <div class="operator-summary-item warn">
+          <div class="mini">На связи</div>
+          <strong>0</strong>
+          <div class="mini">Жду данные панели</div>
+        </div>
+        <div class="operator-summary-item warn">
+          <div class="mini">Режим hotspot</div>
+          <strong>0</strong>
+          <div class="mini">Жду данные панели</div>
+        </div>
+        <div class="operator-summary-item warn">
+          <div class="mini">Свежий сигнал прошивки</div>
+          <strong>0</strong>
+          <div class="mini">Жду данные панели</div>
+        </div>
+        <div class="operator-summary-item warn">
+          <div class="mini">Нужно внимание</div>
+          <strong>0</strong>
+          <div class="mini">Жду данные панели</div>
+        </div>
+      </div>
       <div class="operator-grid">
         <div>
           <div class="mini" style="max-width:none;margin-bottom:8px;">Что стоит проверить первым</div>
@@ -1500,21 +1567,26 @@
         <div>
           <div class="mini" style="max-width:none;margin-bottom:8px;">Быстрые действия</div>
           <div class="quick-actions">
-            <button class="btn primary" onclick="refreshOperatorWorkspace()">Обновить всё</button>
-            <button class="btn primary" onclick="scrollToPanel('createRobotPanel')">Подключить нового робота</button>
-            <button class="btn" onclick="showPanelCard('assistantControlPanel')">Каталог ассистента</button>
-            <button class="btn" onclick="showPanelCard('agentProfilesPanel')">Поставщики ИИ</button>
-            <button class="btn" onclick="showPanelCard('selfhostPanel')">Платформа и привязки</button>
-            <button class="btn" onclick="checkMobileContract()">Проверить контур Гоши</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('errors')">Показать проблемные</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('wifi-risk')">Нужна проверка Wi-Fi</button>
-            <button class="btn" onclick="applyRobotQuickFilter('no-endpoint')">Без MCP-адреса</button>
-            <button class="btn" onclick="applyRobotQuickFilter('active')">Только активные</button>
-            <button class="btn" onclick="applyRobotQuickFilter('live')">Активные</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('staged')">Подготовленные</button>
-            <button class="btn" onclick="applyRobotQuickFilter('template')">Шаблоны</button>
-            <button class="btn warn" onclick="applyRobotQuickFilter('smoke-risk')">Обнаружение и облачный контур</button>
-            <button class="btn" onclick="applyRobotQuickFilter('reset')">Сбросить фильтры</button>
+            <div class="quick-actions-primary">
+              <button class="btn primary" onclick="refreshOperatorWorkspace()">Обновить всё</button>
+              <button class="btn primary" onclick="scrollToPanel('createRobotPanel')">Подключить нового робота</button>
+              <button class="btn warn" onclick="applyRobotQuickFilter('errors')">Показать проблемные</button>
+              <button class="btn" onclick="showPanelCard('selfhostPanel')">Платформа и привязки</button>
+              <button id="operatorAdvancedToggleBtn" class="btn" onclick="toggleOperatorAdvancedActions()">Показать дополнительные действия</button>
+            </div>
+            <div id="operatorAdvancedActions" class="quick-actions-advanced" hidden>
+              <button class="btn" onclick="showPanelCard('assistantControlPanel')">Каталог ассистента</button>
+              <button class="btn" onclick="showPanelCard('agentProfilesPanel')">Поставщики ИИ</button>
+              <button class="btn" onclick="checkMobileContract()">Проверить контур Гоши</button>
+              <button class="btn warn" onclick="applyRobotQuickFilter('wifi-risk')">Нужна проверка Wi-Fi</button>
+              <button class="btn" onclick="applyRobotQuickFilter('no-endpoint')">Без MCP-адреса</button>
+              <button class="btn" onclick="applyRobotQuickFilter('active')">Только активные</button>
+              <button class="btn" onclick="applyRobotQuickFilter('live')">Активные</button>
+              <button class="btn warn" onclick="applyRobotQuickFilter('staged')">Подготовленные</button>
+              <button class="btn" onclick="applyRobotQuickFilter('template')">Шаблоны</button>
+              <button class="btn warn" onclick="applyRobotQuickFilter('smoke-risk')">Обнаружение и облачный контур</button>
+              <button class="btn" onclick="applyRobotQuickFilter('reset')">Сбросить фильтры</button>
+            </div>
           </div>
         </div>
       </div>
@@ -7351,10 +7423,30 @@
       `;
     }
 
+    function renderOperatorSummaryItem(title, value, detail, level = "warn") {
+      return `
+        <div class="operator-summary-item ${escapeHtml(level)}">
+          <div class="mini">${escapeHtml(title)}</div>
+          <strong>${escapeHtml(String(value))}</strong>
+          <div class="mini">${escapeHtml(detail)}</div>
+        </div>
+      `;
+    }
+
+    function toggleOperatorAdvancedActions(forceOpen = null) {
+      const block = document.getElementById("operatorAdvancedActions");
+      const btn = document.getElementById("operatorAdvancedToggleBtn");
+      if (!block || !btn) return;
+      const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : block.hidden;
+      block.hidden = !shouldOpen;
+      btn.textContent = shouldOpen ? "Скрыть дополнительные действия" : "Показать дополнительные действия";
+    }
+
     function updateOperatorOverview(robots) {
       const focus = document.getElementById("operatorFocusText");
       const list = document.getElementById("operatorAttentionList");
       const pill = document.getElementById("operatorHealthPill");
+      const summary = document.getElementById("operatorSummaryStrip");
       if (!focus || !list || !pill) return;
       updateRobotWifiMap(robots);
       updateFleetBoard(robots);
@@ -7363,6 +7455,14 @@
         focus.textContent = "Роботов пока нет. Начните с блока «Подключить нового робота» и выдайте клиенту код.";
         pill.className = "pill warn";
         pill.textContent = "Нет роботов";
+        if (summary) {
+          summary.innerHTML = [
+            renderOperatorSummaryItem("На связи", 0, "Боевых роботов пока нет", "warn"),
+            renderOperatorSummaryItem("Режим hotspot", 0, "Жду первый робот", "warn"),
+            renderOperatorSummaryItem("Свежий сигнал прошивки", 0, "Жду первый робот", "warn"),
+            renderOperatorSummaryItem("Нужно внимание", 0, "Сначала создайте робота", "warn"),
+          ].join("");
+        }
         list.innerHTML = renderAttentionItem("Создайте первого робота", [], "warn", "Заполните ID, имя, тариф и нажмите «Добавить робота».");
         return;
       }
@@ -7379,9 +7479,42 @@
       const linkBad = physicalRobots.filter((robot) => !robotTransportIsGood(robot));
       const wifiBad = physicalRobots.filter((robot) => robotWifiState(robot).level === "bad");
       const wifiWarn = physicalRobots.filter((robot) => robotWifiState(robot).level === "warn");
+      const hotspotRobots = physicalRobots.filter((robot) => robotHasHotspotPresence(robot));
+      const confirmedRobots = physicalRobots.filter((robot) => robotPresenceConfirmed(robot));
+      const freshSignalRobots = physicalRobots.filter((robot) => robotHasFreshSelfhostSignal(robot));
+      const attentionRobots = physicalRobots.filter((robot) => robotHasTechnicalIssue(robot));
       const policyBad = physicalRobots.filter((robot) => !(robot.admin_status || {}).tools_policy_applied);
       const noReadyCode = physicalRobots.filter((robot) => !robotHasReadyCode(robot));
       const noOwner = physicalRobots.filter((robot) => !ownerHasContact(robot));
+
+      if (summary) {
+        summary.innerHTML = [
+          renderOperatorSummaryItem(
+            "На связи",
+            `${confirmedRobots.length}/${physicalRobots.length}`,
+            confirmedRobots.length ? `Подтверждён живой канал у ${confirmedRobots.length} роботов` : "Пока нет подтверждённой живой связи",
+            confirmedRobots.length ? "ok" : "warn"
+          ),
+          renderOperatorSummaryItem(
+            "Режим hotspot",
+            hotspotRobots.length,
+            hotspotRobots.length ? "Этим роботам ещё нужен возврат в домашний Wi‑Fi" : "Ни один робот сейчас не застрял в hotspot",
+            hotspotRobots.length ? "warn" : "ok"
+          ),
+          renderOperatorSummaryItem(
+            "Свежий сигнал прошивки",
+            freshSignalRobots.length,
+            freshSignalRobots.length ? "Прошивка сама недавно отметилась в платформе" : "Свежих прямых сигналов от прошивки пока нет",
+            freshSignalRobots.length ? "ok" : "warn"
+          ),
+          renderOperatorSummaryItem(
+            "Нужно внимание",
+            attentionRobots.length,
+            attentionRobots.length ? "Есть роботы, где связь, мост или доступ ещё требуют действий" : "Критичных технических хвостов не видно",
+            attentionRobots.length ? "bad" : "ok"
+          ),
+        ].join("");
+      }
 
       const issues = [
         ["Подготовленные роботы требуют доводки", stagedRobots],
