@@ -566,6 +566,7 @@ if [[ ! -f "${APP_ROOT}/mobile/panel_client_tokens.json" ]]; then
 fi
 
 install -m 755 "${APP_DIR}/platform/add_robot.sh" "${APP_ROOT}/bin/add_robot.sh"
+bash "${APP_DIR}/bin/ensure_panel_python_deps.sh"
 
 install -m 644 "${APP_DIR}/ops/systemd/gosha-backend.service" /etc/systemd/system/gosha-backend.service
 install -m 644 "${APP_DIR}/ops/systemd/gosha-agent-gateway.service" /etc/systemd/system/gosha-agent-gateway.service

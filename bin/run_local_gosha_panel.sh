@@ -8,7 +8,7 @@ export APP_ROOT
 export PANEL_HOST="127.0.0.1"
 export PANEL_PORT="18876"
 export PUBLIC_PANEL_URL="http://127.0.0.1:18876"
-export PUBLIC_EDGE_HUB_URL="ws://127.0.0.1:18890"
+export PUBLIC_EDGE_HUB_URL="ws://127.0.0.1:18876/mcp"
 export GOSHA_AGENT_GATEWAY_URL="http://127.0.0.1:18110"
 export GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS="5"
 export SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE="http://127.0.0.1:18876"
@@ -22,5 +22,6 @@ export PRIVACY_POLICY_SHARE_PATH="$APP_ROOT/share/legal/gosha-privacy-policy.htm
 export TERMS_OF_USE_SHARE_PATH="$APP_ROOT/share/legal/gosha-terms-of-use.html"
 
 bash "$ROOT/bin/init_local_lab.sh"
+bash "$ROOT/bin/ensure_panel_python_deps.sh"
 cd "$ROOT/platform"
 python3 gui_panel.py
