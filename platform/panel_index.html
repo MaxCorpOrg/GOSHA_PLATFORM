@@ -40,6 +40,12 @@
       pointer-events: none;
       user-select: none;
     }
+    body.panel-home [data-panel-page="robot"] {
+      display: none !important;
+    }
+    body.panel-robot [data-panel-page="home"] {
+      display: none !important;
+    }
     .wrap { max-width: 1420px; margin: 0 auto; padding: 24px; }
     .hero-top {
       display: flex;
@@ -155,8 +161,33 @@
       padding: 7px 10px;
       font-size: 13px;
       cursor: pointer;
+      transition:
+        transform .12s ease,
+        box-shadow .18s ease,
+        background .18s ease,
+        border-color .18s ease,
+        color .18s ease;
+      box-shadow: 0 3px 10px rgba(14, 37, 74, .05);
     }
-    .btn:hover { background: #f1f7ff; }
+    .btn:hover {
+      background: #f1f7ff;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(14, 37, 74, .10);
+    }
+    .btn:active {
+      transform: translateY(1px) scale(.985);
+      box-shadow: inset 0 2px 6px rgba(14, 37, 74, .12);
+    }
+    .btn:focus-visible {
+      outline: 2px solid rgba(0, 103, 216, .28);
+      outline-offset: 2px;
+    }
+    .btn:disabled {
+      opacity: .62;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
     .btn.primary {
       border-color: #005fcc;
       background: var(--accent);
@@ -639,6 +670,11 @@
     .fleet-card:hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 20px rgba(14, 37, 74, .09);
+    }
+    .fleet-card:active,
+    .wifi-map-card:active {
+      transform: translateY(1px) scale(.99);
+      box-shadow: inset 0 2px 8px rgba(14, 37, 74, .10);
     }
     .fleet-card.live {
       border-color: #8edab4;
@@ -1186,6 +1222,12 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    .workspace-profile-note {
+      margin-top: 8px;
+      color: #365272;
+      font-size: 12px;
+      line-height: 1.45;
+    }
     .health-callout {
       border: 1px solid #f1cf9d;
       background: linear-gradient(135deg, #fffaf0, #fff6e8);
@@ -1529,10 +1571,11 @@
     <div class="hero">
       <div class="hero-top">
         <div>
-          <h1>Панель операторов Гоши</h1>
-          <p>Роботы, Wi-Fi, клиенты, память, подписки и сервисы в одном понятном рабочем месте</p>
+          <h1 id="heroTitle">Панель операторов Гоши</h1>
+          <p id="heroSubtitle">Роботы, Wi‑Fi, клиенты, память, подписки и сервисы в одном понятном рабочем месте</p>
         </div>
         <div class="hero-actions">
+          <button id="operatorHomeBtn" class="btn" style="display:none;" onclick="goOperatorHome()">На пульт оператора</button>
           <span id="sessionPill" class="pill">Проверка сеанса...</span>
           <button id="logoutBtn" class="btn" style="display:none;" onclick="logoutOperator()">Выйти</button>
         </div>
@@ -1543,7 +1586,7 @@
       Здесь будут показываться результаты действий: запуск моста, открытие подписки, сохранение карточки клиента и переключение сервисов.
     </div>
 
-    <div id="claimSpotlightCard" class="card claim-spotlight" hidden>
+    <div id="claimSpotlightCard" class="card claim-spotlight" data-panel-page="home" hidden>
       <div class="claim-spotlight-head">
         <div>
           <h2>Новый робот ждёт привязки</h2>
@@ -1565,7 +1608,7 @@
       </div>
     </div>
 
-    <div class="card operator-overview">
+    <div class="card operator-overview" data-panel-page="home">
       <div class="operator-overview-head">
         <div>
           <h2>Пульт оператора</h2>
@@ -1608,11 +1651,12 @@
             <div class="quick-actions-primary">
               <button class="btn primary" onclick="refreshOperatorWorkspace()">Обновить всё</button>
               <button class="btn primary" onclick="scrollToPanel('createRobotPanel')">Подключить нового робота</button>
-              <button class="btn warn" onclick="applyRobotQuickFilter('errors')">Показать проблемные</button>
-              <button class="btn" onclick="showPanelCard('selfhostPanel')">Платформа и привязки</button>
               <button id="operatorAdvancedToggleBtn" class="btn" onclick="toggleOperatorAdvancedActions()">Показать дополнительные действия</button>
             </div>
             <div id="operatorAdvancedActions" class="quick-actions-advanced" hidden>
+              <button class="btn warn" onclick="applyRobotQuickFilter('errors')">Показать проблемные</button>
+              <button class="btn" onclick="showPanelCard('robotCatalogPanel')">Полный каталог роботов</button>
+              <button class="btn" onclick="showPanelCard('selfhostPanel')">Платформа и привязки</button>
               <button class="btn" onclick="showPanelCard('assistantControlPanel')">Каталог ассистента</button>
               <button class="btn" onclick="showPanelCard('agentProfilesPanel')">Поставщики ИИ</button>
               <button class="btn" onclick="checkMobileContract()">Проверить контур Гоши</button>
@@ -2244,7 +2288,7 @@
       </details>
     </div>
 
-    <div class="card" style="margin-top:12px;">
+    <div class="card" data-panel-page="home" style="margin-top:12px;">
       <h2>Мобильные приложения</h2>
       <div class="row">
         <a class="btn primary" href="/downloads/maxcorp-connector-debug.apk">Скачать клиентский APK</a>
@@ -2267,7 +2311,7 @@
       </div>
     </div>
 
-    <div class="stats-grid">
+    <div class="stats-grid" data-panel-page="home">
       <div class="stat-card">
         <div class="stat-label">Роботов в системе</div>
         <div id="statRobots" class="stat-value">0</div>
@@ -2290,11 +2334,12 @@
       </div>
     </div>
 
-    <div class="grid">
+    <div id="robotCatalogPanel" class="grid" data-panel-page="home" style="display:none;">
       <div class="card">
-        <h2>Роботы</h2>
+        <h2>Полный каталог роботов</h2>
         <div class="row" style="margin-bottom:8px;">
           <button class="btn primary" onclick="reloadRobots()">Обновить</button>
+          <button class="btn" onclick="hidePanelCard('robotCatalogPanel')">Скрыть каталог</button>
         </div>
         <div class="robot-list-toolbar">
           <div class="robot-toolbar-row">
@@ -2336,31 +2381,31 @@
       </div>
     </div>
 
-    <div id="robotWorkspaceCard" class="card robot-workspace" style="margin-top:12px; display:none;">
+    <div id="robotWorkspaceCard" class="card robot-workspace" data-panel-page="robot" style="margin-top:12px; display:none;">
       <div class="robot-workspace-head">
         <div>
           <h2 id="robotWorkspaceTitle">Страница робота</h2>
-          <div id="robotWorkspaceSubtitle" class="robot-workspace-subtitle">Выбери карточку в списке выше, и здесь откроется отдельная рабочая страница именно этого робота.</div>
+          <div id="robotWorkspaceSubtitle" class="robot-workspace-subtitle">Открой робота из состояния флота, и здесь появится его отдельная рабочая страница с обзором, личностью, голосом, подключением и клиентскими данными.</div>
         </div>
         <div class="row">
           <span id="robotWorkspaceStatePill" class="pill warn">Робот не выбран</span>
-          <button class="btn" onclick="closeRobotWorkspace()">К списку роботов</button>
+          <button class="btn" onclick="goOperatorHome()">На пульт оператора</button>
         </div>
       </div>
       <div class="robot-workspace-tabs" aria-label="Рабочие разделы выбранного робота">
         <button id="robotWorkspaceTabOverview" class="btn active" onclick="setRobotWorkspaceTab('overview')">Обзор</button>
-        <button id="robotWorkspaceTabPersonality" class="btn" onclick="setRobotWorkspaceTab('personality')">Личность и голос</button>
+        <button id="robotWorkspaceTabPersonality" class="btn" onclick="setRobotWorkspaceTab('personality')">Личность, модель и голос</button>
         <button id="robotWorkspaceTabConnection" class="btn" onclick="setRobotWorkspaceTab('connection')">Подключение</button>
         <button id="robotWorkspaceTabClient" class="btn" onclick="setRobotWorkspaceTab('client')">Клиент, память и коды</button>
       </div>
       <div id="robotWorkspaceBody" class="robot-workspace-grid">
         <div class="robot-panel robot-panel-wide">
-          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельную рабочую страницу с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
+          <div class="mini" style="max-width:none;">Открой робота из состояния флота, чтобы перейти в его отдельную рабочую страницу с обзором, личностью, голосом, подключением, памятью и клиентскими данными.</div>
         </div>
       </div>
     </div>
 
-    <div id="createRobotPanel" class="card" style="margin-top:12px;">
+    <div id="createRobotPanel" class="card" data-panel-page="home" style="margin-top:12px;">
       <h2>Подключить нового робота</h2>
       <div class="field-grid">
         <div class="field">
@@ -2674,6 +2719,7 @@
     let robotWorkspaceId = "";
     let robotWorkspaceTab = "overview";
     let robotWorkspaceConfigData = null;
+    let robotWorkspaceBindingDraft = null;
     let robotWorkspaceRouteLock = false;
     let memRobot = null;
     let subscriptionRobot = null;
@@ -2710,6 +2756,29 @@
 
     function normalizeRobotWorkspaceTab(tab) {
       return ROBOT_WORKSPACE_TABS.includes(tab) ? tab : "overview";
+    }
+
+    function syncPanelPageMode() {
+      const body = document.body;
+      const homeBtn = document.getElementById("operatorHomeBtn");
+      const heroTitle = document.getElementById("heroTitle");
+      const heroSubtitle = document.getElementById("heroSubtitle");
+      const robot = workspaceSelectedRobot();
+      const isRobotPage = Boolean(robotWorkspaceId && robot);
+      body.classList.toggle("panel-home", !isRobotPage);
+      body.classList.toggle("panel-robot", isRobotPage);
+      if (homeBtn) homeBtn.style.display = isRobotPage ? "inline-flex" : "none";
+      if (heroTitle) heroTitle.textContent = isRobotPage ? `Робот: ${robotDisplayName(robot)}` : "Панель операторов Гоши";
+      if (heroSubtitle) {
+        heroSubtitle.textContent = isRobotPage
+          ? "Обзор, личность, модель, голос, подключение и клиентские данные собраны в отдельной рабочей странице робота."
+          : "Состояние флота, карта Wi‑Fi, подключение новых роботов и операторские проверки без лишнего шума.";
+      }
+    }
+
+    function goOperatorHome() {
+      closeRobotWorkspace();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     function robotPageHref(robotId = "", tab = "overview") {
@@ -4123,8 +4192,37 @@
       return options.join("");
     }
 
+    function valueCatalogOptionsHtml(items, selectedValue = "", emptyLabel = "Выберите") {
+      const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+      for (const item of items || []) {
+        const value = String(item.value || "");
+        const selected = value === String(selectedValue || "") ? "selected" : "";
+        options.push(`<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(item.label || value)}</option>`);
+      }
+      return options.join("");
+    }
+
     function workspaceSelectedRobot() {
       return currentRobots.find((item) => item.robot_id === robotWorkspaceId) || null;
+    }
+
+    function robotWorkspaceBindingState(config = null) {
+      const data = config || robotWorkspaceConfigData?.config || {};
+      const binding = data.binding || {};
+      return {
+        assistant_profile_id: robotWorkspaceBindingDraft?.assistant_profile_id ?? binding.assistant_profile_id ?? data.assistant_profile?.profile_id ?? "",
+        voice_profile_id: robotWorkspaceBindingDraft?.voice_profile_id ?? binding.voice_profile_id ?? data.voice_profile?.profile_id ?? "",
+        memory_profile_id: robotWorkspaceBindingDraft?.memory_profile_id ?? binding.memory_profile_id ?? data.memory_profile?.profile_id ?? "",
+        mcp_bundle_id: robotWorkspaceBindingDraft?.mcp_bundle_id ?? binding.mcp_bundle_id ?? data.mcp_bundle?.profile_id ?? "",
+        knowledge_profile_id: robotWorkspaceBindingDraft?.knowledge_profile_id ?? binding.knowledge_profile_id ?? data.knowledge_profile?.profile_id ?? "",
+      };
+    }
+
+    function updateRobotWorkspaceBindingField(field, value) {
+      const next = { ...robotWorkspaceBindingState() };
+      next[field] = String(value || "");
+      robotWorkspaceBindingDraft = next;
+      renderRobotWorkspace();
     }
 
     async function loadRobotWorkspaceConfig(robotId, silent = false) {
@@ -4154,19 +4252,21 @@
       robotWorkspaceId = "";
       robotWorkspaceTab = "overview";
       robotWorkspaceConfigData = null;
+      robotWorkspaceBindingDraft = null;
       document.getElementById("robotWorkspaceTitle").textContent = "Страница робота";
-      document.getElementById("robotWorkspaceSubtitle").textContent = "Выбери карточку в списке выше, и здесь откроется отдельная рабочая страница именно этого робота.";
+      document.getElementById("robotWorkspaceSubtitle").textContent = "Открой робота из состояния флота, и здесь появится его отдельная рабочая страница с обзором, личностью, голосом, подключением и клиентскими данными.";
       document.getElementById("robotWorkspaceStatePill").className = "pill warn";
       document.getElementById("robotWorkspaceStatePill").textContent = "Робот не выбран";
       document.getElementById("robotWorkspaceBody").innerHTML = `
         <div class="robot-panel robot-panel-wide">
-          <div class="mini" style="max-width:none;">Выбери карточку робота, чтобы открыть отдельную рабочую страницу с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
+          <div class="mini" style="max-width:none;">Открой робота из состояния флота, чтобы перейти в отдельную рабочую страницу с его подключением, личностью, голосом, памятью и клиентскими данными.</div>
         </div>
       `;
       if (!skipRouteSync) {
         syncRobotWorkspaceRoute({ replace: replaceHistory });
       }
       hidePanelCard("robotWorkspaceCard");
+      syncPanelPageMode();
     }
 
     function setRobotWorkspaceTab(tab, options = {}) {
@@ -4180,8 +4280,12 @@
     async function openRobotWorkspace(robotId, tab = "overview", options = {}) {
       const { skipRouteSync = false, replaceHistory = false, scroll = true } = options;
       if (!robotId) return;
+      if (robotWorkspaceId !== robotId) {
+        robotWorkspaceBindingDraft = null;
+      }
       robotWorkspaceId = robotId;
       robotWorkspaceTab = normalizeRobotWorkspaceTab(tab);
+      syncPanelPageMode();
       showPanelCard("robotWorkspaceCard", { scroll: false });
       await loadRobotWorkspaceConfig(robotId, true);
       if (!skipRouteSync) {
@@ -4189,7 +4293,7 @@
       }
       renderRobotWorkspace();
       if (scroll) {
-        scrollToPanel("robotWorkspaceCard");
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
     }
 
@@ -4206,7 +4310,7 @@
           </div>
           <div class="robot-workspace-card-actions">
             <button class="btn primary" onclick="detectRobotState('${robot.robot_id}', null, { expand: true })">Проверить связь</button>
-            <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность и голос</button>
+            <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность, модель и голос</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'connection')">Подключение</button>
             <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент и коды</button>
             <a class="btn" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>
@@ -4219,7 +4323,7 @@
             ${renderConnectionCell(robot)}
           </div>
           <div class="robot-summary-block">
-            <h3>Личность и голос</h3>
+            <h3>Личность, модель и голос</h3>
             ${renderAssistantConfigSummary(assistantConfig)}
           </div>
           <div class="robot-summary-block">
@@ -4241,11 +4345,164 @@
       `;
     }
 
+    function selectedWorkspaceAssistantProfile(config) {
+      const binding = robotWorkspaceBindingState(config);
+      const selectedId = binding.assistant_profile_id || config?.assistant_profile?.profile_id || "";
+      return (currentAssistantProfilesV1 || []).find((item) => item.profile_id === selectedId) || null;
+    }
+
+    function selectedWorkspaceVoiceProfile(config) {
+      const binding = robotWorkspaceBindingState(config);
+      const selectedId = binding.voice_profile_id || config?.voice_profile?.profile_id || "";
+      return (currentVoiceProfilesV1 || []).find((item) => item.profile_id === selectedId) || null;
+    }
+
+    function renderWorkspaceAssistantEditor(config) {
+      const profile = selectedWorkspaceAssistantProfile(config);
+      if (!profile) {
+        return `
+          <section class="robot-panel robot-panel-wide">
+            <h3>Личность, промпт и модель</h3>
+            <div class="empty-state">Сначала выбери профиль ассистента в верхнем блоке привязки робота. После этого здесь откроется детальная ручная настройка личности, системного промпта, поставщика ИИ и модели.</div>
+          </section>
+        `;
+      }
+      return `
+        <section class="robot-panel robot-panel-wide">
+          <h3>Личность, промпт и модель</h3>
+          <div class="workspace-compact-form">
+            <div class="field">
+              <label for="workspaceAssistantProfileEditorId">Профиль ассистента</label>
+              <input id="workspaceAssistantProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantDisplayName">Понятное имя</label>
+              <input id="workspaceAssistantDisplayName" type="text" value="${escapeHtml(profile.display_name || "")}" />
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantName">Имя ассистента</label>
+              <input id="workspaceAssistantName" type="text" value="${escapeHtml(profile.assistant_name || "Гоша")}" />
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantLanguage">Язык диалога</label>
+              <select id="workspaceAssistantLanguage">${valueCatalogOptionsHtml(currentAssistantCatalogs.dialogue_languages || [], profile.dialogue_language || "ru-RU", "Выберите язык")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantProviderProfileId">Поставщик ИИ</label>
+              <select id="workspaceAssistantProviderProfileId">${profileSelectOptionsHtml(currentAgentProfiles || [], profile.provider_profile_id || "", "Выберите поставщика ИИ", agentProfileLabel)}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantModelOverride">Модель</label>
+              <input id="workspaceAssistantModelOverride" type="text" value="${escapeHtml(profile.model_override || "")}" placeholder="Оставьте пустым, чтобы брать модель поставщика" />
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantVoiceProfileId">Голос по умолчанию</label>
+              <select id="workspaceAssistantVoiceProfileId">${profileSelectOptionsHtml(currentVoiceProfilesV1, profile.voice_profile_id || "", "Без голоса")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantMemoryProfileId">Память по умолчанию</label>
+              <select id="workspaceAssistantMemoryProfileId">${profileSelectOptionsHtml(currentMemoryProfilesV1, profile.memory_profile_id || "", "Без памяти")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantMcpBundleId">Набор MCP по умолчанию</label>
+              <select id="workspaceAssistantMcpBundleId">${profileSelectOptionsHtml(currentMcpBundlesV1, profile.mcp_bundle_id || "", "Без набора MCP")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantKnowledgeProfileId">База знаний по умолчанию</label>
+              <select id="workspaceAssistantKnowledgeProfileId">${profileSelectOptionsHtml(currentKnowledgeProfilesV1, profile.knowledge_profile_id || "", "Без базы знаний")}</select>
+            </div>
+            <div class="field full">
+              <label for="workspaceAssistantRoleTemplate">Шаблон роли</label>
+              <input id="workspaceAssistantRoleTemplate" type="text" value="${escapeHtml(profile.role_template || "")}" placeholder="Например: консультант, ведущий, помощник" />
+            </div>
+            <div class="field full">
+              <label for="workspaceAssistantRoleDescription">Краткое описание роли</label>
+              <input id="workspaceAssistantRoleDescription" type="text" value="${escapeHtml(profile.role_description || "")}" placeholder="Что это за профиль и зачем он нужен оператору" />
+            </div>
+            <div class="field full">
+              <label for="workspaceAssistantSystemPrompt">Системный промпт</label>
+              <textarea id="workspaceAssistantSystemPrompt" placeholder="Главная инструкция для ассистента">${escapeHtml(profile.system_prompt || "")}</textarea>
+            </div>
+            <label class="check-item"><input id="workspaceAssistantEnabled" type="checkbox" ${profile.enabled !== false ? "checked" : ""} /> Профиль включён</label>
+            <label class="check-item"><input id="workspaceAssistantIsDefault" type="checkbox" ${profile.is_default ? "checked" : ""} /> Профиль по умолчанию</label>
+          </div>
+          <div class="workspace-profile-note">
+            Изменения ниже меняют сам профиль ассистента. Если этот профиль используют другие роботы, они тоже получат обновлённую личность, модель и промпт.
+          </div>
+          <div class="robot-workspace-card-actions">
+            <button class="btn primary" onclick="saveWorkspaceAssistantProfile()">Сохранить личность</button>
+            <button class="btn" onclick="showPanelCard('assistantControlPanel')">Открыть весь каталог ассистента</button>
+          </div>
+        </section>
+      `;
+    }
+
+    function renderWorkspaceVoiceEditor(config) {
+      const profile = selectedWorkspaceVoiceProfile(config);
+      if (!profile) {
+        return `
+          <section class="robot-panel robot-panel-wide">
+            <h3>Голос и движок TTS</h3>
+            <div class="empty-state">Сначала выбери голосовой профиль в верхнем блоке привязки робота. После этого здесь откроется ручная настройка движка, голоса, темпа и высоты.</div>
+          </section>
+        `;
+      }
+      return `
+        <section class="robot-panel robot-panel-wide">
+          <h3>Голос и движок TTS</h3>
+          <div class="workspace-compact-form">
+            <div class="field">
+              <label for="workspaceVoiceProfileEditorId">Голосовой профиль</label>
+              <input id="workspaceVoiceProfileEditorId" type="text" value="${escapeHtml(profile.profile_id || "")}" readonly />
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceDisplayName">Понятное имя</label>
+              <input id="workspaceVoiceDisplayName" type="text" value="${escapeHtml(profile.display_name || "")}" />
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceLanguage">Язык голоса</label>
+              <input id="workspaceVoiceLanguage" type="text" value="${escapeHtml(profile.language || "ru-RU")}" />
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceType">Тип голоса</label>
+              <select id="workspaceVoiceType">${valueCatalogOptionsHtml(currentAssistantCatalogs.voice_types || [], profile.voice_type || "adult", "Выберите тип")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceTtsEngineProfileId">Движок синтеза речи</label>
+              <select id="workspaceVoiceTtsEngineProfileId">${profileSelectOptionsHtml(currentTtsEngineProfilesV1, profile.tts_engine_profile_id || "tts-engine-edge-default", "Выберите движок TTS")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceName">Имя голоса у поставщика</label>
+              <input id="workspaceVoiceName" type="text" value="${escapeHtml(profile.voice_name || "")}" placeholder="Например: ru-RU-Kseniya" />
+            </div>
+            <div class="field">
+              <label for="workspaceVoiceSpeechRate">Темп речи</label>
+              <input id="workspaceVoiceSpeechRate" type="number" step="0.1" min="0.5" max="2" value="${escapeHtml(String(profile.speech_rate ?? 1))}" />
+            </div>
+            <div class="field">
+              <label for="workspaceVoicePitch">Высота голоса</label>
+              <input id="workspaceVoicePitch" type="number" step="0.1" min="0.5" max="2" value="${escapeHtml(String(profile.pitch ?? 1))}" />
+            </div>
+            <div class="field full">
+              <label for="workspaceVoiceProviderLabel">Пояснение для оператора</label>
+              <input id="workspaceVoiceProviderLabel" type="text" value="${escapeHtml(profile.provider_label || "")}" placeholder="Например: живой женский Silero, тестовый мужской EdgeTTS" />
+            </div>
+            <label class="check-item"><input id="workspaceVoiceEnabled" type="checkbox" ${profile.enabled !== false ? "checked" : ""} /> Профиль включён</label>
+          </div>
+          <div class="workspace-profile-note">
+            Здесь меняется сам голосовой профиль. Если он общий для нескольких роботов, они тоже получат обновлённый движок, голос и тон ответа.
+          </div>
+          <div class="robot-workspace-card-actions">
+            <button class="btn primary" onclick="saveWorkspaceVoiceProfile()">Сохранить голос</button>
+            <button class="btn" onclick="showPanelCard('assistantControlPanel')">Открыть каталог голосов и TTS</button>
+          </div>
+        </section>
+      `;
+    }
+
     function renderRobotWorkspacePersonality(robot) {
       const config = robotWorkspaceConfigData?.config || robot.assistant_control || {};
-      const binding = config.binding || {};
-      const assistantProfileId = binding.assistant_profile_id || config.assistant_profile?.profile_id || "";
-      const voiceProfileId = binding.voice_profile_id || config.voice_profile?.profile_id || "";
+      const binding = robotWorkspaceBindingState(config);
       const ttsRuntime = config.tts_runtime || {};
       const ttsLine = [
         ttsRuntime.requested_profile_id ? `запрошено: ${ttsRuntime.requested_profile_id}` : "",
@@ -4256,24 +4513,38 @@
       return `
         <section class="robot-panel robot-panel-wide robot-workspace-hero">
           <div class="robot-summary-block">
-            <h3>Личность и голос</h3>
-            <div class="mini" style="max-width:none;">Для оператора здесь оставлена быстрая настройка: выбрать ассистента, голос и сразу применить. Более глубокая настройка каталога ассистента остаётся в отдельном расширенном разделе.</div>
+            <h3>Личность, модель и голос</h3>
+            <div class="mini" style="max-width:none;">Здесь оператор может не только выбрать готовый профиль, но и вручную настроить личность, системный промпт, модель, голосовой движок, сам голос, темп и высоту ответа.</div>
           </div>
           <div class="robot-workspace-card-actions">
-            <button class="btn primary" onclick="saveRobotWorkspaceAssistantSelection()">Сохранить и применить</button>
+            <button class="btn primary" onclick="saveRobotWorkspaceAssistantSelection()">Сохранить привязку робота</button>
+            <button class="btn" onclick="saveWorkspaceAssistantProfile()">Сохранить личность</button>
+            <button class="btn" onclick="saveWorkspaceVoiceProfile()">Сохранить голос</button>
             <button class="btn" onclick="showPanelCard('assistantControlPanel')">Открыть каталог ассистента</button>
           </div>
         </section>
         <section class="robot-panel robot-panel-wide">
-          <h3>Быстрая настройка</h3>
+          <h3>Привязка профилей к роботу</h3>
           <div class="workspace-compact-form">
             <div class="field">
               <label for="workspaceAssistantProfileId">Ассистент</label>
-              <select id="workspaceAssistantProfileId">${profileSelectOptionsHtml(currentAssistantProfilesV1, assistantProfileId, "Без явной привязки")}</select>
+              <select id="workspaceAssistantProfileId" onchange="updateRobotWorkspaceBindingField('assistant_profile_id', this.value)">${profileSelectOptionsHtml(currentAssistantProfilesV1, binding.assistant_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field">
               <label for="workspaceVoiceProfileId">Голос</label>
-              <select id="workspaceVoiceProfileId">${profileSelectOptionsHtml(currentVoiceProfilesV1, voiceProfileId, "Без явной привязки")}</select>
+              <select id="workspaceVoiceProfileId" onchange="updateRobotWorkspaceBindingField('voice_profile_id', this.value)">${profileSelectOptionsHtml(currentVoiceProfilesV1, binding.voice_profile_id || "", "Без явной привязки")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceMemoryProfileId">Память</label>
+              <select id="workspaceMemoryProfileId" onchange="updateRobotWorkspaceBindingField('memory_profile_id', this.value)">${profileSelectOptionsHtml(currentMemoryProfilesV1, binding.memory_profile_id || "", "Без явной привязки")}</select>
+            </div>
+            <div class="field">
+              <label for="workspaceMcpBundleId">Набор MCP</label>
+              <select id="workspaceMcpBundleId" onchange="updateRobotWorkspaceBindingField('mcp_bundle_id', this.value)">${profileSelectOptionsHtml(currentMcpBundlesV1, binding.mcp_bundle_id || "", "Без явной привязки")}</select>
+            </div>
+            <div class="field full">
+              <label for="workspaceKnowledgeProfileId">База знаний</label>
+              <select id="workspaceKnowledgeProfileId" onchange="updateRobotWorkspaceBindingField('knowledge_profile_id', this.value)">${profileSelectOptionsHtml(currentKnowledgeProfilesV1, binding.knowledge_profile_id || "", "Без явной привязки")}</select>
             </div>
             <div class="field full">
               <div class="workspace-inline-note">
@@ -4281,7 +4552,12 @@
               </div>
             </div>
           </div>
+          <div class="workspace-inline-note">
+            Верхний блок задаёт именно привязку этого робота. Поля ниже меняют сами профили, чтобы оператор мог детально настроить модель, промпт и голос без перехода в хаотичный общий каталог.
+          </div>
         </section>
+        ${renderWorkspaceAssistantEditor(config)}
+        ${renderWorkspaceVoiceEditor(config)}
         <section class="robot-panel">
           <h3>Итоговая конфигурация</h3>
           ${renderAssistantConfigSummary(config)}
@@ -4289,6 +4565,7 @@
         <section class="robot-panel">
           <h3>Что сейчас на роботе</h3>
           <div class="mini" style="max-width:none;">${renderRobotAgentSnippet(robot)}</div>
+          <div class="workspace-inline-note">Если детальные поля уже изменены, но робот ещё говорит старым голосом или старой личностью, сначала сохрани профиль, затем сохрани привязку робота.</div>
         </section>
       `;
     }
@@ -4387,6 +4664,7 @@
         closeRobotWorkspace();
         return;
       }
+      syncPanelPageMode();
       const wifi = robotWifiState(robot);
       titleEl.textContent = robotDisplayName(robot);
       subtitleEl.textContent = `${robot.robot_id} • ${isTemplateRobot(robot) ? "служебный шаблон" : isStagedRobot(robot) ? "подготовленный робот" : "рабочий контур Гоша"}`;
@@ -4399,6 +4677,13 @@
         client: renderRobotWorkspaceClient(robot)
       };
       bodyEl.innerHTML = sections[activeTab] || sections.overview;
+      const tabLabel = {
+        overview: "обзор",
+        personality: "личность, модель и голос",
+        connection: "подключение",
+        client: "клиент, память и коды"
+      }[activeTab] || "обзор";
+      setStatus(`${robotDisplayName(robot)}: открыт раздел «${tabLabel}».`);
     }
 
     async function saveRobotWorkspaceAssistantSelection() {
@@ -4407,15 +4692,15 @@
         return;
       }
       const config = robotWorkspaceConfigData?.config || {};
-      const binding = config.binding || {};
+      const binding = robotWorkspaceBindingState(config);
       const payload = {
-        assistant_profile_id: document.getElementById("workspaceAssistantProfileId")?.value || binding.assistant_profile_id || "",
-        voice_profile_id: document.getElementById("workspaceVoiceProfileId")?.value || binding.voice_profile_id || "",
-        memory_profile_id: binding.memory_profile_id || config.memory_profile?.profile_id || "",
-        mcp_bundle_id: binding.mcp_bundle_id || config.mcp_bundle?.profile_id || "",
-        knowledge_profile_id: binding.knowledge_profile_id || config.knowledge_profile?.profile_id || "",
-        screen_profile_id: binding.screen_profile_id || config.screen_profile?.profile_id || "",
-        wake_profile_id: binding.wake_profile_id || config.wake_profile?.profile_id || "",
+        assistant_profile_id: binding.assistant_profile_id || "",
+        voice_profile_id: binding.voice_profile_id || "",
+        memory_profile_id: binding.memory_profile_id || "",
+        mcp_bundle_id: binding.mcp_bundle_id || "",
+        knowledge_profile_id: binding.knowledge_profile_id || "",
+        screen_profile_id: (config.binding || {}).screen_profile_id || config.screen_profile?.profile_id || "",
+        wake_profile_id: (config.binding || {}).wake_profile_id || config.wake_profile?.profile_id || "",
       };
       setStatus(`${robotDisplayNameById(robotWorkspaceId)}: сохраняю личность и голос...`);
       const res = await apiPost(operatorUrl(`/robots/${robotWorkspaceId}/assistant-config`), payload);
@@ -4424,6 +4709,7 @@
         return;
       }
       robotWorkspaceConfigData = res.data || robotWorkspaceConfigData;
+      robotWorkspaceBindingDraft = null;
       currentAssistantConfigRobot = robotWorkspaceId;
       fillRobotAssistantConfigForm((res.data || {}).config || {});
       await reloadRobots();
@@ -4435,6 +4721,81 @@
         return;
       }
       notify(`${robotDisplayNameById(robotWorkspaceId)}: личность и голос сохранены`, "ok");
+    }
+
+    async function saveWorkspaceAssistantProfile() {
+      const profileId = document.getElementById("workspaceAssistantProfileEditorId")?.value.trim();
+      if (!profileId) {
+        notify("Сначала выберите профиль ассистента", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("workspaceAssistantDisplayName")?.value.trim() || "",
+        assistant_name: document.getElementById("workspaceAssistantName")?.value.trim() || "Гоша",
+        role_template: document.getElementById("workspaceAssistantRoleTemplate")?.value.trim() || "",
+        role_description: document.getElementById("workspaceAssistantRoleDescription")?.value.trim() || "",
+        system_prompt: document.getElementById("workspaceAssistantSystemPrompt")?.value.trim() || "",
+        dialogue_language: document.getElementById("workspaceAssistantLanguage")?.value || "ru-RU",
+        provider_profile_id: document.getElementById("workspaceAssistantProviderProfileId")?.value || "",
+        model_override: document.getElementById("workspaceAssistantModelOverride")?.value.trim() || "",
+        voice_profile_id: document.getElementById("workspaceAssistantVoiceProfileId")?.value || "",
+        memory_profile_id: document.getElementById("workspaceAssistantMemoryProfileId")?.value || "",
+        mcp_bundle_id: document.getElementById("workspaceAssistantMcpBundleId")?.value || "",
+        knowledge_profile_id: document.getElementById("workspaceAssistantKnowledgeProfileId")?.value || "",
+        enabled: !!document.getElementById("workspaceAssistantEnabled")?.checked,
+        is_default: !!document.getElementById("workspaceAssistantIsDefault")?.checked,
+      };
+      setStatus(`${robotDisplayNameById(robotWorkspaceId)}: сохраняю профиль ассистента ${profileId}...`);
+      const res = await apiPost(operatorUrl("/assistant-profiles"), payload);
+      if (!res.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: не удалось сохранить личность`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      await loadRobotWorkspaceConfig(robotWorkspaceId, true);
+      renderRobotWorkspace();
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: личность сохранена, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`${robotDisplayNameById(robotWorkspaceId)}: личность и модель сохранены`, "ok");
+    }
+
+    async function saveWorkspaceVoiceProfile() {
+      const profileId = document.getElementById("workspaceVoiceProfileEditorId")?.value.trim();
+      if (!profileId) {
+        notify("Сначала выберите голосовой профиль", "warn");
+        return;
+      }
+      const payload = {
+        profile_id: profileId,
+        display_name: document.getElementById("workspaceVoiceDisplayName")?.value.trim() || "",
+        language: document.getElementById("workspaceVoiceLanguage")?.value.trim() || "ru-RU",
+        voice_type: document.getElementById("workspaceVoiceType")?.value || "adult",
+        tts_engine_profile_id: document.getElementById("workspaceVoiceTtsEngineProfileId")?.value || "tts-engine-edge-default",
+        voice_name: document.getElementById("workspaceVoiceName")?.value.trim() || "",
+        provider_label: document.getElementById("workspaceVoiceProviderLabel")?.value.trim() || "",
+        speech_rate: Number(document.getElementById("workspaceVoiceSpeechRate")?.value || 1),
+        pitch: Number(document.getElementById("workspaceVoicePitch")?.value || 1),
+        enabled: !!document.getElementById("workspaceVoiceEnabled")?.checked,
+      };
+      setStatus(`${robotDisplayNameById(robotWorkspaceId)}: сохраняю голосовой профиль ${profileId}...`);
+      const res = await apiPost(operatorUrl("/voice-profiles"), payload);
+      if (!res.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: не удалось сохранить голос`, "bad");
+        return;
+      }
+      await reloadAssistantControlCatalog(true);
+      await loadRobotWorkspaceConfig(robotWorkspaceId, true);
+      renderRobotWorkspace();
+      const apply = res.apply || null;
+      if (apply && !apply.ok) {
+        notify(`${robotDisplayNameById(robotWorkspaceId)}: голос сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
+        return;
+      }
+      notify(`${robotDisplayNameById(robotWorkspaceId)}: голос и движок TTS сохранены`, "ok");
     }
 
     function applySessionState(session) {
@@ -7651,8 +8012,9 @@
         robotFilterMode = "all";
       }
       if (mode === "reset") robotSearchQuery = "";
+      showPanelCard("robotCatalogPanel", { scroll: false });
       renderRobots();
-      scrollToPanel("robotsList");
+      scrollToPanel("robotCatalogPanel");
     }
 
     async function refreshOperatorWorkspace() {
@@ -7699,7 +8061,10 @@
       const wifi = robotWifiState(freshRobot);
       const kind = probe ? probeStateClass(probe) : (wifi.level === "ok" ? "ok" : wifi.level === "bad" ? "bad" : "warn");
       if (!silent) notify(`${robotDisplayName(freshRobot)}: ${wifi.label}. ${probe ? probeToastText(probe) : "Состояние обновлено."}`, kind);
-      if (!silent) scrollToPanel("robotsList");
+      if (!silent) {
+        const target = robotWorkspaceId ? "robotWorkspaceCard" : "operatorSummaryStrip";
+        scrollToPanel(target);
+      }
       if (buttonEl) buttonEl.disabled = false;
     }
 
@@ -7818,7 +8183,7 @@
                   <div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(diagnosis.nextStep)}</div>
                 </div>
                 <div class="robot-summary-block">
-                  <h3>Личность и голос</h3>
+                  <h3>Личность, модель и голос</h3>
                   <div>${renderRobotAgentSnippet(robot)}</div>
                 </div>
                 <div class="robot-summary-block">
@@ -7838,7 +8203,7 @@
               <div class="robot-shell-actions">
                 <a class="btn primary" href="${escapeHtml(robotPageHref(robot.robot_id, 'overview'))}">Страница робота</a>
                 <button class="btn" onclick="detectRobotState('${robot.robot_id}', this, { expand: true })">Проверить связь</button>
-                <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность и голос</button>
+                <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'personality')">Личность, модель и голос</button>
                 <button class="btn" onclick="openRobotWorkspace('${robot.robot_id}', 'client')">Клиент и коды</button>
               </div>
             </div>
@@ -7934,6 +8299,9 @@
 
     function renderRobots() {
       const robots = filteredRobots();
+      const pageStatus = robotWorkspaceId
+        ? `${robotDisplayNameById(robotWorkspaceId)}: открыта рабочая страница робота.`
+        : `Роботов: ${currentRobots.length}. По фильтру показано: ${robots.length}.`;
       updateSummary(currentRobots);
       updateRobotListControls();
       const body = document.getElementById("robotsList");
@@ -7941,13 +8309,13 @@
       if (!robots.length) {
         body.innerHTML = '<div class="empty-state">По текущим фильтрам роботы не найдены. Сними часть ограничений или обнови список.</div>';
         if (robotWorkspaceId) renderRobotWorkspace();
-        setStatus(`Роботов: ${currentRobots.length}. По фильтру показано: 0.`);
+        setStatus(robotWorkspaceId ? pageStatus : `Роботов: ${currentRobots.length}. По фильтру показано: 0.`);
         return;
       }
       if (robotViewMode === "compact") {
         body.innerHTML = renderRobotTable(robots);
         if (robotWorkspaceId) renderRobotWorkspace();
-        setStatus(`Роботов: ${currentRobots.length}. В таблице показано: ${robots.length}.`);
+        setStatus(robotWorkspaceId ? pageStatus : `Роботов: ${currentRobots.length}. В таблице показано: ${robots.length}.`);
         return;
       }
       for (const r of robots) {
@@ -7956,7 +8324,7 @@
         body.appendChild(holder.firstElementChild);
       }
       if (robotWorkspaceId) renderRobotWorkspace();
-      setStatus(`Роботов: ${currentRobots.length}. По фильтру показано: ${robots.length}.`);
+      setStatus(pageStatus);
     }
 
     async function serviceAction(robotId, action, buttonEl = null) {
@@ -8580,8 +8948,10 @@
     });
 
     (async () => {
+      syncPanelPageMode();
       resetAgentProfileForm();
       resetAssistantProfileForm();
+      resetTtsEngineProfileForm();
       resetVoiceProfileForm();
       resetMemoryProfileForm();
       resetMcpBundleForm();
