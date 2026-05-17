@@ -81,6 +81,8 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+Оба скрипта теперь сами проверяют Python-зависимость `websockets`, без которой панель не может выполнять честный live-probe робота.
+
 Из `/home/max` на этой машине тоже можно запускать, потому что добавлены локальные wrapper-скрипты:
 
 ```bash
@@ -102,6 +104,12 @@ cd /home/max/GOSHA_PLATFORM
 bash bin/check_local_gosha_stack.sh
 ```
 
+Или тем же смыслом через более общий alias:
+
+```bash
+bash bin/check_gosha_panel_stack.sh
+```
+
 Совместимые и продуктовые пути текущего этапа:
 
 ```text
@@ -118,6 +126,13 @@ bundle.mobile_profile.panel_url = http://151.241.228.232:18876
 bundle.mobile_profile.portal_url = http://192.168.4.1
 bundle.mobile_profile.robot_wifi_prefixes = [GOSHA-, Xiaozhi-]
 ```
+
+Что теперь умеет честно различать панель по live-probe:
+
+- робот действительно ответил на активную проверку;
+- сессия оборвалась сразу после `initialize`;
+- handshake дошёл до `tools/call`, но робот не прислал `ACK`;
+- карточка уже в режиме `Платформа Гоша`, но живой endpoint робота всё ещё смотрит на внешний `api.xiaozhi.me`.
 
 Где смотреть живой голосовой контур:
 

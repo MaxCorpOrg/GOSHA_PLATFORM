@@ -29,6 +29,8 @@ bash bin/run_local_gosha_gateway.sh
 bash bin/run_local_gosha_panel.sh
 ```
 
+`run_local_gosha_panel.sh` теперь сам проверяет и при необходимости ставит Python-библиотеку `websockets`, без которой live-probe панели не может честно дойти до робота.
+
 Из `/home/max` на этой машине доступны совместимые wrapper-скрипты:
 
 ```bash
@@ -50,12 +52,24 @@ cd /home/max/GOSHA_PLATFORM
 bash bin/check_local_gosha_stack.sh
 ```
 
+То же самое можно запускать и через общий alias:
+
+```bash
+bash bin/check_gosha_panel_stack.sh
+```
+
 Этот smoke-check честно проверяет:
 
 1. что gateway отвечает на `/healthz`;
 2. что панель отвечает на `/api/operator/robots`;
 3. что панель отвечает на `/api/operator/assistant-control/catalog`;
 4. что по первому роботу уже видны `backend_mode`, `last_seen`, плата и версия прошивки.
+
+Дополнительно live-probe панели теперь различает не только общее `не отвечает`, но и реальные фазы:
+
+- сессия оборвалась сразу после `initialize`;
+- handshake дошёл до `tools/call`, но робот не прислал `ACK`;
+- карточка в `Платформе Гоша`, но живой endpoint робота всё ещё указывает на внешний `api.xiaozhi.me`.
 
 ## Что проверять первым
 

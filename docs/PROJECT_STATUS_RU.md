@@ -116,8 +116,14 @@
 - Для запуска прямо из `/home/max` на этой машине добавлены совместимые wrapper-скрипты:
   - `bash /home/max/bin/run_local_gosha_gateway.sh`
   - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Для panel runtime добавлена воспроизводимая проверка зависимости `websockets`:
+  - `platform/requirements.txt`
+  - `bin/ensure_panel_python_deps.sh`
+  - локальный запуск панели и `ops/install_server.sh --phase panel` теперь сами проверяют этот модуль
 - Для честной проверки всей локальной цепочки добавлен отдельный smoke-check:
   - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - совместимый alias:
+    - `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
   - он проверяет не только наличие порта, а живые ответы:
     - `GET /healthz` у gateway
     - `GET /api/operator/robots` у панели
@@ -139,6 +145,13 @@
     - `robot -> panel`
     - `panel -> gateway -> robot`
   - для каждого случая панель сразу даёт следующий шаг, а не только статус
+- Живой операторский диагноз теперь различает и реальные фазы отказа:
+  - канал открылся, но сессия оборвалась сразу после `initialize`
+  - handshake дошёл до `tools/call`, но робот не прислал `ACK`
+  - карточка уже в режиме `Платформа Гоша`, но endpoint робота всё ещё указывает на внешний `api.xiaozhi.me`
+- На боевом сервере подтверждено, что после установки `websockets` панель уже не падает в `websockets_missing`, а доходит до реальных фаз probe:
+  - `gosha-main` сейчас рвёт сессию после `initialize_sent`
+  - `gosha-01` сейчас доходит до `waiting_tools_call_ack`
 - В рабочем окне робота уже есть быстрая смена:
   - ассистента
   - голоса

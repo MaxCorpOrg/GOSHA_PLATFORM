@@ -33,11 +33,13 @@
   - канонические команды из репозитория:
     - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
     - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+    - panel runtime сам проверяет зависимость `websockets`
   - на этой машине из `/home/max` дополнительно работают wrapper-скрипты:
     - `bash /home/max/bin/run_local_gosha_gateway.sh`
     - `bash /home/max/bin/run_local_gosha_panel.sh`
   - есть отдельный честный smoke-check:
     - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+    - alias: `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
 - Поднят полный подготовительный серверный контур:
   - `gosha-panel.service`
   - `gosha-agent-gateway.service`
@@ -61,6 +63,10 @@
   - быстрый раздел `Личность и голос` прямо в рабочем окне
   - тяжёлые каталоги скрыты по умолчанию
   - в карточке и на странице робота есть отдельный блок `Где искать проблему`, который объясняет вероятную зону сбоя и следующий шаг оператора
+  - этот блок уже различает реальные live-probe сценарии:
+    - сессия оборвалась сразу после `initialize`
+    - handshake дошёл до `tools/call`, но робот не прислал `ACK`
+    - self-hosted карточка ещё смотрит на внешний `api.xiaozhi.me`
 - В открытой панели больше не показываются прямые OTA-URL и детали нашей прошивки.
   OTA остаётся внутренним сервисным контуром платформы.
 - Добавлен внутренний `OpenAI`-совместимый прокси панели.
@@ -186,6 +192,7 @@
 - Для санитарной очистки важно помнить:
   - китайские символы ещё остались в комментариях, неактивных платах и `zh-*` ресурсах;
   - музыкальный слот остаётся отключённым; точка будущего расширения — `gosha.media.stub`.
+  - на боевом сервере `websockets_missing` уже устранён; живые ошибки probe теперь нужно читать по `protocol_phase` и `error_type`, а не как общий сетевой сбой
 
 ## Что делать следующим
 

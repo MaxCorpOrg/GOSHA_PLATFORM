@@ -5014,6 +5014,19 @@
         };
       }
 
+      if (robotSelfhostAwaitingClaim(robot) && robotControlTargetLooksExternalXiaozhi(robot)) {
+        return {
+          level: "bad",
+          title: "Робот ещё не переведён на рабочий endpoint Платформы Гоша",
+          zone: "привязка платформы / endpoint",
+          detail: "Карточка уже в режиме Платформы Гоша, но живой канал робота всё ещё указывает на внешний XiaoZhi endpoint. Пока устройство не привязано к нашему self-hosted контуру, панель не должна считать такого робота своим рабочим.",
+          nextStep: "Переподключите робота через приложение или заново пройдите серверную привязку, чтобы он получил endpoint и токен Платформы Гоша.",
+          action: "Подключение",
+          actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [cloudConsoleSummaryText(cloud), "control target: api.xiaozhi.me"]
+        };
+      }
+
       if (probeIsAuthError(probe)) {
         return {
           level: "bad",
@@ -5036,6 +5049,45 @@
           nextStep: "Проверьте мост робота, MCP-контур и затем снова выполните явную проверку.",
           action: "Подключение",
           actionCode: `openRobotWorkspace('${robot.robot_id}', 'connection')`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (probeClosedAfterInitialize(probe)) {
+        return {
+          level: "bad",
+          title: "Сессия оборвалась сразу после initialize",
+          zone: "robot / MCP-клиент / сеть",
+          detail: "Панель смогла открыть канал и отправить `initialize`, но ответный ACK не пришёл: соединение оборвалось до полезного ответа робота.",
+          nextStep: "Проверьте живой MCP-клиент робота, сеть и логи bridge: это уже не ошибка панели, а разрыв сессии сразу после старта handshake.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (probeTimedOutWaitingToolsCallAck(probe)) {
+        return {
+          level: "bad",
+          title: "Handshake дошёл до tools/call, но ACK не пришёл",
+          zone: "firmware / MCP lifecycle",
+          detail: "Удалённая точка уже начала MCP-handshake и дошла до безопасного `tools/call`, но робот так и не подтвердил запрос статуса.",
+          nextStep: "Проверьте логи прошивки и bridge: нужна причина, почему робот не завершает ответ на `self.otto.get_status` после успешного handshake.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
+          evidence: [probeSummaryText(probe)]
+        };
+      }
+
+      if (probeTimedOutWaitingInitializeAck(probe) || probeRemoteLifecycleStalled(probe)) {
+        return {
+          level: "bad",
+          title: "MCP-handshake стартует, но не завершается",
+          zone: "robot / bridge / MCP lifecycle",
+          detail: "Соединение открылось, но жизненный цикл MCP-сессии не дошёл до стабильного ответа робота.",
+          nextStep: "Проверьте старт MCP-клиента на стороне робота и bridge, затем повторите обнаружение.",
+          action: "Проверить связь",
+          actionCode: `detectRobotState('${robot.robot_id}', null, { expand: true })`,
           evidence: [probeSummaryText(probe)]
         };
       }
@@ -5371,6 +5423,41 @@
     function probeIsMcpBridgeOnly(probe) {
       const state = String(probe?.state || "").toLowerCase();
       return state === "mcp_endpoint_alive_not_robot_ack";
+    }
+
+    function probeErrorCode(probe) {
+      return String(probe?.error_type || probe?.error || "").toLowerCase();
+    }
+
+    function probeProtocolPhaseCode(probe) {
+      return String(probe?.protocol_phase || "").toLowerCase();
+    }
+
+    function probeLifecyclePathCode(probe) {
+      return String(probe?.lifecycle_path || "").toLowerCase();
+    }
+
+    function probeClosedAfterInitialize(probe) {
+      return probeIsUnreachable(probe)
+        && probeErrorCode(probe) === "request_failed"
+        && probeProtocolPhaseCode(probe) === "initialize_sent";
+    }
+
+    function probeTimedOutWaitingToolsCallAck(probe) {
+      return probeIsUnreachable(probe)
+        && probeErrorCode(probe) === "timeout"
+        && probeProtocolPhaseCode(probe) === "waiting_tools_call_ack";
+    }
+
+    function probeTimedOutWaitingInitializeAck(probe) {
+      return probeIsUnreachable(probe)
+        && probeErrorCode(probe) === "timeout"
+        && probeProtocolPhaseCode(probe) === "waiting_initialize_ack";
+    }
+
+    function probeRemoteLifecycleStalled(probe) {
+      return probeIsUnreachable(probe)
+        && probeProtocolPhaseCode(probe) === "waiting_remote_lifecycle";
     }
 
     function probeStateClass(probe) {
@@ -5803,6 +5890,16 @@
       return robotSelfhostSignalState(robot).status === "fresh";
     }
 
+    function robotSelfhostAwaitingClaim(robot) {
+      const cloud = robot?.cloud_console || {};
+      return isSelfhostRobot(robot) && String(cloud.state || "").toLowerCase() === "awaiting_claim";
+    }
+
+    function robotControlTargetLooksExternalXiaozhi(robot) {
+      const target = String(robot?.control?.target || "").toLowerCase();
+      return target.includes("api.xiaozhi.me");
+    }
+
     function probeSummaryText(probe) {
       const via = probeKindLabel(probe);
       const method = probe?.method ? ` метод=${probe.method}.` : "";
@@ -5822,6 +5919,18 @@
       }
       if (probeIsMethodUnsupported(probe)) {
         return `Диагностический метод не поддерживается: обнаружение робота вернуло отказ ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Текущий безопасный метод не поддерживается в этом MCP-контуре.`;
+      }
+      if (probeClosedAfterInitialize(probe)) {
+        return `Канал открылся, но сессия оборвалась сразу после \`initialize\`: активная проверка была ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Панель успела отправить \`initialize\`, но подтверждение не пришло и соединение закрылось раньше ответа робота.`;
+      }
+      if (probeTimedOutWaitingToolsCallAck(probe)) {
+        return `Канал дошёл до безопасного запроса статуса, но робот не прислал ACK на \`tools/call\`: проверка была ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Это значит, что MCP-сессия открылась и удалённая точка начала handshake, но ответ от робота не завершился.`;
+      }
+      if (probeTimedOutWaitingInitializeAck(probe)) {
+        return `Соединение открылось, но \`initialize\` так и не подтвердился: проверка была ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Робот или его MCP-клиент не завершили стартовый handshake.`;
+      }
+      if (probeRemoteLifecycleStalled(probe)) {
+        return `Удалённая точка начала MCP-handshake, но не довела его до ответа робота: проверка была ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Панель видит только частичный жизненный цикл сессии.`;
       }
       if (probeIsUnreachable(probe)) {
         return `Робот не отвечает: обнаружение робота не прошло ${formatProbeAge(probe?.checked_at)}${requestId}${method}${duration} Возможные причины: робот выключен, нет Wi‑Fi, не запущен MCP-клиент, ошибка сети или авторизации.`;
@@ -5849,6 +5958,18 @@
       if (probeIsMethodUnsupported(probe)) {
         return "Текущий безопасный диагностический метод не поддерживается. Нужен другой метод только для чтения без движения робота.";
       }
+      if (probeClosedAfterInitialize(probe)) {
+        return "Проверьте, почему робот или bridge рвут сессию сразу после `initialize`. Обычно это уже не проблема панели, а проблема живого MCP-клиента, канала или рабочей среды робота.";
+      }
+      if (probeTimedOutWaitingToolsCallAck(probe)) {
+        return "Проверьте логи bridge и прошивки: удалённая точка уже начала MCP-handshake, но безопасный `tools/call` не получил подтверждения от робота.";
+      }
+      if (probeTimedOutWaitingInitializeAck(probe)) {
+        return "Проверьте стартовый MCP-handshake: панель открывает соединение, но робот или bridge не подтверждают `initialize`.";
+      }
+      if (probeRemoteLifecycleStalled(probe)) {
+        return "Проверьте последовательность MCP-handshake на стороне робота: удалённая точка начала жизненный цикл, но не довела его до полезного ответа.";
+      }
       if (probeIsUnreachable(probe)) {
         return "Сначала проверьте питание робота, Wi‑Fi, MCP-адрес и запущен ли MCP-клиент. Не называйте робота подключённым без нового успешного обнаружения.";
       }
@@ -5868,6 +5989,10 @@
       if (probeIsAuthError(probe)) return "Ошибка доступа: обнаружение робота не смогло пройти авторизацию.";
       if (probeIsMcpClientMissing(probe)) return "MCP-клиент робота не подключён.";
       if (probeIsMethodUnsupported(probe)) return "Диагностический метод не поддерживается.";
+      if (probeClosedAfterInitialize(probe)) return "Канал открылся, но сессия оборвалась сразу после initialize.";
+      if (probeTimedOutWaitingToolsCallAck(probe)) return "Handshake дошёл до tools/call, но робот не подтвердил запрос.";
+      if (probeTimedOutWaitingInitializeAck(probe)) return "Соединение есть, но initialize не подтверждён.";
+      if (probeRemoteLifecycleStalled(probe)) return "Удалённая точка начала handshake, но робот не завершил его.";
       if (probeIsUnreachable(probe)) return "Робот не отвечает: обнаружение робота не получило подтверждения.";
       if (probeIsMcpBridgeOnly(probe)) return "MCP-мост доступен, но физический робот не подтвердил ответ.";
       if (state === "missing") return "Обнаружение робота недоступно: не настроен канал управления.";

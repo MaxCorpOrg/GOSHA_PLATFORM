@@ -44,11 +44,16 @@
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
   - только после этого доступен:
     - `http://127.0.0.1:18876`
+- Panel runtime теперь сам проверяет Python-модуль `websockets`:
+  - `bin/ensure_panel_python_deps.sh`
+  - без него честная live-проверка робота не работает
 - Если разработчик запускает команды из `/home/max`, на этой машине уже есть совместимые wrapper-скрипты:
   - `bash /home/max/bin/run_local_gosha_gateway.sh`
   - `bash /home/max/bin/run_local_gosha_panel.sh`
 - Для честной локальной проверки всей цепочки теперь есть отдельная команда:
   - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - или alias:
+    - `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
   - она подтверждает не только открытый порт, а живые ответы panel → gateway и выводит след первого робота в платформе
 - В карточке и на странице робота теперь есть отдельный операторский блок:
   - `Где искать проблему`
@@ -60,6 +65,10 @@
     - `robot -> panel`
     - `panel -> gateway -> robot`
   - и сразу даёт оператору следующий безопасный шаг
+  - дополнительно уже различает живые сценарии:
+    - сессия оборвалась сразу после `initialize`
+    - handshake дошёл до `tools/call`, но робот не прислал `ACK`
+    - карточка уже в `Платформе Гоша`, но робот всё ещё смотрит на внешний `api.xiaozhi.me`
 - Новая панель управления ассистентом:
   - поставщики ИИ
   - ассистенты

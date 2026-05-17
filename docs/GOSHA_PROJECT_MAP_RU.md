@@ -118,16 +118,22 @@
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
 - Панель:
   - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+  - скрипт сам проверяет Python-модуль `websockets`
 - Если запуск идёт прямо из `/home/max`, на этой машине также работают совместимые wrapper-скрипты:
   - `bash /home/max/bin/run_local_gosha_gateway.sh`
   - `bash /home/max/bin/run_local_gosha_panel.sh`
 - Локальный smoke-check всей цепочки:
   - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - alias:
+    - `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
 - После этого локально открывается:
   - `http://127.0.0.1:18876`
 - Важно:
   - локальная панель здесь не висит постоянно как фоновая служба;
   - если `127.0.0.1:18876` не отвечает, сначала нужно поднять эти два процесса.
+  - live-probe панели теперь различает не только общее `не отвечает`, но и реальные фазы вроде:
+    - разрыв сразу после `initialize`
+    - timeout на `tools/call`
 
 ### Где лежат серверные секреты
 
