@@ -37,6 +37,13 @@ def _require_session_token(request: Request) -> str:
     return token
 
 
+def _require_session_login(request: Request) -> str:
+    login = str(request.session.get("github_login", "") or "").strip()
+    if not login:
+        raise HTTPException(status_code=401, detail="После входа через GitHub OAuth не найден логин пользователя.")
+    return login
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_INDEX)
@@ -84,11 +91,13 @@ def auth_logout(request: Request) -> dict:
 @app.post("/api/executions/start")
 def executions_start(request: Request, payload: ExecutionRequest) -> dict:
     access_token = _require_session_token(request)
+    github_login = _require_session_login(request)
     try:
         job = service.start_manual_job(
             repo_full_name=payload.repo_full_name,
             pr_number=payload.pr_number,
             access_token=access_token,
+            github_login=github_login,
         )
     except ExecutorServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

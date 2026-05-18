@@ -105,8 +105,16 @@ class ExecutorService:
         request.session.pop("github_oauth_state", None)
         return next_path
 
-    def start_manual_job(self, *, repo_full_name: str, pr_number: int, access_token: str) -> dict[str, Any]:
+    def start_manual_job(
+        self,
+        *,
+        repo_full_name: str,
+        pr_number: int,
+        access_token: str,
+        github_login: str,
+    ) -> dict[str, Any]:
         self._ensure_runtime_ready()
+        self._ensure_manual_login_allowed(github_login)
         self._ensure_repo_allowed(repo_full_name)
         job, created = self.jobs.create_or_get_active(repo_full_name=repo_full_name, pr_number=pr_number, trigger="manual")
         if not created:
@@ -149,6 +157,19 @@ class ExecutorService:
             ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
         except ValueError as exc:
             raise ExecutorServiceError(str(exc)) from exc
+
+    def _ensure_manual_login_allowed(self, github_login: str) -> None:
+        login = str(github_login or "").strip()
+        if not login:
+            raise ExecutorServiceError("Ручной запуск исполнителя запрещён: GitHub OAuth не вернул логин пользователя.")
+        if not self.settings.reviewer_logins:
+            raise ExecutorServiceError(
+                "Ручной запуск исполнителя запрещён: пуст список `OAUTH_EXECUTOR_REVIEWER_LOGINS`."
+            )
+        if login not in self.settings.reviewer_logins:
+            raise ExecutorServiceError(
+                f"Логин GitHub `{login}` не входит в разрешённый список ручного запуска исполнителя."
+            )
 
     def _log(self, job_id: str, message: str) -> None:
         self.jobs.append_log(job_id, message)

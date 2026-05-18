@@ -9,7 +9,12 @@ from oauth_executor.config import Settings
 from oauth_executor.executor_service import ExecutorService, ExecutorServiceError
 
 
-def build_settings(repo_path: Path, *, allowed_repos: tuple[str, ...]) -> Settings:
+def build_settings(
+    repo_path: Path,
+    *,
+    allowed_repos: tuple[str, ...],
+    reviewer_logins: tuple[str, ...] = ("chatgpt-codex-connector[bot]",),
+) -> Settings:
     return Settings(
         session_secret="test-secret",
         github_client_id="client-id",
@@ -18,7 +23,7 @@ def build_settings(repo_path: Path, *, allowed_repos: tuple[str, ...]) -> Settin
         github_scope="read:user repo",
         github_executor_token="executor-token",
         github_webhook_secret="webhook-secret",
-        reviewer_logins=("chatgpt-codex-connector[bot]",),
+        reviewer_logins=reviewer_logins,
         allowed_repos=allowed_repos,
         repo_path=repo_path,
         worktree_root=repo_path / "worktrees",
@@ -46,6 +51,7 @@ class ExecutorServiceAllowedRepoTest(unittest.TestCase):
                     repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
                     pr_number=1,
                     access_token="token",
+                    github_login="chatgpt-codex-connector[bot]",
                 )
 
             self.assertIn("Разрешённый список репозиториев пуст", str(ctx.exception))
@@ -62,6 +68,7 @@ class ExecutorServiceAllowedRepoTest(unittest.TestCase):
                     repo_full_name="OtherOrg/OtherRepo",
                     pr_number=1,
                     access_token="token",
+                    github_login="chatgpt-codex-connector[bot]",
                 )
 
             self.assertIn("не входит в разрешённый список", str(ctx.exception))
@@ -91,6 +98,73 @@ class ExecutorServiceAllowedRepoTest(unittest.TestCase):
             self.assertEqual("failed", saved_job["status"])
             self.assertIn("не входит в разрешённый список", saved_job["error"])
             self.assertTrue(any(line.startswith("ERROR: ") for line in saved_job["logs"]))
+
+
+class ExecutorServiceManualAuthorizationTest(unittest.TestCase):
+    def test_start_manual_job_rejects_empty_reviewer_login_allow_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = ExecutorService(
+                build_settings(
+                    Path(tmp_dir),
+                    allowed_repos=("MaxCorpOrg/GOSHA_PLATFORM",),
+                    reviewer_logins=(),
+                )
+            )
+
+            with self.assertRaises(ExecutorServiceError) as ctx:
+                service.start_manual_job(
+                    repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+                    pr_number=1,
+                    access_token="token",
+                    github_login="operator",
+                )
+
+            self.assertIn("OAUTH_EXECUTOR_REVIEWER_LOGINS", str(ctx.exception))
+            self.assertEqual([], service.list_jobs())
+
+    def test_start_manual_job_rejects_login_outside_allow_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = ExecutorService(
+                build_settings(
+                    Path(tmp_dir),
+                    allowed_repos=("MaxCorpOrg/GOSHA_PLATFORM",),
+                    reviewer_logins=("allowed-operator",),
+                )
+            )
+
+            with self.assertRaises(ExecutorServiceError) as ctx:
+                service.start_manual_job(
+                    repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+                    pr_number=1,
+                    access_token="token",
+                    github_login="unauthorized-user",
+                )
+
+            self.assertIn("разрешённый список ручного запуска", str(ctx.exception))
+            self.assertEqual([], service.list_jobs())
+
+    @patch("oauth_executor.executor_service.threading.Thread")
+    def test_start_manual_job_accepts_login_from_allow_list(self, mock_thread) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = ExecutorService(
+                build_settings(
+                    Path(tmp_dir),
+                    allowed_repos=("MaxCorpOrg/GOSHA_PLATFORM",),
+                    reviewer_logins=("allowed-operator",),
+                )
+            )
+
+            job = service.start_manual_job(
+                repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+                pr_number=1,
+                access_token="token",
+                github_login="allowed-operator",
+            )
+
+            self.assertEqual("manual", job["trigger"])
+            self.assertEqual("queued", job["status"])
+            mock_thread.assert_called_once()
+            mock_thread.return_value.start.assert_called_once()
 
 
 class ExecutorSettingsWebhookReadyTest(unittest.TestCase):
