@@ -28,6 +28,7 @@
 - генерация review через один из двух backend-вариантов:
   - локальный `Codex CLI`, если он установлен и уже авторизован;
   - совместимый HTTP-backend модели, если он задан в env;
+- для режима `Codex CLI` лимит `OAUTH_REVIEWER_CODEX_TIMEOUT_SECONDS` теперь срабатывает на весь запуск review даже если `codex exec` завис или перестал печатать перевод строки в `stdout`;
 - режим:
   - `preview` — только показать review;
   - `publish` — опубликовать review в сам `Pull Request`.
@@ -61,6 +62,9 @@
   - `openai_api` — только HTTP-backend
 - `OAUTH_REVIEWER_CODEX_COMMAND`
   - путь до локального `codex`, если нужен режим через уже авторизованный `Codex CLI`
+- `OAUTH_REVIEWER_CODEX_TIMEOUT_SECONDS`
+  - жёсткий лимит времени для локального `Codex CLI review`
+  - по умолчанию `1800`
 
 Пример лежит в:
 

@@ -4,7 +4,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 
@@ -22,6 +21,14 @@ def _resolve_codex_executable(codex_command: str) -> str:
     elif not Path(codex_command).exists():
         raise CodexReviewError(f"Не найден локальный исполняемый файл Codex: {codex_command}")
     return executable
+
+
+def _normalize_process_output(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="ignore")
+    return output
 
 
 def codex_login_status(codex_command: str) -> dict[str, str | bool]:
@@ -91,41 +98,33 @@ def generate_review_markdown_via_codex(
         if profile:
             command.extend(["--profile", profile])
 
-        process = subprocess.Popen(
-            command,
-            cwd=str(repo_path),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        assert process.stdin is not None
-        assert process.stdout is not None
-        process.stdin.write(prompt)
-        process.stdin.close()
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(repo_path),
+                input=prompt,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            output_text = _normalize_process_output(getattr(exc, "stdout", None) or getattr(exc, "output", None))
+            tail = "\n".join(output_text.splitlines()[-30:]).strip()
+            suffix = f"\nПоследние строки вывода:\n{tail}" if tail else ""
+            raise CodexReviewError(
+                f"Локальный Codex reviewer не уложился в лимит {timeout_seconds} секунд.{suffix}"
+            ) from exc
 
-        output_lines: list[str] = []
-        started = time.time()
-        while True:
-            line = process.stdout.readline()
-            if line:
-                output_lines.append(line.rstrip())
-            if process.poll() is not None:
-                break
-            if time.time() - started > timeout_seconds:
-                process.kill()
-                raise CodexReviewError(f"Локальный Codex reviewer не уложился в лимит {timeout_seconds} секунд.")
+        output_text = _normalize_process_output(result.stdout)
+        output_lines = [line.rstrip() for line in output_text.splitlines()]
 
-        remaining = process.stdout.read()
-        if remaining:
-            output_lines.extend(raw_line.rstrip() for raw_line in remaining.splitlines())
-
-        if process.returncode != 0:
+        if result.returncode != 0:
             tail = "\n".join(output_lines[-30:]).strip()
             suffix = f"\nПоследние строки вывода:\n{tail}" if tail else ""
             raise CodexReviewError(
-                f"Локальный Codex reviewer завершился с кодом {process.returncode}.{suffix}"
+                f"Локальный Codex reviewer завершился с кодом {result.returncode}.{suffix}"
             )
 
         if not last_message_path.exists():

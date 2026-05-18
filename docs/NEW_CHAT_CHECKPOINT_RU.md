@@ -256,6 +256,8 @@
   - код: `oauth_reviewer/`
   - запуск: `bash /home/max/GOSHA_PLATFORM/bin/run_local_oauth_reviewer.sh`
   - runbook: `docs/GOSHA_OAUTH_REVIEWER_RUNBOOK_RU.md`
+- Для reviewer уже закрыт дефект таймаута локального `Codex CLI`:
+  - лимит `OAUTH_REVIEWER_CODEX_TIMEOUT_SECONDS` теперь срабатывает на весь запуск review даже если `codex exec` завис без новой строки в `stdout`
 - Но GitHub-состояние ещё не доведено до режима "сливаем только в `main`":
   - у `origin` сейчас только ветка `agent/bootstrap-gosha`;
   - она же сейчас `default branch`;
