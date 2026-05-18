@@ -199,6 +199,100 @@ class ExecutorService:
     def _normalized_reviewer_login_set(self, *items: str) -> set[str]:
         return {str(item or "").strip().lower() for item in items if str(item or "").strip()}
 
+    def _normalize_review_line(self, text: str) -> str:
+        normalized = str(text or "").strip().lower()
+        normalized = normalized.lstrip("#>*-0123456789. )\t")
+        normalized = normalized.strip("`*_:- ")
+        normalized = " ".join(normalized.split())
+        return normalized.rstrip(".! ")
+
+    def _is_clean_review_summary(self, body: str) -> bool:
+        lines = [
+            self._normalize_review_line(line)
+            for line in str(body or "").splitlines()
+        ]
+        normalized_lines = [line for line in lines if line]
+        if not normalized_lines:
+            return False
+
+        benign_headings = {"итог", "замечания", "summary", "findings"}
+        benign_phrases = {
+            "критичных p0/p1 замечаний не найдено",
+            "критичных p0 и p1 замечаний не найдено",
+            "критичных замечаний не найдено",
+            "серьёзных замечаний не найдено",
+            "серьезных замечаний не найдено",
+            "замечаний не найдено",
+            "нет замечаний",
+            "без замечаний",
+            "no findings",
+            "no issues found",
+            "nothing to fix",
+            "looks good",
+            "looks good to me",
+            "lgtm",
+        }
+        if not any(line in benign_phrases for line in normalized_lines):
+            return False
+        return all(line in benign_headings or line in benign_phrases for line in normalized_lines)
+
+    def _review_has_inline_comments(
+        self,
+        *,
+        review_id: int,
+        review_comments: list[dict[str, Any]],
+        allowed_reviewer_logins: set[str] | None = None,
+    ) -> bool:
+        if review_id <= 0:
+            return False
+        for item in review_comments:
+            if int(item.get("pull_request_review_id", 0) or 0) != review_id:
+                continue
+            if not str(item.get("body", "") or "").strip():
+                continue
+            if allowed_reviewer_logins is not None:
+                login = str(((item.get("user") or {}).get("login") or "")).strip().lower()
+                if login not in allowed_reviewer_logins:
+                    continue
+            return True
+        return False
+
+    def _filter_prompt_feedback(
+        self,
+        *,
+        reviews: list[dict[str, Any]],
+        review_comments: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        prompt_reviews: list[dict[str, Any]] = []
+        for item in reviews:
+            body = str(item.get("body", "") or "").strip()
+            if not body:
+                continue
+            if self._is_clean_review_summary(body):
+                continue
+            prompt_reviews.append(item)
+        return prompt_reviews, list(review_comments)
+
+    def _should_skip_clean_review_webhook(
+        self,
+        *,
+        review: dict[str, Any],
+        review_comments: list[dict[str, Any]],
+        allowed_reviewer_logins: set[str],
+    ) -> bool:
+        review_state = str(review.get("state", "") or "").strip().lower()
+        review_body = str(review.get("body", "") or "").strip()
+        review_id = int(review.get("id", 0) or 0)
+        if review_state != "commented":
+            return False
+        if not self._is_clean_review_summary(review_body):
+            return False
+        return not self._review_has_inline_comments(
+            review_id=review_id,
+            review_comments=review_comments,
+            allowed_reviewer_logins=allowed_reviewer_logins,
+        )
+
     def _ensure_head_branch_is_safe(self, *, pr_payload: dict[str, Any], head_branch: str) -> None:
         protected = {item.strip().lower() for item in self.settings.protected_branches if item.strip()}
         base_branch = str(((pr_payload.get("base") or {}).get("ref") or "")).strip()
@@ -331,12 +425,23 @@ class ExecutorService:
                 allowed_reviewer_logins=allowed_reviewer_logins,
                 trigger_review_id=trigger_review_id,
             )
-            actionable_reviews = [item for item in scoped_reviews if str(item.get("body", "") or "").strip()]
-            actionable_inline = [item for item in scoped_review_comments if str(item.get("body", "") or "").strip()]
+            actionable_reviews, actionable_inline = self._filter_prompt_feedback(
+                reviews=scoped_reviews,
+                review_comments=scoped_review_comments,
+            )
             if not actionable_reviews and not actionable_inline:
-                raise ExecutorServiceError(
-                    "После фильтрации не осталось review-замечаний, которые можно безопасно передать исполнителю."
+                status_note = "После фильтрации не осталось review-замечаний, которые нужно передавать исполнителю."
+                self._log(job_id, status_note)
+                self.jobs.finish(
+                    job_id,
+                    result={
+                        "repo_full_name": repo_full_name,
+                        "pr_number": pr_number,
+                        "status_note": status_note,
+                        "summary": "",
+                    },
                 )
+                return
 
             worktree_path, local_branch = prepare_worktree(
                 repo_path=self.settings.repo_path,
@@ -350,7 +455,7 @@ class ExecutorService:
             self._log(job_id, f"Текущий head до правок: {current_head_sha(worktree_path)}")
             self._log(
                 job_id,
-                f"В prompt передаю только review-замечания: review={len(scoped_reviews)}, inline={len(scoped_review_comments)}.",
+                f"В prompt передаю только review-замечания: review={len(actionable_reviews)}, inline={len(actionable_inline)}.",
             )
 
             changed_files = [str(item.get("filename", "") or "").strip() for item in file_payloads if item.get("filename")]
@@ -359,8 +464,8 @@ class ExecutorService:
                 repo_full_name=repo_full_name,
                 pr_payload=pr_payload,
                 agents_sections=agents_sections,
-                reviews=scoped_reviews,
-                review_comments=scoped_review_comments,
+                reviews=actionable_reviews,
+                review_comments=actionable_inline,
                 review_scope_note=review_scope_note,
                 validate_command=self.settings.validate_command,
             )
@@ -476,20 +581,34 @@ class ExecutorService:
         pr = payload.get("pull_request") or {}
         repo = payload.get("repository") or {}
         login = str((review.get("user") or {}).get("login", "") or "").strip()
+        normalized_login = login.lower()
         repo_full_name = str(repo.get("full_name", "") or "").strip()
         pr_number = int(payload.get("pull_request", {}).get("number", 0) or 0)
         review_state = str(review.get("state", "") or "").strip().lower()
+        allowed_reviewer_logins = self._normalized_reviewer_login_set(*self.settings.reviewer_logins)
 
         if action != "submitted":
             return {"accepted": False, "reason": f"Событие review с действием `{action}` не запускает исполнителя."}
-        if login not in self.settings.reviewer_logins:
+        if normalized_login not in allowed_reviewer_logins:
             return {"accepted": False, "reason": f"Автор review `{login}` не входит в разрешённый список логинов проверяющего сервиса."}
         if review_state not in {"commented", "changes_requested"}:
             return {"accepted": False, "reason": f"Состояние review `{review_state}` не запускает исполнителя."}
         if not repo_full_name or not pr_number:
             raise ExecutorServiceError("Webhook GitHub не передал repository.full_name или номер Pull Request.")
-
         ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
+
+        if review_state == "commented" and self._is_clean_review_summary(str(review.get("body", "") or "")):
+            review_comments = fetch_pull_request_review_comments(self.settings.github_executor_token, repo_full_name, pr_number)
+            if self._should_skip_clean_review_webhook(
+                review=review,
+                review_comments=review_comments,
+                allowed_reviewer_logins=allowed_reviewer_logins,
+            ):
+                return {
+                    "accepted": False,
+                    "reason": "Чистый COMMENTED review без inline-замечаний пропущен: автоматическая правка не требуется.",
+                }
+
         job = self.start_webhook_job(
             repo_full_name=repo_full_name,
             pr_number=pr_number,

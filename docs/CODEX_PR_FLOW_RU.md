@@ -132,6 +132,7 @@ bash bin/ci_validate.sh
 4. `oauth_executor` получает событие `pull_request_review` по webhook.
    Постоянный внешний путь для GitHub теперь идёт через серверную панель:
    `http://151.241.228.232:18876/hooks/oauth-executor/github`
+   Если `COMMENTED` review содержит только чистый итог без inline-замечаний, webhook пропускает его и не тратит запуск executor.
 5. Сервис поднимает отдельную рабочую копию в `local_only/oauth_executor_worktrees`.
 6. Локальный `codex exec` правит код по замечаниям.
 7. Сервис запускает `bash bin/ci_validate.sh`.
@@ -156,6 +157,7 @@ bash bin/ci_validate.sh
 
 - GitHub OAuth-токены reviewer и executor лежат в серверном файловом хранилище сеансов, а не в client-side cookie;
 - executor получает в prompt только review-сводки и inline-комментарии от разрешённых логинов проверяющего сервиса, без произвольных issue-комментариев.
+- чистый `COMMENTED` review без inline-комментариев больше не запускает executor и не создаёт ложный prompt на автоматическую правку.
 - executor отправляет изменения через обычный `https://github.com/<repo>.git`, а сервисный токен подаёт во временный `GIT_ASKPASS`, не помещая его в аргументы процесса `git`.
 - если локальный `Codex CLI` молчит, не печатает новую строку или зависает на приёме большого prompt, reviewer и executor теперь всё равно завершают такой процесс по настроенному таймауту, поэтому зависший локальный запуск не должен навсегда блокировать повторный прогон того же `Pull Request`.
 
