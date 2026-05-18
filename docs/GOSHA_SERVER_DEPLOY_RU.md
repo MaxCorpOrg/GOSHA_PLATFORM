@@ -56,6 +56,8 @@
   - `curl http://127.0.0.1:18110/healthz` -> `200`
   - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi` -> `200`
   - `curl http://127.0.0.1:18876/api/mobile/plans` -> `200`
+  - `POST http://151.241.228.232:18876/hooks/oauth-executor/github` доходит до локального executor через серверный прокси-маршрут панели
+  - `GET http://127.0.0.1:18876/api/operator/oauth-executor/healthz` -> `200` после входа оператора
   - серверный сценарий `pending -> claim -> activate`
   - наследование профиля по умолчанию и явное переключение профиля робота без перепрошивки
 
@@ -68,6 +70,7 @@
 - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
 - `curl http://127.0.0.1:18876/api/operator/agent-profiles`
 - `curl http://127.0.0.1:18876/api/mobile/plans`
+- `curl http://127.0.0.1:18876/api/operator/oauth-executor/healthz`
 - наличие `/opt/gosha_platform/runtime/reports/LAST_REPORT_RU.md`
 
 ## Что проверять после `--phase backend`

@@ -27,6 +27,9 @@ def _as_int(value: str | None, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     session_secret: str
+    session_store_dir: Path
+    session_ttl_seconds: int
+    protected_branches: tuple[str, ...]
     github_client_id: str
     github_client_secret: str
     github_redirect_uri: str
@@ -71,8 +74,20 @@ class Settings:
     def from_env(cls) -> "Settings":
         allowed_repos_raw = str(os.environ.get("OAUTH_EXECUTOR_ALLOWED_REPOS", "MaxCorpOrg/GOSHA_PLATFORM") or "")
         reviewer_logins_raw = str(os.environ.get("OAUTH_EXECUTOR_REVIEWER_LOGINS", "") or "")
+        protected_branches_raw = str(os.environ.get("OAUTH_EXECUTOR_PROTECTED_BRANCHES", "main,master,release") or "")
         return cls(
             session_secret=str(os.environ.get("OAUTH_EXECUTOR_SESSION_SECRET", "") or ""),
+            session_store_dir=Path(
+                str(
+                    os.environ.get(
+                        "OAUTH_EXECUTOR_SESSION_STORE_DIR",
+                        "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_sessions",
+                    )
+                    or "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_sessions"
+                )
+            ).resolve(),
+            session_ttl_seconds=_as_int(os.environ.get("OAUTH_EXECUTOR_SESSION_TTL_SECONDS"), 43200),
+            protected_branches=tuple(item.strip() for item in protected_branches_raw.split(",") if item.strip()),
             github_client_id=str(os.environ.get("GITHUB_OAUTH_CLIENT_ID", "") or ""),
             github_client_secret=str(os.environ.get("GITHUB_OAUTH_CLIENT_SECRET", "") or ""),
             github_redirect_uri=str(os.environ.get("GITHUB_OAUTH_REDIRECT_URI", "") or ""),

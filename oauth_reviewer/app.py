@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -25,11 +26,14 @@ from oauth_reviewer.github_api import (
 )
 from oauth_reviewer.openai_review import OpenAIReviewError, build_review_prompt, generate_review_markdown
 from oauth_reviewer.repo_guidance import collect_relevant_agents, ensure_repo_allowed
+from oauth_shared.session_store import SessionStore
 
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_INDEX = APP_DIR / "static" / "index.html"
 settings = Settings.from_env()
+session_store = SessionStore(settings.session_store_dir, settings.session_ttl_seconds)
+SESSION_ID_KEY = "server_session_id"
 
 app = FastAPI(title="GOSHA OAuth Reviewer", version="1.0.0")
 app.add_middleware(
@@ -37,12 +41,31 @@ app.add_middleware(
     secret_key=settings.session_secret or "unsafe-dev-secret",
     same_site="lax",
     https_only=settings.cookie_secure,
+    max_age=settings.session_ttl_seconds,
 )
 
 
 class ReviewRequest(BaseModel):
     repo_full_name: str = Field(..., examples=["MaxCorpOrg/GOSHA_PLATFORM"])
     pr_number: int = Field(..., ge=1, examples=[1])
+
+
+def _request_session_id(request: Request, *, create: bool = False) -> str:
+    session_id = str(request.session.get(SESSION_ID_KEY, "") or "").strip()
+    if session_id:
+        return session_id
+    if not create:
+        return ""
+    session_id = session_store.new_session_id()
+    request.session[SESSION_ID_KEY] = session_id
+    return session_id
+
+
+def _github_session(request: Request) -> dict:
+    session_id = _request_session_id(request)
+    if not session_id:
+        return {}
+    return session_store.get(session_id)
 
 
 def _resolve_review_backend() -> tuple[str, dict[str, str | bool]]:
@@ -64,13 +87,23 @@ def _resolve_review_backend() -> tuple[str, dict[str, str | bool]]:
     return "", codex_status
 
 
+def _safe_next_path(next_path: str) -> str:
+    candidate = str(next_path or "").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return "/"
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    return candidate
+
+
 def _session_payload(request: Request) -> dict:
-    session = request.session
+    github_session = _github_session(request)
     review_backend, codex_status = _resolve_review_backend()
     return {
-        "authenticated": bool(session.get("github_access_token")),
-        "github_login": session.get("github_login", ""),
-        "github_id": session.get("github_id", 0),
+        "authenticated": bool(github_session.get("github_access_token")),
+        "github_login": github_session.get("github_login", ""),
+        "github_id": github_session.get("github_id", 0),
         "allowed_repos": list(settings.allowed_repos),
         "github_ready": settings.github_ready,
         "review_ready": bool(review_backend),
@@ -84,7 +117,7 @@ def _session_payload(request: Request) -> dict:
 
 
 def _require_session_token(request: Request) -> str:
-    token = str(request.session.get("github_access_token", "") or "").strip()
+    token = str(_github_session(request).get("github_access_token", "") or "").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Сначала войди через GitHub OAuth.")
     return token
@@ -186,8 +219,12 @@ def auth_github_start(request: Request, next: str = "/") -> RedirectResponse:
     if not settings.github_ready:
         raise HTTPException(status_code=500, detail="GitHub OAuth ещё не настроен в env сервиса.")
     state = secrets.token_urlsafe(24)
-    request.session["github_oauth_state"] = state
-    request.session["github_oauth_next"] = next or "/"
+    session_id = _request_session_id(request, create=True)
+    session_store.patch(
+        session_id,
+        github_oauth_state=state,
+        github_oauth_next=_safe_next_path(next),
+    )
     return RedirectResponse(
         github_authorization_url(
             client_id=settings.github_client_id,
@@ -200,7 +237,9 @@ def auth_github_start(request: Request, next: str = "/") -> RedirectResponse:
 
 @app.get("/auth/github/callback")
 def auth_github_callback(request: Request, code: str = "", state: str = "") -> RedirectResponse:
-    expected_state = str(request.session.get("github_oauth_state", "") or "")
+    session_id = _request_session_id(request, create=True)
+    session_data = session_store.get(session_id)
+    expected_state = str(session_data.get("github_oauth_state", "") or "")
     if not code or not state or not expected_state or state != expected_state:
         raise HTTPException(status_code=400, detail="OAuth state не совпал или GitHub не вернул code.")
     try:
@@ -214,17 +253,23 @@ def auth_github_callback(request: Request, code: str = "", state: str = "") -> R
     except GitHubApiError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    request.session["github_access_token"] = access_token
-    request.session["github_login"] = user.get("login", "")
-    request.session["github_id"] = user.get("id", 0)
-
-    next_path = str(request.session.pop("github_oauth_next", "/") or "/")
-    request.session.pop("github_oauth_state", None)
+    next_path = str(session_data.get("github_oauth_next", "/") or "/")
+    session_store.put(
+        session_id,
+        {
+            "github_access_token": access_token,
+            "github_login": user.get("login", ""),
+            "github_id": user.get("id", 0),
+        },
+    )
     return RedirectResponse(next_path)
 
 
 @app.post("/auth/logout")
 def auth_logout(request: Request) -> dict:
+    session_id = _request_session_id(request)
+    if session_id:
+        session_store.delete(session_id)
     request.session.clear()
     return {"ok": True}
 

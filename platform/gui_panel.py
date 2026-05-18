@@ -76,6 +76,11 @@ GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS = max(
     5.0,
     float(os.environ.get("GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS", "180")),
 )
+GOSHA_OAUTH_EXECUTOR_PROXY_URL = os.environ.get("GOSHA_OAUTH_EXECUTOR_PROXY_URL", "http://127.0.0.1:18919").rstrip("/")
+GOSHA_OAUTH_EXECUTOR_PROXY_TIMEOUT_SECONDS = max(
+    5.0,
+    float(os.environ.get("GOSHA_OAUTH_EXECUTOR_PROXY_TIMEOUT_SECONDS", "30")),
+)
 ROBOT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 CONTROL_TRANSPORTS = {"cloud-mcp", "edge-hub", "local-ws"}
 USER_SERVICE_ORDER = ["knowledge", "memory", "telegram", "email", "call"]
@@ -1451,6 +1456,44 @@ def proxy_internal_openai_request(path, payload=None):
         timeout=GOSHA_INTERNAL_OPENAI_PROXY_TIMEOUT_SECONDS,
     )
     return status, raw, headers
+
+
+def proxy_oauth_executor_request(path, method="GET", body=None, headers=None):
+    outbound_headers = {
+        "User-Agent": "gosha-panel-oauth-executor-proxy/1.0",
+    }
+    for key in (
+        "Content-Type",
+        "X-GitHub-Delivery",
+        "X-GitHub-Event",
+        "X-GitHub-Hook-ID",
+        "X-GitHub-Hook-Installation-Target-ID",
+        "X-GitHub-Hook-Installation-Target-Type",
+        "X-Hub-Signature-256",
+    ):
+        value = str((headers or {}).get(key, "") or "").strip()
+        if value:
+            outbound_headers[key] = value
+    request = Request(
+        f"{GOSHA_OAUTH_EXECUTOR_PROXY_URL}{path}",
+        data=body,
+        headers=outbound_headers,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=GOSHA_OAUTH_EXECUTOR_PROXY_TIMEOUT_SECONDS) as response:
+            raw = response.read()
+            return response.getcode(), raw, dict(response.headers.items())
+    except HTTPError as exc:
+        try:
+            raw = exc.read()
+        except Exception:
+            raw = b""
+        return exc.code, raw, dict(exc.headers.items())
+    except URLError as exc:
+        raise RuntimeError(f"Не удалось связаться с локальным OAuth executor: {exc.reason}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось связаться с локальным OAuth executor: {exc}") from exc
 
 
 def list_agent_profiles():
@@ -3786,14 +3829,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _body_json(self):
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        if length <= 0:
+        raw = self._body_bytes()
+        if not raw:
             return {}
-        raw = self.rfile.read(length)
         try:
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    def _body_bytes(self):
+        if hasattr(self, "_cached_body_bytes"):
+            return getattr(self, "_cached_body_bytes")
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length) if length > 0 else b""
+        setattr(self, "_cached_body_bytes", raw)
+        return raw
 
     def _path_parts(self):
         parsed = urlparse(self.path)
@@ -4062,6 +4112,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "data": assistant_control_catalog()})
             return
 
+        if effective_path == "/api/oauth-executor/healthz":
+            try:
+                status, raw, headers = proxy_oauth_executor_request("/healthz")
+                content_type = headers.get("Content-Type") or headers.get("content-type") or "application/json; charset=utf-8"
+                self._send_bytes(status, raw, content_type=content_type)
+            except Exception as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
+            return
+
         if effective_path == "/api/assistant-profiles":
             self._send_json(200, {"ok": True, "data": {"profiles": list_assistant_profiles()}})
             return
@@ -4211,6 +4270,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed, parts = self._path_parts()
+
+        if parsed.path == "/hooks/oauth-executor/github":
+            raw = self._body_bytes()
+            try:
+                status, response_raw, headers = proxy_oauth_executor_request(
+                    "/webhooks/github",
+                    method="POST",
+                    body=raw,
+                    headers=self.headers,
+                )
+                content_type = headers.get("Content-Type") or headers.get("content-type") or "application/json; charset=utf-8"
+                self._send_bytes(status, response_raw, content_type=content_type)
+            except Exception as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
+            return
+
         payload = self._body_json()
 
         if parsed.path.rstrip("/") in ("/xiaozhi/ota", "/gosha/ota"):

@@ -21,9 +21,9 @@ def build_executor_prompt(
     repo_full_name: str,
     pr_payload: dict,
     agents_sections: list[tuple[str, str]],
-    issue_comments: list[dict],
     reviews: list[dict],
     review_comments: list[dict],
+    review_scope_note: str,
     validate_command: str,
 ) -> str:
     guidance_blocks = []
@@ -65,10 +65,9 @@ def build_executor_prompt(
         f"PR: #{pr_payload.get('number')}\n"
         f"Заголовок: {pr_payload.get('title', '')}\n"
         f"Описание:\n{str(pr_payload.get('body', '') or '[пусто]').strip()}\n\n"
+        f"Область замечаний для этого прогона:\n{review_scope_note}\n\n"
         "Правила проекта:\n"
         + ("\n\n".join(guidance_blocks) if guidance_blocks else "[AGENTS.md не найден]") +
-        "\n\nВерхнеуровневые комментарии в PR:\n"
-        + _render_comments(issue_comments) +
         "\n\nReview-сводки:\n"
         + _render_comments(reviews) +
         "\n\nInline-комментарии по строкам:\n"

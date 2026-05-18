@@ -27,6 +27,8 @@ def _as_int(value: str | None, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     session_secret: str
+    session_store_dir: Path
+    session_ttl_seconds: int
     github_client_id: str
     github_client_secret: str
     github_redirect_uri: str
@@ -68,6 +70,16 @@ class Settings:
         repo_path = Path(str(os.environ.get("OAUTH_REVIEWER_REPO_PATH", "/home/max/GOSHA_PLATFORM") or "/home/max/GOSHA_PLATFORM")).resolve()
         return cls(
             session_secret=str(os.environ.get("OAUTH_REVIEWER_SESSION_SECRET", "") or ""),
+            session_store_dir=Path(
+                str(
+                    os.environ.get(
+                        "OAUTH_REVIEWER_SESSION_STORE_DIR",
+                        "/home/max/GOSHA_PLATFORM/local_only/oauth_reviewer_sessions",
+                    )
+                    or "/home/max/GOSHA_PLATFORM/local_only/oauth_reviewer_sessions"
+                )
+            ).resolve(),
+            session_ttl_seconds=_as_int(os.environ.get("OAUTH_REVIEWER_SESSION_TTL_SECONDS"), 43200),
             github_client_id=str(os.environ.get("GITHUB_OAUTH_CLIENT_ID", "") or ""),
             github_client_secret=str(os.environ.get("GITHUB_OAUTH_CLIENT_SECRET", "") or ""),
             github_redirect_uri=str(os.environ.get("GITHUB_OAUTH_REDIRECT_URI", "") or ""),

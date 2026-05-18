@@ -21,7 +21,9 @@
 ## Что умеет текущая версия
 
 - вход через `GitHub OAuth`;
-- хранение сеанса в cookie текущего сервиса;
+- хранение самого `GitHub OAuth` токена в серверном файловом хранилище сеансов;
+- хранение в cookie только идентификатора серверного сеанса;
+- безопасный возврат после OAuth только на внутренние пути этого сервиса;
 - ограничение репозиториев через разрешённый список в env;
 - загрузка PR и списка изменённых файлов через GitHub REST API;
 - загрузка review-правил из `AGENTS.md` репозитория;
@@ -38,6 +40,8 @@
 Минимально:
 
 - `OAUTH_REVIEWER_SESSION_SECRET`
+- `OAUTH_REVIEWER_SESSION_STORE_DIR`
+- `OAUTH_REVIEWER_SESSION_TTL_SECONDS`
 - `GITHUB_OAUTH_CLIENT_ID`
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `GITHUB_OAUTH_REDIRECT_URI`
@@ -119,6 +123,7 @@ http://127.0.0.1:18910
 ## Безопасность
 
 - не логировать токены `GitHub OAuth` и `OpenAI`;
+- не хранить токены `GitHub OAuth` внутри client-side cookie браузера;
 - если используется HTTP-backend, держать его ключ только в env или внешнем секретном хранилище;
 - ограничивать сервис разрешённым списком репозиториев;
 - для публичного адреса включать `HTTPS` и `OAUTH_REVIEWER_COOKIE_SECURE=true`.

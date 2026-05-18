@@ -130,6 +130,8 @@ bash bin/ci_validate.sh
    - официальный review `Codex` в GitHub;
    - или внешний `oauth_reviewer`.
 4. `oauth_executor` получает событие `pull_request_review` по webhook.
+   Постоянный внешний путь для GitHub теперь идёт через серверную панель:
+   `http://151.241.228.232:18876/hooks/oauth-executor/github`
 5. Сервис поднимает отдельную рабочую копию в `local_only/oauth_executor_worktrees`.
 6. Локальный `codex exec` правит код по замечаниям.
 7. Сервис запускает `bash bin/ci_validate.sh`.
@@ -149,6 +151,11 @@ bash bin/ci_validate.sh
 или
 
 - `GitHub App`
+
+Дополнительно в текущей схеме уже зафиксированы два ограничения безопасности:
+
+- GitHub OAuth-токены reviewer и executor лежат в серверном файловом хранилище сеансов, а не в client-side cookie;
+- executor получает в prompt только review-сводки и inline-комментарии от разрешённых логинов проверяющего сервиса, без произвольных issue-комментариев.
 
 ## Важное расхождение на сегодня
 

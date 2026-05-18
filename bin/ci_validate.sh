@@ -15,6 +15,7 @@ fi
 echo "[2/4] Проверка Python-синтаксиса"
 mapfile -t PYTHON_FILES < <((
   find platform ops -maxdepth 1 -type f -name '*.py'
+  find oauth_shared -type f -name '*.py'
   find oauth_reviewer -type f -name '*.py'
   find oauth_executor -type f -name '*.py'
 ) | sort)
@@ -59,5 +60,6 @@ python3 platform/check_gosha_mobile_contract.py --help >/dev/null
 bash bin/start_codex_pr_branch.sh --help >/dev/null
 bash bin/run_local_oauth_reviewer.sh --help >/dev/null 2>&1 || true
 bash bin/run_local_oauth_executor.sh --help >/dev/null 2>&1 || true
+bash bin/run_oauth_executor_reverse_tunnel.sh --help >/dev/null 2>&1 || true
 
 echo "Проверка репозитория завершена успешно."

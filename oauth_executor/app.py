@@ -22,6 +22,7 @@ app.add_middleware(
     secret_key=settings.session_secret or "unsafe-dev-secret",
     same_site="lax",
     https_only=settings.cookie_secure,
+    max_age=settings.session_ttl_seconds,
 )
 
 
@@ -30,11 +31,11 @@ class ExecutionRequest(BaseModel):
     pr_number: int = Field(..., ge=1, examples=[1])
 
 
-def _require_session_token(request: Request) -> str:
-    token = str(request.session.get("github_access_token", "") or "").strip()
-    if not token:
+def _require_github_session(request: Request) -> dict:
+    github_session = service.github_session(request)
+    if not github_session.get("github_access_token"):
         raise HTTPException(status_code=401, detail="Сначала войди через GitHub OAuth.")
-    return token
+    return github_session
 
 
 @app.get("/")
@@ -77,18 +78,19 @@ def auth_github_callback(request: Request, code: str = "", state: str = "") -> R
 
 @app.post("/auth/logout")
 def auth_logout(request: Request) -> dict:
-    request.session.clear()
+    service.logout_session(request)
     return {"ok": True}
 
 
 @app.post("/api/executions/start")
 def executions_start(request: Request, payload: ExecutionRequest) -> dict:
-    access_token = _require_session_token(request)
+    github_session = _require_github_session(request)
     try:
         job = service.start_manual_job(
             repo_full_name=payload.repo_full_name,
             pr_number=payload.pr_number,
-            access_token=access_token,
+            access_token=str(github_session.get("github_access_token", "") or ""),
+            github_login=str(github_session.get("github_login", "") or ""),
         )
     except ExecutorServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -96,12 +98,14 @@ def executions_start(request: Request, payload: ExecutionRequest) -> dict:
 
 
 @app.get("/api/executions")
-def executions_list() -> dict:
+def executions_list(request: Request) -> dict:
+    _require_github_session(request)
     return {"ok": True, "jobs": service.list_jobs()}
 
 
 @app.get("/api/executions/{job_id}")
-def executions_get(job_id: str) -> dict:
+def executions_get(request: Request, job_id: str) -> dict:
+    _require_github_session(request)
     job = service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Задача исполнения не найдена.")
