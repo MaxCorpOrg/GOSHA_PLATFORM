@@ -105,6 +105,7 @@ class ExecutorService:
 
     def start_manual_job(self, *, repo_full_name: str, pr_number: int, access_token: str) -> dict[str, Any]:
         self._ensure_runtime_ready()
+        self._ensure_repo_allowed(repo_full_name)
         job, created = self.jobs.create_or_get_active(repo_full_name=repo_full_name, pr_number=pr_number, trigger="manual")
         if not created:
             return job.to_dict()
@@ -118,6 +119,7 @@ class ExecutorService:
 
     def start_webhook_job(self, *, repo_full_name: str, pr_number: int) -> dict[str, Any]:
         self._ensure_runtime_ready()
+        self._ensure_repo_allowed(repo_full_name)
         job, created = self.jobs.create_or_get_active(repo_full_name=repo_full_name, pr_number=pr_number, trigger="webhook")
         if not created:
             return job.to_dict()
@@ -139,6 +141,12 @@ class ExecutorService:
             raise ExecutorServiceError(f"Не найден локальный репозиторий исполнителя: {self.settings.repo_path}")
         if not self.settings.codex_ready:
             raise ExecutorServiceError(f"Не найден локальный исполняемый файл Codex: {self.settings.codex_command}")
+
+    def _ensure_repo_allowed(self, repo_full_name: str) -> None:
+        try:
+            ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
+        except ValueError as exc:
+            raise ExecutorServiceError(str(exc)) from exc
 
     def _log(self, job_id: str, message: str) -> None:
         self.jobs.append_log(job_id, message)
@@ -164,7 +172,7 @@ class ExecutorService:
     def _run_job(self, *, job_id: str, repo_full_name: str, pr_number: int, access_token: str) -> None:
         self.jobs.start(job_id)
         try:
-            ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
+            self._ensure_repo_allowed(repo_full_name)
             if not access_token:
                 raise ExecutorServiceError("Нет токена GitHub для исполнительного агента.")
 
@@ -345,6 +353,5 @@ class ExecutorService:
         if not repo_full_name or not pr_number:
             raise ExecutorServiceError("Webhook GitHub не передал repository.full_name или номер Pull Request.")
 
-        ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
         job = self.start_webhook_job(repo_full_name=repo_full_name, pr_number=pr_number)
         return {"accepted": True, "job": job}

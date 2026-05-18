@@ -48,6 +48,7 @@
     - автоматический запуск по webhook `pull_request_review`
   - для полного автоматического режима дополнительно нужен серверный `GitHub` токен или `GitHub App`, потому что одного пользовательского `OAuth` недостаточно для webhook-события
   - сервис уже защищён от повторного одновременного запуска по одному и тому же `Pull Request`
+  - ручной и webhook-старт теперь заранее отсекают репозиторий вне `OAUTH_EXECUTOR_ALLOWED_REPOS`, а внутренний guard переводит такую задачу в `failed` вместо зависания в `running`
   - локальный запуск:
     - `python3 -m pip install -r oauth_executor/requirements.txt`
     - `bash bin/run_local_oauth_executor.sh`
