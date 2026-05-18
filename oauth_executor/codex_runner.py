@@ -147,5 +147,7 @@ def run_codex_exec(
         raise CodexExecutionError(f"Локальный Codex завершился с кодом {process.returncode}.")
 
     if last_message_path.exists():
-        return last_message_path.read_text(encoding="utf-8", errors="ignore").strip()
+        last_message = last_message_path.read_text(encoding="utf-8", errors="ignore").strip()
+        last_message_path.unlink(missing_ok=True)
+        return last_message
     return ""
