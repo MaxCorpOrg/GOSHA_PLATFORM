@@ -16,9 +16,15 @@
    - `docs/GOSHA_LOCAL_SELFHOST_RUNBOOK_RU.md`
    - `platform/AGENTS.md`
    - `docs/GOSHA_ASSISTANT_CONTROL_PANEL_SPEC_RU.md`
-8. Если задача уже перешла к собственной прошивке:
+8. Если задача про AI-проверку кода, `GitHub OAuth` и внешний сервис проверки:
+   - `docs/GOSHA_OAUTH_REVIEWER_RUNBOOK_RU.md`
+   - `oauth_reviewer/AGENTS.md`
+9. Если задача про автоматические правки после review, локальный исполнитель и полный PR-цикл:
+   - `docs/GOSHA_OAUTH_EXECUTOR_RUNBOOK_RU.md`
+   - `oauth_executor/AGENTS.md`
+10. Если задача уже перешла к собственной прошивке:
    - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
-9. Если задача относится к новому мобильному клиенту:
+11. Если задача относится к новому мобильному клиенту:
    - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
 
 ## Как писать новые записи
