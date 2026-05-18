@@ -122,16 +122,13 @@ def run_codex_exec(
         text=True,
         bufsize=1,
     )
-    assert process.stdin is not None
-    assert process.stdout is not None
-    process.stdin.write(prompt)
-    process.stdin.close()
 
     try:
         collect_process_output(
             process,
             timeout_seconds=timeout_seconds,
             on_line=log_cb,
+            stdin_text=prompt,
         )
     except subprocess.TimeoutExpired as exc:
         raise CodexExecutionError(

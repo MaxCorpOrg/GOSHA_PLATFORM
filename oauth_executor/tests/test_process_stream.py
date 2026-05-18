@@ -50,6 +50,30 @@ class CollectProcessOutputTests(unittest.TestCase):
         self.assertIsNotNone(process.returncode)
         self.assertNotEqual(process.returncode, 0)
 
+    def test_timeout_covers_blocked_stdin_write(self) -> None:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time; time.sleep(60)",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+            collect_process_output(
+                process,
+                timeout_seconds=0.2,
+                stdin_text="x" * (1024 * 1024),
+            )
+
+        process.wait(timeout=5)
+        self.assertIsNotNone(process.returncode)
+        self.assertNotEqual(process.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

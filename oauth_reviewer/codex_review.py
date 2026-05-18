@@ -101,15 +101,12 @@ def generate_review_markdown_via_codex(
             text=True,
             bufsize=1,
         )
-        assert process.stdin is not None
-        assert process.stdout is not None
-        process.stdin.write(prompt)
-        process.stdin.close()
 
         try:
             output_lines = collect_process_output(
                 process,
                 timeout_seconds=timeout_seconds,
+                stdin_text=prompt,
             )
         except subprocess.TimeoutExpired as exc:
             raise CodexReviewError(
