@@ -54,6 +54,7 @@
 - `GITHUB_OAUTH_REDIRECT_URI`
 - `GITHUB_OAUTH_SCOPE`
 - `OAUTH_EXECUTOR_ALLOWED_REPOS`
+  - список должен быть непустым; пустое значение считается ошибкой конфигурации и отключает запуск задач
 - `OAUTH_EXECUTOR_REPO_PATH`
 - `OAUTH_EXECUTOR_CODEX_COMMAND`
 
@@ -132,6 +133,7 @@ curl http://127.0.0.1:18912/healthz
   - есть ли серверный `GitHub` токен для полного автомата
 - `webhook_ready`
   - включён ли полный автоматический цикл по webhook
+  - это поле станет `false`, если пуст `OAUTH_EXECUTOR_ALLOWED_REPOS`, даже при наличии webhook-секрета и сервисного токена
 - `codex_ready`
   - виден ли локальный исполняемый файл `codex`
 
@@ -158,6 +160,7 @@ curl http://127.0.0.1:18912/healthz
 - состояние review:
   - `commented`
   - или `changes_requested`
+- `OAUTH_EXECUTOR_ALLOWED_REPOS` содержит хотя бы один разрешённый репозиторий
 
 Важно:
 

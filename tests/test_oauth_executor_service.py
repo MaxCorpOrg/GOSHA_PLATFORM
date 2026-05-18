@@ -35,6 +35,22 @@ def build_settings(repo_path: Path, *, allowed_repos: tuple[str, ...]) -> Settin
 
 
 class ExecutorServiceAllowedRepoTest(unittest.TestCase):
+    def test_start_manual_job_rejects_empty_allow_list_before_job_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = ExecutorService(
+                build_settings(Path(tmp_dir), allowed_repos=())
+            )
+
+            with self.assertRaises(ExecutorServiceError) as ctx:
+                service.start_manual_job(
+                    repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+                    pr_number=1,
+                    access_token="token",
+                )
+
+            self.assertIn("Разрешённый список репозиториев пуст", str(ctx.exception))
+            self.assertEqual([], service.list_jobs())
+
     def test_start_manual_job_rejects_disallowed_repo_before_job_creation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             service = ExecutorService(
@@ -75,6 +91,14 @@ class ExecutorServiceAllowedRepoTest(unittest.TestCase):
             self.assertEqual("failed", saved_job["status"])
             self.assertIn("не входит в разрешённый список", saved_job["error"])
             self.assertTrue(any(line.startswith("ERROR: ") for line in saved_job["logs"]))
+
+
+class ExecutorSettingsWebhookReadyTest(unittest.TestCase):
+    def test_webhook_ready_requires_non_empty_allow_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            settings = build_settings(Path(tmp_dir), allowed_repos=())
+
+            self.assertFalse(settings.webhook_ready)
 
 
 class ExecutorServiceProtectedBranchTest(unittest.TestCase):

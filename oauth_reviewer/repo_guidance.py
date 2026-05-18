@@ -4,6 +4,11 @@ from pathlib import Path
 
 
 def ensure_repo_allowed(repo_full_name: str, allowed_repos: tuple[str, ...]) -> None:
+    if not allowed_repos:
+        raise ValueError(
+            "Разрешённый список репозиториев пуст. "
+            "Это ошибка конфигурации: в allow-list должен быть указан хотя бы один репозиторий."
+        )
     if allowed_repos and repo_full_name not in allowed_repos:
         allowed = ", ".join(allowed_repos)
         raise ValueError(f"Репозиторий {repo_full_name} не входит в разрешённый список. Разрешены: {allowed}")

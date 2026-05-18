@@ -52,6 +52,7 @@
   - это работает и для приватного репозитория, и для связки reviewer -> executor
 - `OAUTH_REVIEWER_ALLOWED_REPOS`
   - например: `MaxCorpOrg/GOSHA_PLATFORM`
+  - пустое значение недопустимо: это считается ошибкой конфигурации, и reviewer закрывает доступ ко всем репозиториям
 - `OAUTH_REVIEWER_REPO_PATH`
   - локальный путь до репозитория, чтобы сервис мог читать `AGENTS.md`
 - `OAUTH_REVIEWER_BACKEND`

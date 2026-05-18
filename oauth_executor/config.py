@@ -57,7 +57,12 @@ class Settings:
 
     @property
     def webhook_ready(self) -> bool:
-        return bool(self.github_webhook_secret and self.github_executor_token and self.reviewer_logins)
+        return bool(
+            self.github_webhook_secret
+            and self.github_executor_token
+            and self.reviewer_logins
+            and self.allowed_repos
+        )
 
     @property
     def codex_ready(self) -> bool:
