@@ -62,6 +62,9 @@
   - executor теперь получает только review-сводки и inline-комментарии от разрешённых логинов проверяющего сервиса;
   - reviewer и executor принимают `next` после OAuth только как внутренний путь сервиса;
   - executor уже блокирует отправку изменений в защищённые ветки и в базовую ветку PR;
+  - при `git push` executor больше не передаёт сервисный `GitHub` токен через URL и аргументы процесса:
+    - отправка идёт в обычный `https://github.com/<repo>.git`;
+    - токен подаётся во временный `GIT_ASKPASS`;
   - локальный executor уже поднят как user-служба `gosha-oauth-executor.service`;
   - обратный SSH-туннель уже поднят как user-служба `gosha-oauth-executor-tunnel.service`;
   - webhook репозитория `MaxCorpOrg/GOSHA_PLATFORM` уже переведён на постоянный серверный путь:

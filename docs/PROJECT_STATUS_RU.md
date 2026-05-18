@@ -64,6 +64,9 @@
   - executor теперь получает в prompt только review-сводки и inline-комментарии от разрешённых логинов проверяющего сервиса
   - reviewer и executor теперь принимают `next` после OAuth только как внутренний путь сервиса
   - executor теперь отказывается отправлять изменения в защищённые ветки и в базовую ветку PR
+  - при `git push` executor больше не передаёт сервисный `GitHub` токен в URL и аргументах процесса:
+    - отправка идёт в обычный `https://github.com/<repo>.git`
+    - токен подаётся во временный `GIT_ASKPASS`
   - локальный executor уже переведён на постоянные user-службы:
     - `gosha-oauth-executor.service`
     - `gosha-oauth-executor-tunnel.service`

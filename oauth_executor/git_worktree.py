@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
-from urllib.parse import quote
 
 
 class WorktreeError(RuntimeError):
@@ -109,10 +109,41 @@ def commit_all_changes(
     return current_head_sha(worktree_path)
 
 
-def push_head_to_branch(*, worktree_path: Path, repo_full_name: str, branch_name: str, access_token: str) -> None:
-    token = quote(access_token, safe="")
-    remote_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
-    _run_git(
-        ["git", "-C", str(worktree_path), "push", remote_url, f"HEAD:{branch_name}"],
-        env={"GIT_TERMINAL_PROMPT": "0"},
+def _build_github_askpass_env(access_token: str) -> tuple[tempfile.TemporaryDirectory, dict[str, str]]:
+    temp_dir = tempfile.TemporaryDirectory(prefix="gosha-git-askpass-")
+    temp_path = Path(temp_dir.name)
+    token_path = temp_path / "token.txt"
+    script_path = temp_path / "askpass.sh"
+
+    token_path.write_text(access_token, encoding="utf-8")
+    token_path.chmod(0o600)
+    script_path.write_text(
+        """#!/usr/bin/env bash
+set -eu
+prompt="${1:-}"
+case "$prompt" in
+  *Username*) printf '%s' 'x-access-token' ;;
+  *Password*) cat "$GOSHA_GIT_ASKPASS_TOKEN_FILE" ;;
+  *) printf '%s' '' ;;
+esac
+""",
+        encoding="utf-8",
     )
+    script_path.chmod(0o700)
+    return temp_dir, {
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": str(script_path),
+        "GOSHA_GIT_ASKPASS_TOKEN_FILE": str(token_path),
+    }
+
+
+def push_head_to_branch(*, worktree_path: Path, repo_full_name: str, branch_name: str, access_token: str) -> None:
+    remote_url = f"https://github.com/{repo_full_name}.git"
+    temp_dir, askpass_env = _build_github_askpass_env(access_token)
+    try:
+        _run_git(
+            ["git", "-C", str(worktree_path), "push", remote_url, f"HEAD:{branch_name}"],
+            env=askpass_env,
+        )
+    finally:
+        temp_dir.cleanup()
