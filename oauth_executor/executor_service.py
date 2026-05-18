@@ -29,6 +29,7 @@ from oauth_reviewer.github_api import (
     GitHubApiError,
     create_issue_comment,
     exchange_code_for_token,
+    fetch_branch,
     fetch_issue_comments,
     fetch_pull_request,
     fetch_pull_request_review_comments,
@@ -36,6 +37,7 @@ from oauth_reviewer.github_api import (
     fetch_pull_request_files,
     fetch_user,
     github_authorization_url,
+    sanitize_internal_redirect_path,
 )
 from oauth_reviewer.repo_guidance import collect_relevant_agents, ensure_repo_allowed
 
@@ -77,7 +79,7 @@ class ExecutorService:
     def github_auth_start(self, request, next_path: str) -> str:
         state = __import__("secrets").token_urlsafe(24)
         request.session["github_oauth_state"] = state
-        request.session["github_oauth_next"] = next_path or "/"
+        request.session["github_oauth_next"] = sanitize_internal_redirect_path(next_path)
         return github_authorization_url(
             client_id=self.settings.github_client_id,
             redirect_uri=self.settings.github_redirect_uri,
@@ -99,7 +101,7 @@ class ExecutorService:
         request.session["github_access_token"] = access_token
         request.session["github_login"] = user.get("login", "")
         request.session["github_id"] = user.get("id", 0)
-        next_path = str(request.session.pop("github_oauth_next", "/") or "/")
+        next_path = sanitize_internal_redirect_path(request.session.pop("github_oauth_next", "/"))
         request.session.pop("github_oauth_state", None)
         return next_path
 
@@ -151,6 +153,27 @@ class ExecutorService:
     def _log(self, job_id: str, message: str) -> None:
         self.jobs.append_log(job_id, message)
 
+    def _ensure_head_branch_allows_executor_push(
+        self,
+        *,
+        access_token: str,
+        repo_full_name: str,
+        head_branch: str,
+        pr_payload: dict[str, Any],
+    ) -> None:
+        head_repo = (pr_payload.get("head") or {}).get("repo") or {}
+        default_branch = str(head_repo.get("default_branch", "") or "").strip()
+        if default_branch and head_branch == default_branch:
+            raise ExecutorServiceError(
+                "Исполнитель не отправляет правки в head-ветку PR, совпадающую с default branch репозитория. Нужна отдельная ветка Pull Request."
+            )
+
+        branch_payload = fetch_branch(access_token, repo_full_name, head_branch)
+        if bool((branch_payload or {}).get("protected")):
+            raise ExecutorServiceError(
+                "Исполнитель не отправляет правки в защищённую head-ветку Pull Request. Нужна отдельная ветка PR."
+            )
+
     def _run_shell_command(self, *, command: str, cwd: Path, job_id: str) -> None:
         self._log(job_id, f"$ {command}")
         process = subprocess.Popen(
@@ -186,6 +209,12 @@ class ExecutorService:
             head_branch = str((pr_payload.get("head") or {}).get("ref", "") or "").strip()
             if not head_branch:
                 raise ExecutorServiceError("GitHub не вернул head-ветку Pull Request.")
+            self._ensure_head_branch_allows_executor_push(
+                access_token=access_token,
+                repo_full_name=head_repo_full_name,
+                head_branch=head_branch,
+                pr_payload=pr_payload,
+            )
 
             review_comments = fetch_pull_request_review_comments(access_token, repo_full_name, pr_number)
             reviews = [

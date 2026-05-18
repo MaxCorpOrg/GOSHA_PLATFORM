@@ -18,6 +18,7 @@ from oauth_reviewer.github_api import (
     GitHubApiError,
     create_pull_request_review,
     exchange_code_for_token,
+    sanitize_internal_redirect_path,
     fetch_pull_request,
     fetch_pull_request_files,
     fetch_user,
@@ -187,7 +188,7 @@ def auth_github_start(request: Request, next: str = "/") -> RedirectResponse:
         raise HTTPException(status_code=500, detail="GitHub OAuth ещё не настроен в env сервиса.")
     state = secrets.token_urlsafe(24)
     request.session["github_oauth_state"] = state
-    request.session["github_oauth_next"] = next or "/"
+    request.session["github_oauth_next"] = sanitize_internal_redirect_path(next)
     return RedirectResponse(
         github_authorization_url(
             client_id=settings.github_client_id,
@@ -218,7 +219,7 @@ def auth_github_callback(request: Request, code: str = "", state: str = "") -> R
     request.session["github_login"] = user.get("login", "")
     request.session["github_id"] = user.get("id", 0)
 
-    next_path = str(request.session.pop("github_oauth_next", "/") or "/")
+    next_path = sanitize_internal_redirect_path(request.session.pop("github_oauth_next", "/"))
     request.session.pop("github_oauth_state", None)
     return RedirectResponse(next_path)
 

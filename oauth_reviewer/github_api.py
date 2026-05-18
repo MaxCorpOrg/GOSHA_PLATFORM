@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -50,6 +50,18 @@ def github_authorization_url(*, client_id: str, redirect_uri: str, scope: str, s
     return f"https://github.com/login/oauth/authorize?{query}"
 
 
+def sanitize_internal_redirect_path(next_path: str | None) -> str:
+    candidate = str(next_path or "").strip()
+    if not candidate:
+        return "/"
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    if not candidate.startswith("/") or candidate.startswith("//") or "\\" in candidate:
+        return "/"
+    return candidate
+
+
 def exchange_code_for_token(*, client_id: str, client_secret: str, code: str, redirect_uri: str) -> str:
     payload = _request_json(
         "https://github.com/login/oauth/access_token",
@@ -78,6 +90,14 @@ def fetch_user(access_token: str) -> dict[str, Any]:
 def fetch_pull_request(access_token: str, repo_full_name: str, pr_number: int) -> dict[str, Any]:
     return _request_json(
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+
+def fetch_branch(access_token: str, repo_full_name: str, branch_name: str) -> dict[str, Any]:
+    encoded_branch = quote(branch_name, safe="")
+    return _request_json(
+        f"https://api.github.com/repos/{repo_full_name}/branches/{encoded_branch}",
         headers={"Authorization": f"Bearer {access_token}"},
     )
 
