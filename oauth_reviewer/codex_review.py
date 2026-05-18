@@ -4,8 +4,9 @@ import os
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
+
+from oauth_shared.process_stream import collect_process_output
 
 
 class CodexReviewError(RuntimeError):
@@ -105,21 +106,15 @@ def generate_review_markdown_via_codex(
         process.stdin.write(prompt)
         process.stdin.close()
 
-        output_lines: list[str] = []
-        started = time.time()
-        while True:
-            line = process.stdout.readline()
-            if line:
-                output_lines.append(line.rstrip())
-            if process.poll() is not None:
-                break
-            if time.time() - started > timeout_seconds:
-                process.kill()
-                raise CodexReviewError(f"Локальный Codex reviewer не уложился в лимит {timeout_seconds} секунд.")
-
-        remaining = process.stdout.read()
-        if remaining:
-            output_lines.extend(raw_line.rstrip() for raw_line in remaining.splitlines())
+        try:
+            output_lines = collect_process_output(
+                process,
+                timeout_seconds=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CodexReviewError(
+                f"Локальный Codex reviewer не уложился в лимит {timeout_seconds} секунд."
+            ) from exc
 
         if process.returncode != 0:
             tail = "\n".join(output_lines[-30:]).strip()

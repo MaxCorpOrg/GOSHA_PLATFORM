@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import time
 from pathlib import Path
+
+from oauth_shared.process_stream import collect_process_output
 
 
 class CodexExecutionError(RuntimeError):
@@ -126,21 +127,16 @@ def run_codex_exec(
     process.stdin.write(prompt)
     process.stdin.close()
 
-    started = time.time()
-    while True:
-        line = process.stdout.readline()
-        if line:
-            log_cb(line.rstrip())
-        if process.poll() is not None:
-            break
-        if time.time() - started > timeout_seconds:
-            process.kill()
-            raise CodexExecutionError(f"Локальный Codex не уложился в лимит {timeout_seconds} секунд.")
-
-    remaining = process.stdout.read()
-    if remaining:
-        for raw_line in remaining.splitlines():
-            log_cb(raw_line.rstrip())
+    try:
+        collect_process_output(
+            process,
+            timeout_seconds=timeout_seconds,
+            on_line=log_cb,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CodexExecutionError(
+            f"Локальный Codex не уложился в лимит {timeout_seconds} секунд."
+        ) from exc
 
     if process.returncode != 0:
         raise CodexExecutionError(f"Локальный Codex завершился с кодом {process.returncode}.")
