@@ -124,6 +124,42 @@ class ExecutorServiceReviewWebhookTests(unittest.TestCase):
             trigger_review_login="chatgpt-codex-connector[bot]",
         )
 
+    def test_review_scope_ignores_older_change_request_after_later_approval(self) -> None:
+        reviews = [
+            {
+                "id": 501,
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-05-18T10:00:00Z",
+                "body": "Нужно исправить фильтрацию review.",
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+            },
+            {
+                "id": 502,
+                "state": "APPROVED",
+                "submitted_at": "2026-05-18T11:00:00Z",
+                "body": "LGTM",
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+            },
+        ]
+        review_comments = [
+            {
+                "pull_request_review_id": 501,
+                "body": "Старый inline-комментарий не должен возвращаться после approve.",
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+            }
+        ]
+
+        scoped_reviews, scoped_comments, scope_note = self.service._review_scope(
+            reviews=reviews,
+            review_comments=review_comments,
+            allowed_reviewer_logins={"chatgpt-codex-connector[bot]"},
+            trigger_review_id=0,
+        )
+
+        self.assertEqual(scoped_reviews, [])
+        self.assertEqual(scoped_comments, [])
+        self.assertIn("последние review", scope_note.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -257,6 +257,12 @@ class ExecutorService:
             return True
         return False
 
+    def _review_sort_key(self, item: dict[str, Any]) -> tuple[str, int]:
+        return (
+            str(item.get("submitted_at", "") or ""),
+            int(item.get("id", 0) or 0),
+        )
+
     def _filter_prompt_feedback(
         self,
         *,
@@ -315,11 +321,15 @@ class ExecutorService:
         trigger_review_id: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
         actionable_states = {"commented", "changes_requested"}
-        eligible_reviews = [
+        allowed_reviews = [
             item
             for item in reviews
+            if str(((item.get("user") or {}).get("login") or "")).strip().lower() in allowed_reviewer_logins
+        ]
+        eligible_reviews = [
+            item
+            for item in allowed_reviews
             if str(item.get("state", "") or "").strip().lower() in actionable_states
-            and str(((item.get("user") or {}).get("login") or "")).strip().lower() in allowed_reviewer_logins
         ]
 
         selected_reviews: list[dict[str, Any]] = []
@@ -339,11 +349,22 @@ class ExecutorService:
             scope_note = "Переданы только замечания из того review, которое запустило webhook."
         else:
             latest_by_reviewer: dict[str, dict[str, Any]] = {}
-            for item in reversed(eligible_reviews):
+            for item in allowed_reviews:
                 login = str(((item.get("user") or {}).get("login") or "")).strip().lower()
-                if login and login not in latest_by_reviewer:
+                if not login:
+                    continue
+                known_item = latest_by_reviewer.get(login)
+                if known_item is None or self._review_sort_key(item) >= self._review_sort_key(known_item):
                     latest_by_reviewer[login] = item
-            selected_reviews = list(latest_by_reviewer.values())
+            selected_reviews = sorted(
+                (
+                    item
+                    for item in latest_by_reviewer.values()
+                    if str(item.get("state", "") or "").strip().lower() in actionable_states
+                ),
+                key=self._review_sort_key,
+                reverse=True,
+            )
             selected_review_ids = {
                 int(item.get("id", 0) or 0)
                 for item in selected_reviews
