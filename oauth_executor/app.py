@@ -13,6 +13,7 @@ from oauth_executor.executor_service import ExecutorService, ExecutorServiceErro
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_INDEX = APP_DIR / "static" / "index.html"
+SESSION_COOKIE_NAME = "gosha_oauth_executor_session"
 settings = Settings.from_env()
 service = ExecutorService(settings)
 
@@ -20,6 +21,7 @@ app = FastAPI(title="GOSHA OAuth Executor", version="1.0.0")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret or "unsafe-dev-secret",
+    session_cookie=SESSION_COOKIE_NAME,
     same_site="lax",
     https_only=settings.cookie_secure,
     max_age=settings.session_ttl_seconds,
