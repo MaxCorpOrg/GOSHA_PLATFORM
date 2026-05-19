@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import threading
 from collections.abc import Callable
@@ -20,6 +22,7 @@ def collect_process_output(
     timeout_seconds: float,
     on_line: Callable[[str], None] | None = None,
     stdin_text: str | None = None,
+    kill_tree_on_timeout: bool = False,
 ) -> list[str]:
     if process.stdout is None:
         raise ValueError("У процесса не настроен stdout для чтения.")
@@ -65,7 +68,15 @@ def collect_process_output(
     try:
         process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if kill_tree_on_timeout:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                process.kill()
+        else:
+            process.kill()
         try:
             process.wait(timeout=5)
         finally:

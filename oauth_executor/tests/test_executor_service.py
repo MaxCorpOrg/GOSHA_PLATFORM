@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -159,6 +160,69 @@ class ExecutorServiceReviewWebhookTests(unittest.TestCase):
         self.assertEqual(scoped_reviews, [])
         self.assertEqual(scoped_comments, [])
         self.assertIn("последние review", scope_note.lower())
+
+    def test_run_job_marks_validate_timeout_as_failed(self) -> None:
+        self.service.settings = replace(
+            self.service.settings,
+            codex_timeout_seconds=0.2,
+            validate_command='python3 -c "import time; time.sleep(60)"',
+        )
+        job, created = self.service.jobs.create_or_get_active(
+            repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+            pr_number=2,
+            trigger="manual",
+        )
+        self.assertTrue(created)
+
+        pr_payload = {
+            "number": 2,
+            "title": "Test PR",
+            "body": "Body",
+            "base": {"ref": "main", "repo": {"default_branch": "main"}},
+            "head": {"ref": "feature/test", "repo": {"full_name": "MaxCorpOrg/GOSHA_PLATFORM"}},
+        }
+        reviews = [
+            {
+                "id": 501,
+                "state": "CHANGES_REQUESTED",
+                "body": "Нужно исправить зависающий validate.",
+                "user": {"login": "chatgpt-codex-connector[bot]"},
+            }
+        ]
+
+        with patch("oauth_executor.executor_service.fetch_pull_request", return_value=pr_payload), patch(
+            "oauth_executor.executor_service.fetch_pull_request_review_comments",
+            return_value=[],
+        ), patch(
+            "oauth_executor.executor_service.fetch_pull_request_reviews",
+            return_value=reviews,
+        ), patch(
+            "oauth_executor.executor_service.fetch_pull_request_files",
+            return_value=[],
+        ), patch(
+            "oauth_executor.executor_service.prepare_worktree",
+            return_value=(self.root, "local-feature-test"),
+        ), patch(
+            "oauth_executor.executor_service.current_head_sha",
+            return_value="abc123",
+        ), patch(
+            "oauth_executor.executor_service.collect_relevant_agents",
+            return_value=[],
+        ), patch(
+            "oauth_executor.executor_service.run_codex_exec",
+            return_value="",
+        ):
+            self.service._run_job(
+                job_id=job.job_id,
+                repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+                pr_number=2,
+                access_token="ghs_test",
+            )
+
+        stored = self.service.jobs.get(job.job_id)
+        assert stored is not None
+        self.assertEqual(stored.status, "failed")
+        self.assertIn("Проверочная команда не уложилась", stored.error)
 
 
 if __name__ == "__main__":

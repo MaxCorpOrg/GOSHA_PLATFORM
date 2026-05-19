@@ -40,6 +40,7 @@ from oauth_reviewer.github_api import (
     github_authorization_url,
 )
 from oauth_reviewer.repo_guidance import collect_relevant_agents, ensure_repo_allowed
+from oauth_shared.process_stream import collect_process_output
 
 
 class ExecutorServiceError(RuntimeError):
@@ -384,18 +385,26 @@ class ExecutorService:
     def _run_shell_command(self, *, command: str, cwd: Path, job_id: str) -> None:
         self._log(job_id, f"$ {command}")
         process = subprocess.Popen(
-            command,
+            ["bash", "-lc", command],
             cwd=str(cwd),
-            shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
-        assert process.stdout is not None
-        for line in process.stdout:
-            self._log(job_id, line.rstrip())
-        code = process.wait()
+        try:
+            collect_process_output(
+                process,
+                timeout_seconds=self.settings.codex_timeout_seconds,
+                on_line=lambda line: self._log(job_id, line),
+                kill_tree_on_timeout=True,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ExecutorServiceError(
+                f"Проверочная команда не уложилась в лимит {self.settings.codex_timeout_seconds} секунд: {command}"
+            ) from exc
+        code = process.returncode
         if code != 0:
             raise ExecutorServiceError(f"Команда завершилась с кодом {code}: {command}")
 
