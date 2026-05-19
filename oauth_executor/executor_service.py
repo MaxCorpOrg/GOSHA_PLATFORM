@@ -330,6 +330,21 @@ class ExecutorService:
     def _pr_history_key(self, *, repo_full_name: str, pr_number: int) -> tuple[str, int]:
         return (repo_full_name.strip().lower(), int(pr_number))
 
+    def _webhook_dedupe_key(
+        self,
+        *,
+        repo_full_name: str,
+        pr_number: int,
+        reviewer_login: str,
+        reviewed_commit_key: str,
+    ) -> tuple[str, int, str, str]:
+        return (
+            repo_full_name.strip().lower(),
+            int(pr_number),
+            reviewer_login.strip().lower(),
+            reviewed_commit_key.strip().lower() or "unknown-commit",
+        )
+
     def _allow_webhook_auto_run(
         self,
         *,
@@ -337,12 +352,12 @@ class ExecutorService:
         pr_number: int,
         reviewer_login: str,
         reviewed_commit_key: str,
-    ) -> tuple[bool, str]:
-        dedupe_key = (
-            repo_full_name.strip().lower(),
-            int(pr_number),
-            reviewer_login.strip().lower(),
-            reviewed_commit_key.strip().lower() or "unknown-commit",
+    ) -> tuple[bool, str, float]:
+        dedupe_key = self._webhook_dedupe_key(
+            repo_full_name=repo_full_name,
+            pr_number=pr_number,
+            reviewer_login=reviewer_login,
+            reviewed_commit_key=reviewed_commit_key,
         )
         history_key = self._pr_history_key(repo_full_name=repo_full_name, pr_number=pr_number)
         now = time.time()
@@ -353,6 +368,7 @@ class ExecutorService:
                 return (
                     False,
                     "Повторный review по тому же коммиту уже был обработан. Новый автозапуск не нужен.",
+                    0.0,
                 )
 
             history = [
@@ -367,12 +383,45 @@ class ExecutorService:
                     False,
                     f"Лимит автоматических прогонов по PR уже достигнут: {max_runs} за окно {window_seconds} секунд. "
                     "Нужен ручной запуск или человеческая проверка.",
+                    0.0,
                 )
 
             self._processed_webhook_keys.add(dedupe_key)
             history.append(now)
             self._auto_run_history[history_key] = history
-            return True, ""
+            return True, "", now
+
+    def _rollback_webhook_auto_run(
+        self,
+        *,
+        repo_full_name: str,
+        pr_number: int,
+        reviewer_login: str,
+        reviewed_commit_key: str,
+        reserved_at: float,
+    ) -> None:
+        if reserved_at <= 0:
+            return
+
+        dedupe_key = self._webhook_dedupe_key(
+            repo_full_name=repo_full_name,
+            pr_number=pr_number,
+            reviewer_login=reviewer_login,
+            reviewed_commit_key=reviewed_commit_key,
+        )
+        history_key = self._pr_history_key(repo_full_name=repo_full_name, pr_number=pr_number)
+
+        with self._webhook_lock:
+            self._processed_webhook_keys.discard(dedupe_key)
+            history = list(self._auto_run_history.get(history_key, []))
+            for index in range(len(history) - 1, -1, -1):
+                if history[index] == reserved_at:
+                    del history[index]
+                    break
+            if history:
+                self._auto_run_history[history_key] = history
+            else:
+                self._auto_run_history.pop(history_key, None)
 
     def _review_scope(
         self,
@@ -761,7 +810,7 @@ class ExecutorService:
                 }
 
         reviewed_commit_key = self._reviewed_commit_key(review=review, pr=pr)
-        allowed, reason = self._allow_webhook_auto_run(
+        allowed, reason, reserved_at = self._allow_webhook_auto_run(
             repo_full_name=repo_full_name,
             pr_number=pr_number,
             reviewer_login=login,
@@ -770,10 +819,20 @@ class ExecutorService:
         if not allowed:
             return {"accepted": False, "reason": reason}
 
-        job = self.start_webhook_job(
-            repo_full_name=repo_full_name,
-            pr_number=pr_number,
-            trigger_review_id=int(review.get("id", 0) or 0),
-            trigger_review_login=login,
-        )
+        try:
+            job = self.start_webhook_job(
+                repo_full_name=repo_full_name,
+                pr_number=pr_number,
+                trigger_review_id=int(review.get("id", 0) or 0),
+                trigger_review_login=login,
+            )
+        except Exception:
+            self._rollback_webhook_auto_run(
+                repo_full_name=repo_full_name,
+                pr_number=pr_number,
+                reviewer_login=login,
+                reviewed_commit_key=reviewed_commit_key,
+                reserved_at=reserved_at,
+            )
+            raise
         return {"accepted": True, "job": job, "reviewed_commit": reviewed_commit_key}

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from oauth_executor.config import Settings
-from oauth_executor.executor_service import ExecutorService
+from oauth_executor.executor_service import ExecutorService, ExecutorServiceError
 
 
 def _build_settings(root: Path) -> Settings:
@@ -120,6 +120,41 @@ class ExecutorServiceReviewWebhookTests(unittest.TestCase):
             result = self.service.handle_webhook(
                 event_name="pull_request_review",
                 body=self._webhook_body(review_body="## Итог\nКритичных P0/P1 замечаний не найдено.\n"),
+            )
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["job"], expected_job)
+        start_webhook_job.assert_called_once_with(
+            repo_full_name="MaxCorpOrg/GOSHA_PLATFORM",
+            pr_number=2,
+            trigger_review_id=501,
+            trigger_review_login="chatgpt-codex-connector[bot]",
+        )
+
+    def test_handle_webhook_rolls_back_auto_run_marker_when_start_fails(self) -> None:
+        with patch.object(
+            self.service,
+            "start_webhook_job",
+            side_effect=ExecutorServiceError("executor queue is unavailable"),
+        ):
+            with self.assertRaisesRegex(ExecutorServiceError, "queue is unavailable"):
+                self.service.handle_webhook(
+                    event_name="pull_request_review",
+                    body=self._webhook_body(review_body="Нужно починить порядок меток webhook."),
+                )
+
+        self.assertEqual(self.service._processed_webhook_keys, set())
+        self.assertEqual(self.service._auto_run_history, {})
+
+        expected_job = {"job_id": "job-2", "status": "queued"}
+        with patch.object(
+            self.service,
+            "start_webhook_job",
+            return_value=expected_job,
+        ) as start_webhook_job:
+            result = self.service.handle_webhook(
+                event_name="pull_request_review",
+                body=self._webhook_body(review_body="Нужно починить порядок меток webhook."),
             )
 
         self.assertTrue(result["accepted"])
