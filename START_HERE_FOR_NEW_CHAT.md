@@ -22,6 +22,8 @@
 9. Если задача про автоматические правки после review, локальный исполнитель и полный PR-цикл:
    - `docs/GOSHA_OAUTH_EXECUTOR_RUNBOOK_RU.md`
    - `oauth_executor/AGENTS.md`
+   - перед любыми действиями по reviewer/executor выполни:
+     - `bash /home/max/GOSHA_PLATFORM/bin/check_oauth_agents.sh`
 10. Если задача уже перешла к собственной прошивке:
    - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
 11. Если задача относится к новому мобильному клиенту:

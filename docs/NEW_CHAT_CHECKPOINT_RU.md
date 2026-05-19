@@ -29,9 +29,16 @@
 ## Последняя зафиксированная точка
 
 - Ветка:
-  - `agent/bootstrap-gosha`
+  - `codex/reviewer-executor-polish-20260519`
 - Актуальный верхний коммит смотри через:
   - `git -C /home/max/GOSHA_PLATFORM log --oneline -1`
+- Перед любой работой по reviewer/executor обязательно проверь:
+  - `bash /home/max/GOSHA_PLATFORM/bin/check_oauth_agents.sh`
+  - `git -C /home/max/GOSHA_PLATFORM status --short --branch`
+- На `19 мая 2026` базовая ветка `codex/oauth-hardening-20260518` уже аккуратно сведена с `origin` без жёсткого `reset`.
+- Текущий пакет reviewer/executor вынесен на отдельную рабочую ветку:
+  - `codex/reviewer-executor-polish-20260519`
+- Следующему агенту не нужно повторять синхронизацию старой ветки, если задача уже идёт в новой ветке.
 
 ## Что уже сделано
 
@@ -129,13 +136,31 @@
   - созданы два реальных `GitHub OAuth App` для `oauth_reviewer` и `oauth_executor`;
   - локальные env-файлы уже подготовлены в `local_only/`;
   - `oauth_reviewer` и `oauth_executor` уже проходят `healthz`;
+  - reviewer и executor теперь явно закреплены на:
+    - `gpt-5.4`
+    - уровне размышления `xhigh`
+  - reviewer теперь должен подниматься как user-служба `gosha-oauth-reviewer.service`;
+  - reviewer теперь показывает живой статус и журнал текущей задачи review;
+  - reviewer отдельно показывает текущий этап, прошедшее время и давность последнего обновления задачи;
+  - reviewer и executor теперь держат длинные журналы и результаты во внутренних окнах со скроллом;
+  - reviewer и executor теперь могут открывать отдельные локальные окна терминала-наблюдателя с живым выводом `Codex CLI` и команд проверки;
   - GitHub OAuth-токены reviewer и executor уже вынесены в серверное файловое хранилище сеансов;
+  - reviewer и executor теперь используют разные имена browser cookie:
+    - `gosha_oauth_reviewer_session`
+    - `gosha_oauth_executor_session`
   - чтение журналов executor уже требует авторизацию;
   - executor получает в prompt только review-сводки и inline-комментарии от разрешённых логинов;
   - reviewer и executor принимают `next` после OAuth только как внутренний путь сервиса;
   - executor уже блокирует отправку изменений в защищённые ветки и в базовую ветку PR;
   - локальный executor уже работает как user-служба `gosha-oauth-executor.service`;
   - локальный обратный SSH-туннель уже работает как user-служба `gosha-oauth-executor-tunnel.service`;
+  - локальная страница executor теперь показывает список последних задач и позволяет открыть любую webhook-задачу по нажатию;
+  - локальная страница executor теперь явно показывает:
+    - текущий этап;
+    - сколько времени идёт задача;
+    - когда было последнее обновление журнала;
+    - возможное зависание, если задача долго молчит;
+  - executor уже ограничивает повторные автозапуски по одному и тому же review-коммиту и по числу автопрогонов на один PR;
   - webhook репозитория `MaxCorpOrg/GOSHA_PLATFORM` уже переведён на постоянный путь:
     - `http://151.241.228.232:18876/hooks/oauth-executor/github`
   - GitHub уже принял redelivery по этому адресу с кодом `200`;

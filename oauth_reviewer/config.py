@@ -38,8 +38,12 @@ class Settings:
     review_backend: str
     codex_command: str
     codex_model: str
+    codex_reasoning_effort: str
     codex_profile: str
     codex_timeout_seconds: int
+    open_terminal: bool
+    terminal_command: str
+    terminal_runtime_dir: Path
     openai_api_key: str
     openai_base_url: str
     openai_model: str
@@ -88,9 +92,21 @@ class Settings:
             repo_path=repo_path,
             review_backend=str(os.environ.get("OAUTH_REVIEWER_BACKEND", "auto") or "auto").strip().lower(),
             codex_command=str(os.environ.get("OAUTH_REVIEWER_CODEX_COMMAND", "codex") or "codex"),
-            codex_model=str(os.environ.get("OAUTH_REVIEWER_CODEX_MODEL", "") or ""),
+            codex_model=str(os.environ.get("OAUTH_REVIEWER_CODEX_MODEL", "gpt-5.4") or "gpt-5.4").strip(),
+            codex_reasoning_effort=str(os.environ.get("OAUTH_REVIEWER_CODEX_REASONING_EFFORT", "xhigh") or "xhigh").strip(),
             codex_profile=str(os.environ.get("OAUTH_REVIEWER_CODEX_PROFILE", "") or ""),
             codex_timeout_seconds=_as_int(os.environ.get("OAUTH_REVIEWER_CODEX_TIMEOUT_SECONDS"), 1800),
+            open_terminal=_as_bool(os.environ.get("OAUTH_REVIEWER_OPEN_TERMINAL"), False),
+            terminal_command=str(os.environ.get("OAUTH_REVIEWER_TERMINAL_COMMAND", "") or "").strip(),
+            terminal_runtime_dir=Path(
+                str(
+                    os.environ.get(
+                        "OAUTH_REVIEWER_TERMINAL_RUNTIME_DIR",
+                        "/home/max/GOSHA_PLATFORM/local_only/oauth_reviewer_terminals",
+                    )
+                    or "/home/max/GOSHA_PLATFORM/local_only/oauth_reviewer_terminals"
+                )
+            ).resolve(),
             openai_api_key=str(os.environ.get("OPENAI_API_KEY", "") or ""),
             openai_base_url=str(os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1").rstrip("/"),
             openai_model=str(os.environ.get("OPENAI_MODEL", "gpt-5.4-mini") or "gpt-5.4-mini"),

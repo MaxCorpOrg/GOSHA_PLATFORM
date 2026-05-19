@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,22 @@ from oauth_shared.process_stream import collect_process_output
 
 class CodexReviewError(RuntimeError):
     pass
+
+
+def _normalize_codex_log_line(line: str) -> str:
+    text = str(line or "").rstrip()
+    if not text:
+        return ""
+    ignored_fragments = (
+        "WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt",
+        "WARN codex_core_skills::loader: ignoring interface.icon_small",
+        "WARN codex_core_skills::loader: ignoring interface.icon_large",
+    )
+    if any(fragment in text for fragment in ignored_fragments):
+        return ""
+    if "stream disconnected - retrying sampling request" in text:
+        return "Временный обрыв потока ответа модели. Codex повторяет запрос."
+    return text
 
 
 def _resolve_codex_executable(codex_command: str) -> str:
@@ -65,8 +82,10 @@ def generate_review_markdown_via_codex(
     repo_path: Path,
     prompt: str,
     model: str,
+    reasoning_effort: str,
     profile: str,
     timeout_seconds: int,
+    log_cb=None,
 ) -> str:
     executable = _resolve_codex_executable(codex_command)
     if not repo_path.exists():
@@ -89,8 +108,13 @@ def generate_review_markdown_via_codex(
         ]
         if model:
             command.extend(["--model", model])
+        if reasoning_effort:
+            command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
         if profile:
             command.extend(["--profile", profile])
+
+        if log_cb is not None:
+            log_cb("$ " + shlex.join(command))
 
         process = subprocess.Popen(
             command,
@@ -102,10 +126,21 @@ def generate_review_markdown_via_codex(
             bufsize=1,
         )
 
+        output_lines: list[str] = []
+
+        def _on_line(line: str) -> None:
+            text = _normalize_codex_log_line(line)
+            if not text:
+                return
+            output_lines.append(text)
+            if log_cb is not None:
+                log_cb(text)
+
         try:
-            output_lines = collect_process_output(
+            collect_process_output(
                 process,
                 timeout_seconds=timeout_seconds,
+                on_line=_on_line,
                 stdin_text=prompt,
             )
         except subprocess.TimeoutExpired as exc:

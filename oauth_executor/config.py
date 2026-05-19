@@ -43,8 +43,14 @@ class Settings:
     validate_command: str
     codex_command: str
     codex_model: str
+    codex_reasoning_effort: str
     codex_profile: str
     codex_timeout_seconds: int
+    open_terminal: bool
+    terminal_command: str
+    terminal_runtime_dir: Path
+    max_auto_runs_per_pr: int
+    auto_run_window_seconds: int
     comment_on_pr: bool
     cookie_secure: bool
     git_author_name: str
@@ -100,9 +106,23 @@ class Settings:
             worktree_root=Path(str(os.environ.get("OAUTH_EXECUTOR_WORKTREE_ROOT", "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_worktrees") or "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_worktrees")).resolve(),
             validate_command=str(os.environ.get("OAUTH_EXECUTOR_VALIDATE_COMMAND", "bash bin/ci_validate.sh") or "bash bin/ci_validate.sh").strip(),
             codex_command=str(os.environ.get("OAUTH_EXECUTOR_CODEX_COMMAND", "codex") or "codex").strip(),
-            codex_model=str(os.environ.get("OAUTH_EXECUTOR_CODEX_MODEL", "") or "").strip(),
+            codex_model=str(os.environ.get("OAUTH_EXECUTOR_CODEX_MODEL", "gpt-5.4") or "gpt-5.4").strip(),
+            codex_reasoning_effort=str(os.environ.get("OAUTH_EXECUTOR_CODEX_REASONING_EFFORT", "xhigh") or "xhigh").strip(),
             codex_profile=str(os.environ.get("OAUTH_EXECUTOR_CODEX_PROFILE", "") or "").strip(),
             codex_timeout_seconds=_as_int(os.environ.get("OAUTH_EXECUTOR_CODEX_TIMEOUT_SECONDS"), 1800),
+            open_terminal=_as_bool(os.environ.get("OAUTH_EXECUTOR_OPEN_TERMINAL"), False),
+            terminal_command=str(os.environ.get("OAUTH_EXECUTOR_TERMINAL_COMMAND", "") or "").strip(),
+            terminal_runtime_dir=Path(
+                str(
+                    os.environ.get(
+                        "OAUTH_EXECUTOR_TERMINAL_RUNTIME_DIR",
+                        "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_terminals",
+                    )
+                    or "/home/max/GOSHA_PLATFORM/local_only/oauth_executor_terminals"
+                )
+            ).resolve(),
+            max_auto_runs_per_pr=_as_int(os.environ.get("OAUTH_EXECUTOR_MAX_AUTO_RUNS_PER_PR"), 3),
+            auto_run_window_seconds=_as_int(os.environ.get("OAUTH_EXECUTOR_AUTO_RUN_WINDOW_SECONDS"), 21600),
             comment_on_pr=_as_bool(os.environ.get("OAUTH_EXECUTOR_COMMENT_ON_PR"), True),
             cookie_secure=_as_bool(os.environ.get("OAUTH_EXECUTOR_COOKIE_SECURE"), False),
             git_author_name=str(os.environ.get("OAUTH_EXECUTOR_GIT_AUTHOR_NAME", "GOSHA Codex Executor") or "GOSHA Codex Executor").strip(),

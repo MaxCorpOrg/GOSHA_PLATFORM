@@ -1,0 +1,17 @@
+[Unit]
+Description=GOSHA OAuth reviewer on local workstation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/GOSHA_PLATFORM
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=%h/GOSHA_PLATFORM
+EnvironmentFile=%h/GOSHA_PLATFORM/local_only/oauth_reviewer.env
+ExecStart=/usr/bin/bash %h/GOSHA_PLATFORM/bin/run_local_oauth_reviewer.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

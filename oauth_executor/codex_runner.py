@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,6 +16,22 @@ class CodexExecutionError(RuntimeError):
 COMMIT_MESSAGE_FILE = ".codex_executor_commit_message.txt"
 SUMMARY_FILE = ".codex_executor_summary.md"
 LAST_MESSAGE_FILE = ".codex_executor_last_message.txt"
+
+
+def _normalize_codex_log_line(line: str) -> str:
+    text = str(line or "").rstrip()
+    if not text:
+        return ""
+    ignored_fragments = (
+        "WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt",
+        "WARN codex_core_skills::loader: ignoring interface.icon_small",
+        "WARN codex_core_skills::loader: ignoring interface.icon_large",
+    )
+    if any(fragment in text for fragment in ignored_fragments):
+        return ""
+    if "stream disconnected - retrying sampling request" in text:
+        return "Временный обрыв потока ответа модели. Codex повторяет запрос."
+    return text
 
 
 def build_executor_prompt(
@@ -82,6 +99,7 @@ def run_codex_exec(
     worktree_path: Path,
     prompt: str,
     model: str,
+    reasoning_effort: str,
     profile: str,
     timeout_seconds: int,
     log_cb,
@@ -109,9 +127,13 @@ def run_codex_exec(
     ]
     if model:
         command.extend(["--model", model])
+    if reasoning_effort:
+        command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     if profile:
         command.extend(["--profile", profile])
     command.append("-")
+
+    log_cb("$ " + shlex.join(command))
 
     process = subprocess.Popen(
         command,
@@ -123,11 +145,17 @@ def run_codex_exec(
         bufsize=1,
     )
 
+    def _on_line(line: str) -> None:
+        normalized = _normalize_codex_log_line(line)
+        if not normalized:
+            return
+        log_cb(normalized)
+
     try:
         collect_process_output(
             process,
             timeout_seconds=timeout_seconds,
-            on_line=log_cb,
+            on_line=_on_line,
             stdin_text=prompt,
         )
     except subprocess.TimeoutExpired as exc:

@@ -8,11 +8,12 @@ from typing import Any
 
 
 @dataclass
-class ExecutionJob:
+class ReviewJob:
     job_id: str
+    owner_session_id: str
     repo_full_name: str
     pr_number: int
-    trigger: str
+    mode: str
     status: str = "queued"
     current_stage: str = "Ожидание запуска"
     created_at: float = field(default_factory=time.time)
@@ -28,7 +29,7 @@ class ExecutionJob:
             "job_id": self.job_id,
             "repo_full_name": self.repo_full_name,
             "pr_number": self.pr_number,
-            "trigger": self.trigger,
+            "mode": self.mode,
             "status": self.status,
             "current_stage": self.current_stage,
             "created_at": self.created_at,
@@ -44,31 +45,35 @@ class ExecutionJob:
 class JobStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._jobs: dict[str, ExecutionJob] = {}
+        self._jobs: dict[str, ReviewJob] = {}
 
-    def create_or_get_active(self, *, repo_full_name: str, pr_number: int, trigger: str) -> tuple[ExecutionJob, bool]:
+    def create_or_get_active(
+        self,
+        *,
+        owner_session_id: str,
+        repo_full_name: str,
+        pr_number: int,
+        mode: str,
+    ) -> tuple[ReviewJob, bool]:
         with self._lock:
             for job in self._jobs.values():
                 if (
-                    job.repo_full_name == repo_full_name
+                    job.owner_session_id == owner_session_id
+                    and job.repo_full_name == repo_full_name
                     and job.pr_number == pr_number
+                    and job.mode == mode
                     and job.status in {"queued", "running"}
                 ):
                     return job, False
-            job = ExecutionJob(job_id=uuid.uuid4().hex, repo_full_name=repo_full_name, pr_number=pr_number, trigger=trigger)
+            job = ReviewJob(
+                job_id=uuid.uuid4().hex,
+                owner_session_id=owner_session_id,
+                repo_full_name=repo_full_name,
+                pr_number=pr_number,
+                mode=mode,
+            )
             self._jobs[job.job_id] = job
             return job, True
-
-    def find_active(self, *, repo_full_name: str, pr_number: int) -> ExecutionJob | None:
-        with self._lock:
-            for job in self._jobs.values():
-                if (
-                    job.repo_full_name == repo_full_name
-                    and job.pr_number == pr_number
-                    and job.status in {"queued", "running"}
-                ):
-                    return job
-            return None
 
     def append_log(self, job_id: str, message: str) -> None:
         with self._lock:
@@ -111,11 +116,16 @@ class JobStore:
             job.error = error
             job.logs.append(f"ERROR: {error}")
 
-    def get(self, job_id: str) -> ExecutionJob | None:
+    def get(self, job_id: str) -> ReviewJob | None:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def list_jobs(self) -> list[dict[str, Any]]:
+    def list_jobs(self, *, owner_session_id: str) -> list[dict[str, Any]]:
         with self._lock:
-            jobs = sorted(self._jobs.values(), key=lambda item: item.created_at, reverse=True)
-            return [job.to_dict() for job in jobs[:12]]
+            jobs = [
+                job
+                for job in self._jobs.values()
+                if job.owner_session_id == owner_session_id
+            ]
+            jobs.sort(key=lambda item: item.created_at, reverse=True)
+            return [job.to_dict() for job in jobs[:20]]

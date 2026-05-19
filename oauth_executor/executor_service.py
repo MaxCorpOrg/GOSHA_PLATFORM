@@ -5,6 +5,7 @@ import json
 import secrets
 import subprocess
 import threading
+import time
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from oauth_executor.git_worktree import (
     push_head_to_branch,
 )
 from oauth_executor.jobs import JobStore
+from oauth_shared.local_terminal import LocalTerminalMonitor
 from oauth_shared.session_store import SessionStore
 from oauth_reviewer.github_api import (
     GitHubApiError,
@@ -62,6 +64,9 @@ class ExecutorService:
         self.settings = settings
         self.jobs = JobStore()
         self.session_store = SessionStore(settings.session_store_dir, settings.session_ttl_seconds)
+        self._webhook_lock = threading.Lock()
+        self._processed_webhook_keys: set[tuple[str, int, str, str]] = set()
+        self._auto_run_history: dict[tuple[str, int], list[float]] = {}
 
     def session_payload(self, request) -> dict[str, Any]:
         github_session = self.github_session(request)
@@ -74,6 +79,9 @@ class ExecutorService:
             "service_token_ready": self.settings.service_token_ready,
             "webhook_ready": self.settings.webhook_ready,
             "codex_ready": self.settings.codex_ready,
+            "codex_model": self.settings.codex_model,
+            "codex_reasoning_effort": self.settings.codex_reasoning_effort,
+            "codex_profile": self.settings.codex_profile,
             "repo_path": str(self.settings.repo_path),
             "worktree_root": str(self.settings.worktree_root),
         }
@@ -313,6 +321,59 @@ class ExecutorService:
                 "Нужна отдельная рабочая head-ветка Pull Request."
             )
 
+    def _reviewed_commit_key(self, *, review: dict[str, Any], pr: dict[str, Any]) -> str:
+        reviewed_commit = str(review.get("commit_id", "") or "").strip().lower()
+        if reviewed_commit:
+            return reviewed_commit
+        return str((((pr.get("head") or {}).get("sha")) or "")).strip().lower()
+
+    def _pr_history_key(self, *, repo_full_name: str, pr_number: int) -> tuple[str, int]:
+        return (repo_full_name.strip().lower(), int(pr_number))
+
+    def _allow_webhook_auto_run(
+        self,
+        *,
+        repo_full_name: str,
+        pr_number: int,
+        reviewer_login: str,
+        reviewed_commit_key: str,
+    ) -> tuple[bool, str]:
+        dedupe_key = (
+            repo_full_name.strip().lower(),
+            int(pr_number),
+            reviewer_login.strip().lower(),
+            reviewed_commit_key.strip().lower() or "unknown-commit",
+        )
+        history_key = self._pr_history_key(repo_full_name=repo_full_name, pr_number=pr_number)
+        now = time.time()
+        window_seconds = max(60, int(self.settings.auto_run_window_seconds))
+
+        with self._webhook_lock:
+            if dedupe_key in self._processed_webhook_keys:
+                return (
+                    False,
+                    "Повторный review по тому же коммиту уже был обработан. Новый автозапуск не нужен.",
+                )
+
+            history = [
+                timestamp
+                for timestamp in self._auto_run_history.get(history_key, [])
+                if now - timestamp <= window_seconds
+            ]
+            self._auto_run_history[history_key] = history
+            max_runs = int(self.settings.max_auto_runs_per_pr)
+            if max_runs > 0 and len(history) >= max_runs:
+                return (
+                    False,
+                    f"Лимит автоматических прогонов по PR уже достигнут: {max_runs} за окно {window_seconds} секунд. "
+                    "Нужен ручной запуск или человеческая проверка.",
+                )
+
+            self._processed_webhook_keys.add(dedupe_key)
+            history.append(now)
+            self._auto_run_history[history_key] = history
+            return True, ""
+
     def _review_scope(
         self,
         *,
@@ -382,8 +443,9 @@ class ExecutorService:
         ]
         return selected_reviews, selected_review_comments, scope_note
 
-    def _run_shell_command(self, *, command: str, cwd: Path, job_id: str) -> None:
-        self._log(job_id, f"$ {command}")
+    def _run_shell_command(self, *, command: str, cwd: Path, job_id: str, log_cb=None) -> None:
+        logger = log_cb or (lambda message: self._log(job_id, message))
+        logger(f"$ {command}")
         process = subprocess.Popen(
             ["bash", "-lc", command],
             cwd=str(cwd),
@@ -397,7 +459,7 @@ class ExecutorService:
             collect_process_output(
                 process,
                 timeout_seconds=self.settings.codex_timeout_seconds,
-                on_line=lambda line: self._log(job_id, line),
+                on_line=logger,
                 kill_tree_on_timeout=True,
             )
         except subprocess.TimeoutExpired as exc:
@@ -420,12 +482,34 @@ class ExecutorService:
         trigger_review_login: str = "",
     ) -> None:
         self.jobs.start(job_id)
+        monitor: LocalTerminalMonitor | None = None
         try:
+            monitor = LocalTerminalMonitor(
+                title=f"GOSHA executor PR#{pr_number}",
+                enabled=self.settings.open_terminal,
+                runtime_root=self.settings.terminal_runtime_dir,
+                preferred_terminal_command=self.settings.terminal_command,
+            )
+            terminal_message = monitor.start()
+
+            def log(message: str) -> None:
+                self._log(job_id, message)
+                if monitor is not None:
+                    monitor.append(message)
+
+            def set_stage(stage: str) -> None:
+                self.jobs.set_stage(job_id, stage)
+                log(f"[этап] {stage}")
+
+            set_stage("Подготовка задачи")
+            log(terminal_message)
+            set_stage("Проверка доступа к репозиторию")
             ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
             if not access_token:
                 raise ExecutorServiceError("Нет токена GitHub для исполнительного агента.")
 
-            self._log(job_id, f"Начинаю обработку PR #{pr_number} в {repo_full_name}")
+            log(f"Начинаю обработку PR #{pr_number} в {repo_full_name}")
+            set_stage("Загрузка Pull Request")
             pr_payload = fetch_pull_request(access_token, repo_full_name, pr_number)
             if not isinstance((pr_payload.get("head") or {}).get("repo"), dict):
                 raise ExecutorServiceError("GitHub не вернул head-репозиторий Pull Request.")
@@ -437,6 +521,7 @@ class ExecutorService:
                 raise ExecutorServiceError("GitHub не вернул head-ветку Pull Request.")
             self._ensure_head_branch_is_safe(pr_payload=pr_payload, head_branch=head_branch)
 
+            set_stage("Загрузка review-замечаний")
             review_comments = fetch_pull_request_review_comments(access_token, repo_full_name, pr_number)
             reviews = fetch_pull_request_reviews(access_token, repo_full_name, pr_number)
             file_payloads = fetch_pull_request_files(access_token, repo_full_name, pr_number)
@@ -473,6 +558,7 @@ class ExecutorService:
                 )
                 return
 
+            set_stage("Подготовка рабочей копии")
             worktree_path, local_branch = prepare_worktree(
                 repo_path=self.settings.repo_path,
                 worktree_root=self.settings.worktree_root,
@@ -480,14 +566,14 @@ class ExecutorService:
                 branch_name=head_branch,
                 pr_number=pr_number,
             )
-            self._log(job_id, f"Рабочая копия подготовлена: {worktree_path}")
-            self._log(job_id, f"Локальная рабочая ветка: {local_branch}")
-            self._log(job_id, f"Текущий head до правок: {current_head_sha(worktree_path)}")
-            self._log(
-                job_id,
+            log(f"Рабочая копия подготовлена: {worktree_path}")
+            log(f"Локальная рабочая ветка: {local_branch}")
+            log(f"Текущий head до правок: {current_head_sha(worktree_path)}")
+            log(
                 f"В prompt передаю только review-замечания: review={len(actionable_reviews)}, inline={len(actionable_inline)}.",
             )
 
+            set_stage("Сбор правил и prompt")
             changed_files = [str(item.get("filename", "") or "").strip() for item in file_payloads if item.get("filename")]
             agents_sections = collect_relevant_agents(self.settings.repo_path, changed_files)
             prompt = build_executor_prompt(
@@ -500,15 +586,17 @@ class ExecutorService:
                 validate_command=self.settings.validate_command,
             )
 
-            self._log(job_id, "Запускаю локальный Codex как исполнительный агент.")
+            set_stage("Ожидание ответа модели в Codex CLI")
+            log("Запускаю локальный Codex как исполнительный агент.")
             run_codex_exec(
                 codex_command=self.settings.codex_command,
                 worktree_path=worktree_path,
                 prompt=prompt,
                 model=self.settings.codex_model,
+                reasoning_effort=self.settings.codex_reasoning_effort,
                 profile=self.settings.codex_profile,
                 timeout_seconds=self.settings.codex_timeout_seconds,
-                log_cb=lambda message: self._log(job_id, message),
+                log_cb=log,
             )
 
             commit_message_path = worktree_path / COMMIT_MESSAGE_FILE
@@ -523,7 +611,13 @@ class ExecutorService:
                 summary_path.unlink()
 
             if self.settings.validate_command:
-                self._run_shell_command(command=self.settings.validate_command, cwd=worktree_path, job_id=job_id)
+                set_stage("Проверка изменений")
+                self._run_shell_command(
+                    command=self.settings.validate_command,
+                    cwd=worktree_path,
+                    job_id=job_id,
+                    log_cb=log,
+                )
 
             if not has_changes(worktree_path):
                 result = {
@@ -533,6 +627,7 @@ class ExecutorService:
                     "worktree_path": str(worktree_path),
                     "status_note": "После автоматического прогона изменений в рабочей копии не осталось.",
                     "summary": summary_text,
+                    "terminal_log_path": str(monitor.log_path) if monitor is not None else "",
                 }
                 if self.settings.comment_on_pr:
                     create_issue_comment(
@@ -541,23 +636,27 @@ class ExecutorService:
                         pr_number,
                         f"{EXECUTOR_COMMENT_MARKER} завершил прогон, но правок в рабочей копии не осталось. Возможно, замечания уже были закрыты ранее.",
                     )
+                set_stage("Задача завершена без новых правок")
                 self.jobs.finish(job_id, result=result)
+                if monitor is not None:
+                    monitor.finish("Executor завершил задачу без новых правок.")
                 return
 
+            set_stage("Коммит и отправка изменений")
             commit_sha = commit_all_changes(
                 worktree_path=worktree_path,
                 message=commit_message,
                 author_name=self.settings.git_author_name,
                 author_email=self.settings.git_author_email,
             )
-            self._log(job_id, f"Создан коммит: {commit_sha}")
+            log(f"Создан коммит: {commit_sha}")
             push_head_to_branch(
                 worktree_path=worktree_path,
                 repo_full_name=repo_full_name,
                 branch_name=head_branch,
                 access_token=access_token,
             )
-            self._log(job_id, f"Изменения отправлены в ветку {head_branch}")
+            log(f"Изменения отправлены в ветку {head_branch}")
 
             result = {
                 "repo_full_name": repo_full_name,
@@ -566,6 +665,7 @@ class ExecutorService:
                 "worktree_path": str(worktree_path),
                 "commit_sha": commit_sha,
                 "summary": summary_text,
+                "terminal_log_path": str(monitor.log_path) if monitor is not None else "",
             }
             if self.settings.comment_on_pr:
                 body = (
@@ -577,7 +677,14 @@ class ExecutorService:
                     body += f"\nКраткое резюме:\n\n{summary_text}\n"
                 create_issue_comment(access_token, repo_full_name, pr_number, body)
             self.jobs.finish(job_id, result=result)
+            if monitor is not None:
+                monitor.finish("Executor завершил задачу успешно.")
         except (ExecutorServiceError, GitHubApiError, WorktreeError, CodexExecutionError, ValueError) as exc:
+            if monitor is not None:
+                try:
+                    monitor.finish(f"Executor завершился с ошибкой: {exc}")
+                except Exception:
+                    pass
             if self.settings.comment_on_pr and access_token:
                 try:
                     create_issue_comment(
@@ -590,6 +697,13 @@ class ExecutorService:
                 except Exception:
                     pass
             self.jobs.fail(job_id, str(exc))
+        except Exception as exc:
+            if monitor is not None:
+                try:
+                    monitor.finish(f"Executor завершился с неожиданной ошибкой: {exc}")
+                except Exception:
+                    pass
+            self.jobs.fail(job_id, f"Неожиданный сбой executor: {exc}")
 
     def list_jobs(self) -> list[dict[str, Any]]:
         return self.jobs.list_jobs()
@@ -626,6 +740,13 @@ class ExecutorService:
         if not repo_full_name or not pr_number:
             raise ExecutorServiceError("Webhook GitHub не передал repository.full_name или номер Pull Request.")
         ensure_repo_allowed(repo_full_name, self.settings.allowed_repos)
+        active_job = self.jobs.find_active(repo_full_name=repo_full_name, pr_number=pr_number)
+        if active_job is not None:
+            return {
+                "accepted": True,
+                "job": active_job.to_dict(),
+                "reason": "По этому Pull Request уже идёт активная задача исполнителя.",
+            }
 
         if review_state == "commented" and self._is_clean_review_summary(str(review.get("body", "") or "")):
             review_comments = fetch_pull_request_review_comments(self.settings.github_executor_token, repo_full_name, pr_number)
@@ -639,10 +760,20 @@ class ExecutorService:
                     "reason": "Чистый COMMENTED review без inline-замечаний пропущен: автоматическая правка не требуется.",
                 }
 
+        reviewed_commit_key = self._reviewed_commit_key(review=review, pr=pr)
+        allowed, reason = self._allow_webhook_auto_run(
+            repo_full_name=repo_full_name,
+            pr_number=pr_number,
+            reviewer_login=login,
+            reviewed_commit_key=reviewed_commit_key,
+        )
+        if not allowed:
+            return {"accepted": False, "reason": reason}
+
         job = self.start_webhook_job(
             repo_full_name=repo_full_name,
             pr_number=pr_number,
             trigger_review_id=int(review.get("id", 0) or 0),
             trigger_review_login=login,
         )
-        return {"accepted": True, "job": job}
+        return {"accepted": True, "job": job, "reviewed_commit": reviewed_commit_key}
