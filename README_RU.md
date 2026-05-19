@@ -112,6 +112,83 @@ bash bin/check_local_gosha_stack.sh
 bash bin/check_gosha_panel_stack.sh
 ```
 
+Проверка репозитория перед отправкой ветки в `GitHub`:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+bash bin/ci_validate.sh
+```
+
+Подготовка отдельной рабочей ветки под `Codex` и `Pull Request`:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+bash bin/start_codex_pr_branch.sh operator-ux-pass main
+```
+
+Подробный контур review и повторных правок описан в:
+
+```text
+docs/CODEX_PR_FLOW_RU.md
+```
+
+Важно:
+
+- если нужен строго `OAuth`-режим без `OPENAI_API_KEY` в secrets репозитория, используй официальный review `Codex` в GitHub и внешний OAuth-сервис для любых дополнительных сервисов проверки;
+- сам `OpenAI API` не переводится на `OAuth` вместо серверного API-ключа.
+
+В этом репозитории уже добавлен внешний ручной сервис проверки:
+
+```text
+oauth_reviewer/
+docs/GOSHA_OAUTH_REVIEWER_RUNBOOK_RU.md
+```
+
+Он умеет работать в двух режимах:
+
+- основной для этой машины: через уже авторизованный локальный `Codex CLI`;
+- резервный: через совместимый HTTP-backend модели, если он отдельно задан в env.
+
+Локальный запуск сервиса:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+python3 -m pip install -r oauth_reviewer/requirements.txt
+bash bin/run_local_oauth_reviewer.sh
+```
+
+Для полного цикла после замечаний есть и отдельный локальный исполнитель:
+
+```text
+oauth_executor/
+docs/GOSHA_OAUTH_EXECUTOR_RUNBOOK_RU.md
+```
+
+Локальный запуск исполнителя:
+
+```bash
+cd /home/max/GOSHA_PLATFORM
+python3 -m pip install -r oauth_executor/requirements.txt
+bash bin/run_local_oauth_executor.sh
+```
+
+Важно:
+
+- для приватного репозитория в `GitHub OAuth` здесь нужен `GITHUB_OAUTH_SCOPE=read:user repo`;
+- полностью автоматический запуск после review требует не только пользовательский `OAuth`, но и отдельный серверный токен `GitHub` или `GitHub App`, потому что webhook приходит без сеанса браузера пользователя.
+- GitHub OAuth-токены reviewer и executor теперь держатся в серверном файловом хранилище сеансов, а не внутри client-side cookie браузера;
+- чтение журналов executor теперь доступно только после авторизации через `GitHub OAuth`;
+- локальные рабочие env-файлы этой машины хранятся только в `local_only/oauth_reviewer.env` и `local_only/oauth_executor.env`;
+- для постоянного автоматического режима теперь используются две локальные user-службы:
+  - `gosha-oauth-executor.service`
+  - `gosha-oauth-executor-tunnel.service`
+- их можно установить и запустить одной командой:
+  - `bash /home/max/GOSHA_PLATFORM/bin/install_local_oauth_executor_user_services.sh`
+- постоянный публичный webhook-адрес теперь такой:
+  - `http://151.241.228.232:18876/hooks/oauth-executor/github`
+- серверная панель дополнительно даёт операторский маршрут проверки связности executor:
+  - `GET /api/operator/oauth-executor/healthz`
+
 Совместимые и продуктовые пути текущего этапа:
 
 ```text

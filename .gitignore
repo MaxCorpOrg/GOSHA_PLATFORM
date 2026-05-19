@@ -14,3 +14,6 @@ venv/
 dist/
 build/
 tmp/
+.codex_executor_last_message.txt
+.codex_executor_commit_message.txt
+.codex_executor_summary.md
