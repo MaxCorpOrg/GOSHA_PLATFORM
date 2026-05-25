@@ -14,6 +14,10 @@
     - `commit` — коммит
     - `push` — отправка изменений
     - `pull` — получение изменений
+- Для параллельной ручной разработки зафиксирована отдельная политика `git worktree`:
+  - ручные рабочие деревья выносятся в `/home/max/worktrees/gosha/<контур>-<задача>`;
+  - новые ручные ветки `GOSHA_PLATFORM` по умолчанию ответвляются от `origin/main`, если задача не продолжает уже открытую профильную ветку;
+  - автоматические executor-деревья остаются только в `local_only/oauth_executor_worktrees`.
 - В репозитории добавлен отдельный контур branch -> `Pull Request` -> `GitHub Actions` -> AI review:
   - локальная и CI-проверка `bash bin/ci_validate.sh`
   - helper старта рабочей ветки `bash bin/start_codex_pr_branch.sh`
