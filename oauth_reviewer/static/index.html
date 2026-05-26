@@ -75,8 +75,11 @@
       font: inherit;
     }
     textarea {
-      min-height: 280px;
-      resize: vertical;
+      height: 360px;
+      min-height: 360px;
+      max-height: 360px;
+      resize: none;
+      overflow: auto;
       line-height: 1.45;
     }
     .actions {
@@ -120,6 +123,33 @@
       background: rgba(19, 111, 99, 0.09);
       border: 1px solid rgba(19, 111, 99, 0.2);
     }
+    .pill.warn {
+      background: rgba(217, 93, 57, 0.12);
+      border-color: rgba(217, 93, 57, 0.35);
+      color: #8a3317;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .stat-box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
     pre {
       white-space: pre-wrap;
       word-break: break-word;
@@ -127,6 +157,31 @@
       font-family: "Cascadia Mono", "SFMono-Regular", monospace;
       font-size: 13px;
       line-height: 1.5;
+      overflow: auto;
+    }
+    .progress {
+      height: 260px;
+      min-height: 260px;
+      max-height: 260px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+    .busy {
+      opacity: 0.72;
+      cursor: wait;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    #raw {
+      max-height: 220px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
     }
     #status {
       min-height: 22px;
@@ -140,6 +195,9 @@
       .hero h1 {
         font-size: 26px;
       }
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
     }
   </style>
 </head>
@@ -151,6 +209,26 @@
       <div class="meta">
         <span class="pill" id="sessionPill">Проверка сеанса...</span>
         <span class="pill" id="readyPill">Проверка конфигурации...</span>
+        <span class="pill" id="jobPill">Задача review: нет</span>
+        <span class="pill" id="activityPill">Активность: нет задачи</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Статус</div>
+          <div class="stat-value" id="statStatus">Нет задачи</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Текущий этап</div>
+          <div class="stat-value" id="statStage">Нет задачи</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Прошло времени</div>
+          <div class="stat-value" id="statElapsed">0 с</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Последнее обновление</div>
+          <div class="stat-value" id="statLastUpdate">Нет данных</div>
+        </div>
       </div>
     </section>
 
@@ -175,6 +253,11 @@
     </section>
 
     <section class="card">
+      <label for="progress">Состояние review</label>
+      <pre id="progress" class="progress">Пока задач нет.</pre>
+    </section>
+
+    <section class="card">
       <label for="output">Результат review</label>
       <textarea id="output" placeholder="Здесь появится сгенерированный review." spellcheck="false"></textarea>
     </section>
@@ -193,10 +276,189 @@
     const status = document.getElementById("status");
     const sessionPill = document.getElementById("sessionPill");
     const readyPill = document.getElementById("readyPill");
+    const jobPill = document.getElementById("jobPill");
+    const activityPill = document.getElementById("activityPill");
+    const progress = document.getElementById("progress");
+    const loginBtn = document.getElementById("loginBtn");
+    const previewBtn = document.getElementById("previewBtn");
+    const publishBtn = document.getElementById("publishBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const statStatus = document.getElementById("statStatus");
+    const statStage = document.getElementById("statStage");
+    const statElapsed = document.getElementById("statElapsed");
+    const statLastUpdate = document.getElementById("statLastUpdate");
+    const CURRENT_JOB_STORAGE_KEY = "gosha_oauth_reviewer_current_job_id";
+    let currentJobId = "";
+    let pollTimer = 0;
+    let elapsedTimer = 0;
+    let currentJob = null;
+    let isBusy = false;
+    const STALL_WARNING_SECONDS = 45;
 
     function setStatus(text, error = false) {
       status.textContent = text;
       status.style.color = error ? "#a13020" : "#5f6c76";
+    }
+
+    function modeLabel(mode) {
+      return mode === "publish" ? "публикация review" : "preview review";
+    }
+
+    function statusLabel(value) {
+      if (value === "queued") return "в очереди";
+      if (value === "running") return "выполняется";
+      if (value === "completed") return "завершён";
+      if (value === "failed") return "ошибка";
+      return value || "неизвестно";
+    }
+
+    function backendLabel(value) {
+      if (value === "codex_cli") return "локальный Codex CLI";
+      if (value === "openai_api") return "HTTP-backend модели";
+      return "не готов";
+    }
+
+    function formatTime(unixSeconds) {
+      if (!unixSeconds) return "время неизвестно";
+      const date = new Date(Number(unixSeconds) * 1000);
+      if (Number.isNaN(date.getTime())) return "время неизвестно";
+      return date.toLocaleString("ru-RU");
+    }
+
+    function formatElapsed(startedAt) {
+      if (!startedAt) return "";
+      const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - Number(startedAt)));
+      return `${elapsed} с`;
+    }
+
+    function formatAge(unixSeconds) {
+      if (!unixSeconds) return "нет данных";
+      const age = Math.max(0, Math.floor(Date.now() / 1000 - Number(unixSeconds)));
+      return `${age} с назад`;
+    }
+
+    function setBusy(value) {
+      isBusy = Boolean(value);
+      previewBtn.disabled = isBusy;
+      publishBtn.disabled = isBusy;
+      loginBtn.disabled = isBusy;
+      repoInput.disabled = isBusy;
+      prInput.disabled = isBusy;
+      document.body.classList.toggle("busy", isBusy);
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = 0;
+      }
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = 0;
+      }
+    }
+
+    function updateRunningStatus() {
+      if (!currentJob) return;
+      const currentStage = currentJob.current_stage || "Этап не определён";
+      const lastLog = Array.isArray(currentJob.logs) && currentJob.logs.length
+        ? currentJob.logs[currentJob.logs.length - 1]
+        : "";
+      const elapsedText = currentJob.status === "running" ? `, прошло ${formatElapsed(currentJob.started_at)}` : "";
+      const idleSeconds = currentJob.last_log_at
+        ? Math.max(0, Math.floor(Date.now() / 1000 - Number(currentJob.last_log_at)))
+        : 0;
+      const staleNote = currentJob.status === "running" && idleSeconds >= STALL_WARNING_SECONDS
+        ? ` Нет новых событий уже ${idleSeconds} с: возможно, задача зависла или очень долго ждёт ответ модели.`
+        : "";
+      const suffix = lastLog ? ` Последний этап: ${lastLog}` : "";
+      setStatus(`Задача ${currentJob.job_id}: ${statusLabel(currentJob.status)}${elapsedText}. Этап: ${currentStage}.${suffix}${staleNote}`);
+      statStatus.textContent = statusLabel(currentJob.status);
+      statStage.textContent = currentStage;
+      statElapsed.textContent = currentJob.started_at ? formatElapsed(currentJob.started_at) : "0 с";
+      statLastUpdate.textContent = formatAge(currentJob.last_log_at);
+      activityPill.textContent = currentJob.status === "running"
+        ? (idleSeconds >= STALL_WARNING_SECONDS
+          ? `Активность: нет новых событий ${idleSeconds} с`
+          : `Активность: обновление ${formatAge(currentJob.last_log_at)}`)
+        : "Активность: задача завершена";
+      activityPill.classList.toggle("warn", currentJob.status === "running" && idleSeconds >= STALL_WARNING_SECONDS);
+    }
+
+    function startElapsedTimer() {
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+      }
+      elapsedTimer = window.setInterval(() => {
+        if (currentJob && currentJob.status === "running") {
+          updateRunningStatus();
+        }
+      }, 1000);
+    }
+
+    function startPolling(jobId) {
+      stopPolling();
+      startElapsedTimer();
+      pollTimer = window.setTimeout(async () => {
+        try {
+          await fetchJob(jobId);
+        } catch (error) {
+          setBusy(false);
+          setStatus(String(error), true);
+        }
+      }, 1500);
+    }
+
+    function renderJob(job) {
+      currentJob = job || null;
+      if (!job) {
+        currentJobId = "";
+        localStorage.removeItem(CURRENT_JOB_STORAGE_KEY);
+        jobPill.textContent = "Задача review: нет";
+        activityPill.textContent = "Активность: нет задачи";
+        activityPill.classList.remove("warn");
+        statStatus.textContent = "Нет задачи";
+        statStage.textContent = "Нет задачи";
+        statElapsed.textContent = "0 с";
+        statLastUpdate.textContent = "Нет данных";
+        progress.textContent = "Пока задач нет.";
+        setBusy(false);
+        return;
+      }
+      currentJobId = job.job_id || "";
+      localStorage.setItem(CURRENT_JOB_STORAGE_KEY, currentJobId);
+      jobPill.textContent = currentJobId
+        ? `Задача review: ${currentJobId.slice(0, 8)} · ${statusLabel(job.status)}`
+        : "Задача review: нет";
+
+      const lines = [
+        `Режим: ${modeLabel(job.mode)}`,
+        `Статус: ${statusLabel(job.status)}`,
+        `Текущий этап: ${job.current_stage || "Этап не определён"}`,
+        `Репозиторий: ${job.repo_full_name || "-"}`,
+        `PR: #${job.pr_number || "-"}`,
+        `Создано: ${formatTime(job.created_at)}`,
+      ];
+      if (job.started_at) lines.push(`Запущено: ${formatTime(job.started_at)}`);
+      if (job.finished_at) lines.push(`Завершено: ${formatTime(job.finished_at)}`);
+      if (job.status === "running") lines.push(`Прошло времени: ${formatElapsed(job.started_at)}`);
+      if (job.last_log_at) lines.push(`Последнее обновление: ${formatTime(job.last_log_at)} (${formatAge(job.last_log_at)})`);
+      if (job.error) lines.push(`Ошибка: ${job.error}`);
+      if (job.result?.github_review?.html_url) lines.push(`Ссылка review: ${job.result.github_review.html_url}`);
+      const logText = Array.isArray(job.logs) && job.logs.length ? job.logs.join("\n") : "Пока журнал пуст.";
+      progress.textContent = `${lines.join("\n")}\n\nЖурнал:\n${logText}`;
+
+      if (job.result?.review_markdown) {
+        output.value = job.result.review_markdown;
+      }
+      updateRunningStatus();
+      const stillRunning = job.status === "queued" || job.status === "running";
+      setBusy(stillRunning);
+      if (stillRunning) {
+        startPolling(job.job_id);
+      } else {
+        stopPolling();
+      }
     }
 
     function payload() {
@@ -216,7 +478,7 @@
       sessionPill.textContent = session.authenticated
         ? `GitHub: ${session.github_login || "вошёл"}`
         : "GitHub: не авторизован";
-      readyPill.textContent = `GitHub OAuth: ${session.github_ready ? "готов" : "не настроен"} | OpenAI backend: ${session.openai_ready ? "готов" : "не настроен"}`;
+      readyPill.textContent = `GitHub OAuth: ${session.github_ready ? "готов" : "не настроен"} | reviewer backend: ${backendLabel(session.review_backend)} | модель: ${session.codex_model || "не задана"} | уровень: ${session.codex_reasoning_effort || "не задан"}`;
       return session;
     }
 
@@ -234,14 +496,41 @@
       return data;
     }
 
-    document.getElementById("loginBtn").addEventListener("click", () => {
+    async function fetchJob(jobId) {
+      const response = await fetch(`/api/reviews/${jobId}`);
+      const data = await response.json();
+      raw.textContent = JSON.stringify(data, null, 2);
+      if (!data.ok) {
+        throw new Error(data.error || "Задача review не найдена.");
+      }
+      renderJob(data.job || null);
+      return data.job || null;
+    }
+
+    async function startReview(mode) {
+      setBusy(true);
+      output.value = "";
+      progress.textContent = "Создаю задачу reviewer...";
+      setStatus(mode === "publish" ? "Запускаю review с публикацией..." : "Запускаю preview review...");
+      try {
+        const data = await postJson("/api/reviews/start", { ...payload(), mode });
+        renderJob(data.job || null);
+      } catch (error) {
+        setBusy(false);
+        setStatus(String(error), true);
+      }
+    }
+
+    loginBtn.addEventListener("click", () => {
       window.location.href = "/auth/github/start?next=/";
     });
 
-    document.getElementById("logoutBtn").addEventListener("click", async () => {
+    logoutBtn.addEventListener("click", async () => {
       try {
         await postJson("/auth/logout", {});
         output.value = "";
+        stopPolling();
+        renderJob(null);
         setStatus("Сеанс GitHub очищен.");
         await loadSession();
       } catch (error) {
@@ -249,29 +538,28 @@
       }
     });
 
-    document.getElementById("previewBtn").addEventListener("click", async () => {
-      setStatus("Собираю PR и запускаю preview review...");
-      try {
-        const data = await postJson("/api/reviews/preview", payload());
-        output.value = data.result.review_markdown || "";
-        setStatus("Preview review готов.");
-      } catch (error) {
-        setStatus(String(error), true);
-      }
+    previewBtn.addEventListener("click", async () => {
+      await startReview("preview");
     });
 
-    document.getElementById("publishBtn").addEventListener("click", async () => {
-      setStatus("Готовлю review и публикую его в Pull Request...");
-      try {
-        const data = await postJson("/api/reviews/publish", payload());
-        output.value = data.result.review_markdown || "";
-        setStatus("Review опубликован в Pull Request.");
-      } catch (error) {
-        setStatus(String(error), true);
-      }
+    publishBtn.addEventListener("click", async () => {
+      await startReview("publish");
     });
 
-    loadSession().catch((error) => setStatus(String(error), true));
+    async function restoreLastJob() {
+      const savedJobId = localStorage.getItem(CURRENT_JOB_STORAGE_KEY) || "";
+      if (!savedJobId) return;
+      try {
+        await fetchJob(savedJobId);
+      } catch (error) {
+        localStorage.removeItem(CURRENT_JOB_STORAGE_KEY);
+        renderJob(null);
+      }
+    }
+
+    loadSession()
+      .then(() => restoreLastJob())
+      .catch((error) => setStatus(String(error), true));
   </script>
 </body>
 </html>

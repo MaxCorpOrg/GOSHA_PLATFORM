@@ -32,6 +32,12 @@
     .hero { padding: 22px; margin-bottom: 18px; }
     .hero h1 { margin: 0 0 8px; font-size: 31px; }
     .hero p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 14px;
+    }
     .card { padding: 20px; margin-bottom: 18px; }
     .row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
     label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
@@ -45,7 +51,14 @@
       color: var(--ink);
       font: inherit;
     }
-    textarea { min-height: 300px; resize: vertical; line-height: 1.45; }
+    textarea {
+      height: 380px;
+      min-height: 380px;
+      max-height: 380px;
+      resize: none;
+      overflow: auto;
+      line-height: 1.45;
+    }
     .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
     button {
       border: 0;
@@ -72,8 +85,33 @@
       background: rgba(43, 111, 62, 0.09);
       border: 1px solid rgba(43, 111, 62, 0.2);
       color: var(--muted);
-      margin-right: 8px;
-      margin-top: 10px;
+    }
+    .pill.warn {
+      background: rgba(127, 85, 57, 0.12);
+      border-color: rgba(127, 85, 57, 0.35);
+      color: #7f5539;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .stat-box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.35;
     }
     pre {
       white-space: pre-wrap;
@@ -82,9 +120,77 @@
       font-family: "Cascadia Mono", "SFMono-Regular", monospace;
       font-size: 13px;
       line-height: 1.5;
+      overflow: auto;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .card-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .jobs {
+      display: grid;
+      gap: 10px;
+      max-height: 430px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .job-item {
+      width: 100%;
+      text-align: left;
+      color: var(--ink);
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    .job-item.active {
+      border-color: rgba(43, 111, 62, 0.6);
+      box-shadow: inset 0 0 0 1px rgba(43, 111, 62, 0.15);
+    }
+    .job-item.running { border-left: 5px solid #2b6f3e; }
+    .job-item.queued { border-left: 5px solid #b37a0f; }
+    .job-item.completed { border-left: 5px solid #2f5b8f; }
+    .job-item.failed { border-left: 5px solid #9f2f21; }
+    .job-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 5px;
+      font-weight: 700;
+    }
+    .job-meta {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .job-empty {
+      color: var(--muted);
+      padding: 12px 0 4px;
+    }
+    #raw {
+      max-height: 220px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
     }
     #status { min-height: 22px; color: var(--muted); margin-bottom: 10px; }
-    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } .hero h1 { font-size: 26px; } }
+    @media (max-width: 720px) {
+      .row { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 26px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .card-head { align-items: flex-start; flex-direction: column; }
+      .job-title { align-items: flex-start; flex-direction: column; }
+    }
   </style>
 </head>
 <body>
@@ -92,9 +198,29 @@
     <section class="hero">
       <h1>GOSHA OAuth Executor</h1>
       <p>Локальный исполнительный агент `Codex`: берёт замечания по PR, вносит правки в отдельной рабочей копии, запускает проверку, коммитит и отправляет изменения обратно в ветку.</p>
-      <div>
+      <div class="meta">
         <span class="pill" id="sessionPill">Проверка сеанса...</span>
         <span class="pill" id="readyPill">Проверка готовности...</span>
+        <span class="pill" id="jobPill">Задача executor: нет</span>
+        <span class="pill" id="activityPill">Активность: нет задачи</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Статус</div>
+          <div class="stat-value" id="statStatus">Нет задачи</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Текущий этап</div>
+          <div class="stat-value" id="statStage">Нет задачи</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Прошло времени</div>
+          <div class="stat-value" id="statElapsed">0 с</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Последнее обновление</div>
+          <div class="stat-value" id="statLastUpdate">Нет данных</div>
+        </div>
       </div>
     </section>
 
@@ -119,6 +245,19 @@
     </section>
 
     <section class="card">
+      <div class="card-head">
+        <div>
+          <label>Последние задачи</label>
+          <p>Webhook-задачи появляются здесь сами. Нажми на нужную строку, чтобы открыть её журнал и результат.</p>
+        </div>
+        <button id="refreshJobsBtn" class="ghost" type="button">Обновить список задач</button>
+      </div>
+      <div id="jobsList" class="jobs">
+        <div class="job-empty">Пока задач нет. После запуска или webhook здесь появится список.</div>
+      </div>
+    </section>
+
+    <section class="card">
       <label for="summary">Результат задачи</label>
       <textarea id="summary" placeholder="Здесь появится итог автоматического исполнения." spellcheck="false"></textarea>
     </section>
@@ -137,8 +276,18 @@
     const status = document.getElementById("status");
     const sessionPill = document.getElementById("sessionPill");
     const readyPill = document.getElementById("readyPill");
+    const jobPill = document.getElementById("jobPill");
+    const activityPill = document.getElementById("activityPill");
+    const statStatus = document.getElementById("statStatus");
+    const statStage = document.getElementById("statStage");
+    const statElapsed = document.getElementById("statElapsed");
+    const statLastUpdate = document.getElementById("statLastUpdate");
+    const jobsList = document.getElementById("jobsList");
     let currentJobId = "";
     let pollTimer = 0;
+    let listPollTimer = 0;
+    let isAuthenticated = false;
+    const STALL_WARNING_SECONDS = 45;
 
     function setStatus(text, error = false) {
       status.textContent = text;
@@ -157,8 +306,17 @@
       const data = await response.json();
       if (!data.ok) throw new Error(data.error || "Не удалось получить сеанс.");
       const session = data.session || {};
+      isAuthenticated = Boolean(session.authenticated);
       sessionPill.textContent = session.authenticated ? `GitHub: ${session.github_login || "вошёл"}` : "GitHub: не авторизован";
-      readyPill.textContent = `OAuth: ${session.github_ready ? "готов" : "не настроен"} | сервисный токен: ${session.service_token_ready ? "есть" : "нет"} | webhook: ${session.webhook_ready ? "готов" : "не готов"} | Codex: ${session.codex_ready ? "виден" : "не найден"}`;
+      readyPill.textContent = `OAuth: ${session.github_ready ? "готов" : "не настроен"} | сервисный токен: ${session.service_token_ready ? "есть" : "нет"} | webhook: ${session.webhook_ready ? "готов" : "не готов"} | Codex: ${session.codex_ready ? "виден" : "не найден"} | модель: ${session.codex_model || "не задана"} | уровень: ${session.codex_reasoning_effort || "не задан"}`;
+      if (isAuthenticated) {
+        await refreshJobs(true);
+        startListPolling();
+      } else {
+        stopListPolling();
+        jobsList.innerHTML = '<div class="job-empty">Войди через GitHub, чтобы увидеть список задач исполнителя.</div>';
+        clearJobStats();
+      }
       return session;
     }
 
@@ -174,28 +332,192 @@
       return data;
     }
 
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function statusLabel(statusValue) {
+      const value = String(statusValue || "").toLowerCase();
+      if (value === "queued") return "в очереди";
+      if (value === "running") return "выполняется";
+      if (value === "completed") return "завершена";
+      if (value === "failed") return "ошибка";
+      return value || "неизвестно";
+    }
+
+    function triggerLabel(triggerValue) {
+      return String(triggerValue || "").toLowerCase() === "webhook" ? "автоматический запуск" : "ручной запуск";
+    }
+
+    function formatTime(unixSeconds) {
+      if (!unixSeconds) return "время неизвестно";
+      const date = new Date(Number(unixSeconds) * 1000);
+      if (Number.isNaN(date.getTime())) return "время неизвестно";
+      return date.toLocaleString("ru-RU");
+    }
+
+    function formatDuration(totalSeconds) {
+      const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+      if (seconds < 60) return `${seconds} с`;
+      const minutes = Math.floor(seconds / 60);
+      const rest = seconds % 60;
+      if (minutes < 60) return `${minutes} мин ${rest} с`;
+      const hours = Math.floor(minutes / 60);
+      const restMinutes = minutes % 60;
+      return `${hours} ч ${restMinutes} мин`;
+    }
+
+    function formatRelativeSeconds(unixSeconds) {
+      if (!unixSeconds) return "Нет данных";
+      const diff = Math.max(0, Math.floor(Date.now() / 1000 - Number(unixSeconds)));
+      return `${formatDuration(diff)} назад`;
+    }
+
+    function clearJobStats() {
+      jobPill.textContent = "Задача executor: нет";
+      jobPill.classList.remove("warn");
+      activityPill.textContent = "Активность: нет задачи";
+      activityPill.classList.remove("warn");
+      statStatus.textContent = "Нет задачи";
+      statStage.textContent = "Нет задачи";
+      statElapsed.textContent = "0 с";
+      statLastUpdate.textContent = "Нет данных";
+    }
+
+    function renderJobStats(job) {
+      if (!job || !job.job_id) {
+        clearJobStats();
+        return;
+      }
+      const statusText = statusLabel(job.status);
+      const currentStage = String(job.current_stage || "Этап не указан");
+      const startedAt = Number(job.started_at || 0);
+      const lastLogAt = Number(job.last_log_at || 0);
+      const elapsed = startedAt ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt)) : 0;
+      const inactiveSeconds = lastLogAt ? Math.max(0, Math.floor(Date.now() / 1000 - lastLogAt)) : 0;
+      const running = String(job.status || "").toLowerCase() === "running";
+      const stalled = running && inactiveSeconds >= STALL_WARNING_SECONDS;
+
+      jobPill.textContent = `Задача executor: ${job.job_id}`;
+      jobPill.classList.toggle("warn", String(job.status || "").toLowerCase() === "failed");
+      activityPill.textContent = stalled
+        ? `Активность: возможное зависание, тишина ${formatDuration(inactiveSeconds)}`
+        : running
+          ? `Активность: есть движение, последнее обновление ${formatRelativeSeconds(lastLogAt)}`
+          : `Активность: ${statusText}`;
+      activityPill.classList.toggle("warn", stalled);
+      statStatus.textContent = statusText;
+      statStage.textContent = currentStage;
+      statElapsed.textContent = startedAt ? formatDuration(elapsed) : "0 с";
+      statLastUpdate.textContent = formatRelativeSeconds(lastLogAt);
+    }
+
+    function renderJobs(jobs) {
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        jobsList.innerHTML = '<div class="job-empty">Пока задач нет. После запуска или webhook здесь появится список.</div>';
+        if (!currentJobId) clearJobStats();
+        return;
+      }
+      jobsList.innerHTML = jobs.map((job) => {
+        const statusClass = escapeHtml(job.status || "");
+        const activeClass = job.job_id === currentJobId ? " active" : "";
+        const title = `PR #${Number(job.pr_number || 0)} · ${escapeHtml(job.repo_full_name || "")}`;
+        const meta = [
+          `Источник: ${triggerLabel(job.trigger)}`,
+          `Статус: ${statusLabel(job.status)}`,
+          `Создана: ${formatTime(job.created_at)}`,
+        ].join(" · ");
+        return `
+          <button type="button" class="job-item ${statusClass}${activeClass}" data-job-id="${escapeHtml(job.job_id || "")}">
+            <div class="job-title">
+              <span>${title}</span>
+              <span>${escapeHtml(statusLabel(job.status))}</span>
+            </div>
+            <div class="job-meta">${escapeHtml(meta)}</div>
+          </button>
+        `;
+      }).join("");
+    }
+
+    async function fetchJobs(showRaw = false) {
+      const response = await fetch("/api/executions");
+      const data = await response.json();
+      if (showRaw) raw.textContent = JSON.stringify(data, null, 2);
+      if (!data.ok) throw new Error(data.error || "Не удалось получить список задач.");
+      return Array.isArray(data.jobs) ? data.jobs : [];
+    }
+
+    function stopListPolling() {
+      if (listPollTimer) {
+        clearTimeout(listPollTimer);
+        listPollTimer = 0;
+      }
+    }
+
+    function startListPolling() {
+      stopListPolling();
+      if (!isAuthenticated) return;
+      listPollTimer = window.setTimeout(async () => {
+        try {
+          await refreshJobs(true);
+        } catch (error) {
+          setStatus(String(error), true);
+        }
+      }, 3000);
+    }
+
+    async function refreshJobs(silent = false) {
+      if (!isAuthenticated) return [];
+      const jobs = await fetchJobs(!silent);
+      renderJobs(jobs);
+      const currentExists = currentJobId && jobs.some((job) => job.job_id === currentJobId);
+      if (!currentExists) {
+        const preferredJob =
+          jobs.find((job) => job.status === "running" || job.status === "queued") ||
+          jobs[0] ||
+          null;
+        currentJobId = preferredJob?.job_id || "";
+        if (currentJobId) {
+          await fetchJob(currentJobId);
+        } else {
+          clearJobStats();
+        }
+      }
+      startListPolling();
+      return jobs;
+    }
+
     async function fetchJob(jobId) {
       const response = await fetch(`/api/executions/${jobId}`);
       const data = await response.json();
       raw.textContent = JSON.stringify(data, null, 2);
       if (!data.ok) throw new Error(data.error || "Задача исполнения не найдена.");
       const job = data.job || {};
-      let text = `Статус: ${job.status || "-"}\n`;
+      currentJobId = job.job_id || currentJobId;
+      let text = `Статус: ${statusLabel(job.status)}\n`;
+      if (job.current_stage) text += `Этап: ${job.current_stage}\n`;
       if (job.result?.commit_sha) text += `Коммит: ${job.result.commit_sha}\n`;
       if (job.result?.head_branch) text += `Ветка: ${job.result.head_branch}\n`;
       if (job.result?.worktree_path) text += `Рабочая копия: ${job.result.worktree_path}\n`;
+      if (job.result?.terminal_log_path) text += `Журнал терминала: ${job.result.terminal_log_path}\n`;
       if (job.result?.summary) text += `\nРезюме:\n${job.result.summary}\n`;
       if (job.error) text += `\nОшибка:\n${job.error}\n`;
       if (Array.isArray(job.logs)) text += `\nЛог:\n${job.logs.join("\n")}`;
       summary.value = text.trim();
-        setStatus(`Задача ${job.job_id}: ${job.status}`);
-        if (job.status === "queued" || job.status === "running") {
-          startPolling(job.job_id);
-        } else {
-          stopPolling();
-        }
-        return job;
+      renderJobStats(job);
+      setStatus(`Задача ${job.job_id}: ${statusLabel(job.status)}`);
+      if (job.status === "queued" || job.status === "running") {
+        startPolling(job.job_id);
+      } else {
+        stopPolling();
       }
+      await refreshJobs(true);
+      return job;
+    }
 
     function stopPolling() {
       if (pollTimer) {
@@ -223,8 +545,13 @@
       try {
         await postJson("/auth/logout", {});
         stopPolling();
+        stopListPolling();
         currentJobId = "";
         summary.value = "";
+        raw.textContent = "Пока пусто.";
+        isAuthenticated = false;
+        jobsList.innerHTML = '<div class="job-empty">Войди через GitHub, чтобы увидеть список задач исполнителя.</div>';
+        clearJobStats();
         setStatus("Сеанс GitHub очищен.");
         await loadSession();
       } catch (error) {
@@ -237,8 +564,9 @@
       try {
         const data = await postJson("/api/executions/start", payload());
         currentJobId = data.job.job_id;
-        summary.value = `Задача создана: ${currentJobId}\nСтатус: ${data.job.status}`;
+        summary.value = `Задача создана: ${currentJobId}\nСтатус: ${statusLabel(data.job.status)}`;
         setStatus(`Задача ${currentJobId} создана.`);
+        await refreshJobs(true);
         startPolling(currentJobId);
       } catch (error) {
         setStatus(String(error), true);
@@ -257,6 +585,29 @@
       }
     });
 
+    document.getElementById("refreshJobsBtn").addEventListener("click", async () => {
+      try {
+        await refreshJobs(false);
+        setStatus("Список задач обновлён.");
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    jobsList.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-job-id]");
+      if (!button) return;
+      const jobId = button.getAttribute("data-job-id") || "";
+      if (!jobId) return;
+      try {
+        currentJobId = jobId;
+        await fetchJob(jobId);
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    clearJobStats();
     loadSession().catch((error) => setStatus(String(error), true));
   </script>
 </body>
