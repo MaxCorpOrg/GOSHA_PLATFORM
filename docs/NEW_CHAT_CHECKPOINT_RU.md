@@ -9,15 +9,17 @@
 3. `NEW_CHAT_CHECKPOINT_RU.md`
 4. `AGENT_CHECKPOINT_RU.md`
 5. `PROJECT_STATUS_RU.md`
-6. Если задача про панель:
+6. Если задача про парк из тысяч роботов:
+   - `GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`
+7. Если задача про панель:
    - `../platform/AGENTS.md`
    - `GOSHA_ASSISTANT_CONTROL_PANEL_SPEC_RU.md`
-7. Если задача про сервер:
+8. Если задача про сервер:
    - `GOSHA_SERVER_DEPLOY_RU.md`
    - `../ops/AGENTS.md`
-8. Если задача уходит в прошивку:
+9. Если задача уходит в прошивку:
    - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
-9. Если задача уходит в мобильный клиент:
+10. Если задача уходит в мобильный клиент:
    - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
 
 ## Последняя зафиксированная точка
@@ -31,6 +33,10 @@
   - `git -C /home/max/worktrees/gosha/platform-integration-checkpoint-20260710 log --oneline -1`
 - Подробная межрепозиторная точка:
   - `GOSHA_INTEGRATION_CHECKPOINT_2026-07-10_RU.md`.
+- Архитектура парка из тысяч роботов:
+  - `GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`.
+- `gosha-main` — эталон поведения и конфигурации, но не источник идентификаторов и секретов новых устройств.
+- `gosha-01` сейчас штатно выключен.
 - Опубликованные черновые Pull Request:
   - `GOSHA_MOBILE #1`: `https://github.com/MaxCorpOrg/GOSHA_MOBILE/pull/1`;
   - `GOSHA_FIRMWARE #1`: `https://github.com/MaxCorpOrg/GOSHA_FIRMWARE/pull/1`;

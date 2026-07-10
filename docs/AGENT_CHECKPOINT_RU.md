@@ -23,6 +23,10 @@
   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
 - Подробная контрольная точка интеграции 10 июля 2026:
   - `docs/GOSHA_INTEGRATION_CHECKPOINT_2026-07-10_RU.md`.
+- Утверждённая архитектура масштабирования парка:
+  - `docs/GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`.
+- `gosha-main` является постоянным эталоном технического поведения и конфигурации. Его `robot_id`, MAC, UUID, токены, ключи и живое состояние нельзя копировать в другие устройства.
+- `gosha-01` сейчас штатно выключен; его состояние вне связи не является дефектом.
 - Опубликованные черновые PR:
   - `GOSHA_MOBILE #1` — commit `bd072a8`;
   - `GOSHA_FIRMWARE #1` — commits `346188a`, `cb5d7dc`;
