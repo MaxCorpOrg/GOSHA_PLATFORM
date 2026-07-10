@@ -364,6 +364,8 @@
 
 ### Для платформы
 
+- Актуальная межрепозиторная контрольная точка 10 июля 2026:
+  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_INTEGRATION_CHECKPOINT_2026-07-10_RU.md`
 - Общая карта:
   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
 - Короткая точка входа:
