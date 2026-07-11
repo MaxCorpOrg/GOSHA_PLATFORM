@@ -102,6 +102,12 @@
     - сессия оборвалась сразу после `initialize`
     - handshake дошёл до `tools/call`, но робот не прислал `ACK`
     - карточка уже в `Платформе Гоша`, но робот всё ещё смотрит на внешний `api.xiaozhi.me`
+- Операторская диагностика `edge-hub` теперь честно различает свежую проверку и кеш:
+  - `status.robot_ws_probe_state = executed` оставляет `reported-ready` / `reported-unreachable`;
+  - `status.robot_ws_probe_state = skipped` показывает `cached-ready` / `cached-unreachable` и возраст кеша из `status.robot_ws_probe_cached_age_ms`;
+  - `status.robot_ws_probe_state = stale` не превращается в `reported-ready`, даже если кеш раньше был успешным;
+  - legacy-агенты без `robot_ws_probe_state` продолжают работать через `status.robot_ws_ok`;
+  - точечная проверка лежит в `platform/test_edge_hub_transport_diagnostics.py`.
 - Верх страницы конкретного робота теперь ещё проще:
   - верхние поля `Связь`, `Сеть`, `Последний выход на связь`, `Плата и прошивка` и причина проблемы собраны в единый блок `Главный статус робота`
   - это заменило лишнее дублирование двух отдельных верхних панелей и сделало рабочую страницу робота понятнее для оператора
