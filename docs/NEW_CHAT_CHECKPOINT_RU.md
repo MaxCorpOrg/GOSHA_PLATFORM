@@ -163,6 +163,9 @@
 - Мобильный runtime-контур уже выровнен по честной server-side модели:
   - `/api/mobile/robots/<robot_id>/runtime` теперь отдаёт `connectivity`
   - Android больше не должен считать робота "подключённым через панель" только по настроенному `control`
+  - тот же runtime-ответ теперь очищает служебные адресные поля перед выдачей мобильному клиенту:
+    - прямые `OTA`, `WebSocket`, `MCP` и адреса с `token=` не уходят через `GET /api/mobile/robots/<robot_id>/runtime`
+    - безопасные статусы `cloud_console`, `fleet`, `detection`, `activity_presence` и `connectivity` сохраняются
 - Создана общая карта проекта:
   - `GOSHA_PROJECT_MAP_RU.md`
   В ней зафиксировано:
