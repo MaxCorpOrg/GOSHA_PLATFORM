@@ -11,6 +11,7 @@
 5. `PROJECT_STATUS_RU.md`
 6. Если задача про парк из тысяч роботов:
    - `GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`
+   - `GOSHA_FLEET_CONTRACT_SCHEMA_PR1_RU.md`
 7. Если задача про панель:
    - `../platform/AGENTS.md`
    - `GOSHA_ASSISTANT_CONTROL_PANEL_SPEC_RU.md`
@@ -35,6 +36,8 @@
   - `GOSHA_INTEGRATION_CHECKPOINT_2026-07-10_RU.md`.
 - Архитектура парка из тысяч роботов:
   - `GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`.
+- Проверенная спецификация первого пакета:
+  - `GOSHA_FLEET_CONTRACT_SCHEMA_PR1_RU.md`.
 - `gosha-main` — эталон поведения и конфигурации, но не источник идентификаторов и секретов новых устройств.
 - `gosha-01` сейчас штатно выключен.
 - Опубликованные черновые Pull Request:
