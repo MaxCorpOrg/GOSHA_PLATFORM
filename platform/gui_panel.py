@@ -127,6 +127,26 @@ MOBILE_RUNTIME_REDACTED_ADDRESS_KEYS = {
     "target",
     "url",
 }
+MOBILE_RUNTIME_REDACTED_SECRET_TEXT = "[redacted-secret]"
+MOBILE_RUNTIME_REDACTED_URL_TEXT = "[redacted-service-url]"
+MOBILE_RUNTIME_SERVICE_URL_RE = re.compile(r"\b(?:https?|wss?)://[^\s\"'<>`]+", re.IGNORECASE)
+MOBILE_RUNTIME_SECRET_ASSIGNMENT_RE = re.compile(
+    r"\b(?:(?:access_)?token|api[_-]?key|secret|password)=[^&\s\"'<>]+",
+    re.IGNORECASE,
+)
+MOBILE_RUNTIME_SERVICE_URL_PATH_MARKERS = (
+    "/gosha/ota",
+    "/mcp",
+    "/xiaozhi/ota",
+    "/xiaozhi/v1",
+)
+MOBILE_RUNTIME_SERVICE_URL_QUERY_MARKERS = (
+    "api_key=",
+    "apikey=",
+    "access_token=",
+    "secret=",
+    "token=",
+)
 KNOWN_MEMORY_FILES = [
     "client_profile.json",
     "events.jsonl",
@@ -795,6 +815,49 @@ def mobile_runtime_key_is_service_address(key):
     )
 
 
+def mobile_runtime_split_url_suffix(raw):
+    value = str(raw or "")
+    suffix = ""
+    while value and value[-1] in ".,;":
+        suffix = value[-1] + suffix
+        value = value[:-1]
+    while value and value[-1] == ")" and value.count("(") < value.count(")"):
+        suffix = value[-1] + suffix
+        value = value[:-1]
+    return value, suffix
+
+
+def mobile_runtime_url_is_sensitive(raw):
+    value = str(raw or "").strip()
+    if not value:
+        return False
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return False
+    scheme = str(parsed.scheme or "").lower()
+    if scheme in {"ws", "wss"}:
+        return True
+    path = str(parsed.path or "").lower()
+    query = str(parsed.query or "").lower()
+    return any(marker in path for marker in MOBILE_RUNTIME_SERVICE_URL_PATH_MARKERS) or any(
+        marker in query for marker in MOBILE_RUNTIME_SERVICE_URL_QUERY_MARKERS
+    )
+
+
+def sanitize_mobile_runtime_text(value):
+    text = str(value or "")
+
+    def replace_service_url(match):
+        candidate, suffix = mobile_runtime_split_url_suffix(match.group(0))
+        if mobile_runtime_url_is_sensitive(candidate):
+            return MOBILE_RUNTIME_REDACTED_URL_TEXT + suffix
+        return match.group(0)
+
+    text = MOBILE_RUNTIME_SERVICE_URL_RE.sub(replace_service_url, text)
+    return MOBILE_RUNTIME_SECRET_ASSIGNMENT_RE.sub(MOBILE_RUNTIME_REDACTED_SECRET_TEXT, text)
+
+
 def sanitize_mobile_runtime_payload(value):
     if isinstance(value, dict):
         out = {}
@@ -806,6 +869,8 @@ def sanitize_mobile_runtime_payload(value):
         return out
     if isinstance(value, list):
         return [sanitize_mobile_runtime_payload(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_mobile_runtime_text(value)
     return value
 
 

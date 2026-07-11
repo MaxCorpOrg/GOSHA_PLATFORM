@@ -155,6 +155,7 @@
     - не отдаёт прямые `OTA`, `WebSocket`, `MCP`
     - не отдаёт адреса с `token=`
     - не раскрывает внутренние `target`, `ws_url`, `cloud_endpoint`, `fallback_ws_url`, `api_url`, `websocket_url` и `control_mcp_endpoint`
+    - очищает опасные URL/token-шаблоны и внутри текстовых полей диагностики, например `detection.detail` и `diagnostics.last_error`
     - при этом сохраняет безопасные статусы, признаки готовности, прямой след прошивки и `connectivity`
 - Новая панель управления ассистентом:
   - поставщики ИИ

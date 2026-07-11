@@ -272,6 +272,7 @@
   - в `GET /api/mobile/robots/<robot_id>/runtime` закрыта утечка служебных адресов:
     - наружу больше не уходят прямые `OTA`, `WebSocket`, `MCP` и адреса с `token=`
     - адресные поля `target`, `ws_url`, `cloud_endpoint`, `fallback_ws_url`, `api_url`, `websocket_url`, `control_mcp_endpoint`, `last_request_target`, `last_tool_target` и `last_target` очищаются в мобильном ответе
+    - опасные URL/token-шаблоны внутри строковых значений, включая `detection.detail` и `diagnostics.last_error`, заменяются без удаления безопасного текста вокруг
     - безопасные признаки `device_claimed`, `websocket_token_configured`, `mcp_endpoint_ready`, `fleet`, `detection`, `activity_presence` и `connectivity` сохраняются
 - В рабочем окне робота уже есть быстрая смена:
   - ассистента

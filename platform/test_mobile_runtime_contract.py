@@ -32,7 +32,7 @@ class MobileRuntimeContractTest(unittest.TestCase):
             sys.modules.pop(module_name, None)
         self.panel = importlib.import_module("gui_panel")
 
-    def _write_robot_runtime_fixture(self):
+    def _write_robot_runtime_fixture(self, *, control_transport="cloud-mcp"):
         now = self.panel.now_ts()
         robot_id = "gosha-main"
         robot_dir = self.app_root / "robots" / robot_id
@@ -44,7 +44,8 @@ class MobileRuntimeContractTest(unittest.TestCase):
                     "ROBOT_NAME=gosha main",
                     "ROBOT_RUNTIME_CLASS=runtime",
                     "ROBOT_BACKEND_MODE=self_hosted_xiaozhi",
-                    "ROBOT_CONTROL_TRANSPORT=cloud-mcp",
+                    f"ROBOT_CONTROL_TRANSPORT={control_transport}",
+                    "ROBOT_DEVICE_WS_URL=wss://151.241.228.232:18080/mcp/?token=device-secret&robot_id=gosha-main",
                 ]
             )
             + "\n",
@@ -66,6 +67,36 @@ class MobileRuntimeContractTest(unittest.TestCase):
                     "last_tool_call_seen": now,
                     "last_tool_name": "self.otto.get_status",
                     "last_tool_target": "ws://151.241.228.232:18080/mcp/?token=tool-secret",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (robot_dir / "panel_detection.json").write_text(
+            json.dumps(
+                {
+                    "checked_at": now,
+                    "checked_at_iso": self.panel.ts_to_iso(now),
+                    "mode": control_transport,
+                    "kind": "cloud-mcp-tools-call",
+                    "state": "not_detected",
+                    "verified_now": False,
+                    "reached_robot": False,
+                    "method": "tools/call",
+                    "request_id": "probe-1",
+                    "duration_ms": 41,
+                    "error": "probe_failed",
+                    "error_type": "mcp_timeout",
+                    "detail": (
+                        "Обычный текст detection остается: "
+                        "ws://151.241.228.232:18080/mcp/?token=detection-secret&robot_id=gosha-main "
+                        "и http://151.241.228.232:18876/gosha/ota/?token=ota-secret."
+                    ),
+                    "next_step": "Обычный следующий шаг остается.",
+                    "protocol_phase": "waiting_tools_call_ack",
+                    "lifecycle_path": "connect,initialize,tools/call",
+                    "last_seen": now,
                 },
                 ensure_ascii=False,
             )
@@ -131,16 +162,68 @@ class MobileRuntimeContractTest(unittest.TestCase):
         self.assertTrue(snapshot["cloud_console"]["mcp_endpoint_ready"])
         self.assertTrue(snapshot["connectivity"]["connected"])
         self.assertEqual(snapshot["connectivity"]["evidence"], "fresh_device_contact")
+        self.assertIn("Обычный текст detection остается", snapshot["detection"]["detail"])
+        self.assertIn("Обычный следующий шаг остается", snapshot["detection"]["next_step"])
 
         serialized = json.dumps(snapshot, ensure_ascii=False)
         for forbidden in (
             "runtime-secret-token",
             "activity-secret",
             "tool-secret",
+            "detection-secret",
+            "ota-secret",
             "token=",
             "ws://151.241.228.232:18080/mcp",
             "ws://151.241.228.232:18080/xiaozhi/v1",
             "http://151.241.228.232:18876/gosha/ota",
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_runtime_snapshot_sanitizes_string_values_without_losing_plain_text(self):
+        robot_id = self._write_robot_runtime_fixture(control_transport="edge-hub")
+        edge_snapshot = {
+            "hub_state": "online",
+            "hub_error": "",
+            "agents": {
+                robot_id: {
+                    "last_seen": self.panel.now_ts(),
+                    "meta": {},
+                    "status": {
+                        "robot_ws_ok": False,
+                        "robot_ws_error": (
+                            "Обычный текст diagnostics остается: "
+                            "wss://151.241.228.232:18080/mcp/?token=diagnostics-secret&robot_id=gosha-main "
+                            "и https://151.241.228.232:18876/xiaozhi/ota/activate?token=activate-secret."
+                        ),
+                    },
+                }
+            },
+        }
+        with mock.patch.object(self.panel, "fetch_edge_snapshot", return_value=edge_snapshot), mock.patch.object(
+            self.panel, "service_state", return_value="active"
+        ):
+            snapshot = self.panel.get_robot_runtime_snapshot(robot_id)
+
+        self.assertEqual(snapshot["control"]["transport"], "edge-hub")
+        self.assertIn("Обычный текст diagnostics остается", snapshot["diagnostics"]["last_error"])
+        self.assertIn("Обычный текст detection остается", snapshot["detection"]["detail"])
+        self.assertIn("[redacted-service-url]", snapshot["diagnostics"]["last_error"])
+        self.assertIn("[redacted-service-url]", snapshot["detection"]["detail"])
+        self.assertIn("connected", snapshot["connectivity"])
+        self.assertIn("evidence", snapshot["connectivity"])
+
+        serialized = json.dumps(snapshot, ensure_ascii=False)
+        for forbidden in (
+            "device-secret",
+            "diagnostics-secret",
+            "detection-secret",
+            "activate-secret",
+            "ota-secret",
+            "token=",
+            "ws://151.241.228.232:18080/mcp",
+            "wss://151.241.228.232:18080/mcp",
+            "http://151.241.228.232:18876/gosha/ota",
+            "https://151.241.228.232:18876/xiaozhi/ota",
         ):
             self.assertNotIn(forbidden, serialized)
 
