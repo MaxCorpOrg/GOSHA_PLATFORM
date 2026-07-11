@@ -252,6 +252,13 @@
   - канал открылся, но сессия оборвалась сразу после `initialize`
   - handshake дошёл до `tools/call`, но робот не прислал `ACK`
   - карточка уже в режиме `Платформа Гоша`, но endpoint робота всё ещё указывает на внешний `api.xiaozhi.me`
+- Закрыта P1-правка операторской диагностики `edge-hub`:
+  - `diagnostics.transport_state` теперь учитывает `status.robot_ws_probe_state` и `status.robot_ws_probe_cached_age_ms` вместе с legacy-полем `status.robot_ws_ok`;
+  - для `executed` сохранены состояния `reported-ready` и `reported-unreachable`;
+  - для `skipped` панель показывает явный кешированный результат `cached-ready` / `cached-unreachable` и возраст кеша, не выдавая его за свежую проверку;
+  - для `stale` панель больше не показывает `reported-ready`, а отдаёт устаревшие состояния `stale-ready` / `stale-unreachable`;
+  - русские подписи UI синхронизированы в `platform/panel_index.html`;
+  - точечный тест добавлен в `platform/test_edge_hub_transport_diagnostics.py`.
 - На боевом сервере подтверждено, что после установки `websockets` панель уже не падает в `websockets_missing`, а доходит до реальных фаз probe:
   - `gosha-main` сейчас рвёт сессию после `initialize_sent`
   - `gosha-01` сейчас доходит до `waiting_tools_call_ack`
