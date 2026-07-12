@@ -118,6 +118,35 @@ ACTIVITY_PRESENCE_HISTORY_SECONDS = max(
     ACTIVITY_PRESENCE_RECENT_SECONDS,
     int(os.environ.get("ACTIVITY_PRESENCE_HISTORY_SECONDS", "259200")),
 )
+MOBILE_RUNTIME_REDACTED_ADDRESS_KEYS = {
+    "endpoint",
+    "last_request_target",
+    "last_target",
+    "last_tool_target",
+    "public_http_base",
+    "target",
+    "url",
+}
+MOBILE_RUNTIME_REDACTED_SECRET_TEXT = "[redacted-secret]"
+MOBILE_RUNTIME_REDACTED_URL_TEXT = "[redacted-service-url]"
+MOBILE_RUNTIME_SERVICE_URL_RE = re.compile(r"\b(?:https?|wss?)://[^\s\"'<>`]+", re.IGNORECASE)
+MOBILE_RUNTIME_SECRET_ASSIGNMENT_RE = re.compile(
+    r"\b(?:(?:access_)?token|api[_-]?key|secret|password)=[^&\s\"'<>]+",
+    re.IGNORECASE,
+)
+MOBILE_RUNTIME_SERVICE_URL_PATH_MARKERS = (
+    "/gosha/ota",
+    "/mcp",
+    "/xiaozhi/ota",
+    "/xiaozhi/v1",
+)
+MOBILE_RUNTIME_SERVICE_URL_QUERY_MARKERS = (
+    "api_key=",
+    "apikey=",
+    "access_token=",
+    "secret=",
+    "token=",
+)
 KNOWN_MEMORY_FILES = [
     "client_profile.json",
     "events.jsonl",
@@ -774,6 +803,75 @@ def summarize_mobile_runtime_connectivity(*, control=None, diagnostics=None, det
         "app_version": str(cloud_cfg.get("app_version", "") or ""),
         "remote_addr": str(cloud_cfg.get("remote_addr", "") or ""),
     }
+
+
+def mobile_runtime_key_is_service_address(key):
+    name = str(key or "").strip().lower()
+    return (
+        name in MOBILE_RUNTIME_REDACTED_ADDRESS_KEYS
+        or name.endswith("_url")
+        or name.endswith("_endpoint")
+        or name.endswith("_endpoint_base")
+    )
+
+
+def mobile_runtime_split_url_suffix(raw):
+    value = str(raw or "")
+    suffix = ""
+    while value and value[-1] in ".,;":
+        suffix = value[-1] + suffix
+        value = value[:-1]
+    while value and value[-1] == ")" and value.count("(") < value.count(")"):
+        suffix = value[-1] + suffix
+        value = value[:-1]
+    return value, suffix
+
+
+def mobile_runtime_url_is_sensitive(raw):
+    value = str(raw or "").strip()
+    if not value:
+        return False
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return False
+    scheme = str(parsed.scheme or "").lower()
+    if scheme in {"ws", "wss"}:
+        return True
+    path = str(parsed.path or "").lower()
+    query = str(parsed.query or "").lower()
+    return any(marker in path for marker in MOBILE_RUNTIME_SERVICE_URL_PATH_MARKERS) or any(
+        marker in query for marker in MOBILE_RUNTIME_SERVICE_URL_QUERY_MARKERS
+    )
+
+
+def sanitize_mobile_runtime_text(value):
+    text = str(value or "")
+
+    def replace_service_url(match):
+        candidate, suffix = mobile_runtime_split_url_suffix(match.group(0))
+        if mobile_runtime_url_is_sensitive(candidate):
+            return MOBILE_RUNTIME_REDACTED_URL_TEXT + suffix
+        return match.group(0)
+
+    text = MOBILE_RUNTIME_SERVICE_URL_RE.sub(replace_service_url, text)
+    return MOBILE_RUNTIME_SECRET_ASSIGNMENT_RE.sub(MOBILE_RUNTIME_REDACTED_SECRET_TEXT, text)
+
+
+def sanitize_mobile_runtime_payload(value):
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            if mobile_runtime_key_is_service_address(key):
+                out[key] = ""
+            else:
+                out[key] = sanitize_mobile_runtime_payload(item)
+        return out
+    if isinstance(value, list):
+        return [sanitize_mobile_runtime_payload(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_mobile_runtime_text(value)
+    return value
 
 
 def save_mobile_presence_snapshot(robot_id, *, state, source=MOBILE_PRESENCE_SOURCE_ANDROID, local_host=""):
@@ -3216,7 +3314,7 @@ def get_robot_runtime_snapshot(robot_id):
         cloud_console=cloud_console,
         mobile_presence=mobile_presence,
     )
-    return {
+    snapshot = {
         "robot_id": robot_id,
         "robot_name": control_cfg.get("robot_name", robot_id) or robot_id,
         "runtime_class": runtime_class,
@@ -3232,6 +3330,7 @@ def get_robot_runtime_snapshot(robot_id):
         "mobile_presence": mobile_presence,
         "connectivity": connectivity,
     }
+    return sanitize_mobile_runtime_payload(snapshot)
 
 
 def set_service(robot_id, action):
