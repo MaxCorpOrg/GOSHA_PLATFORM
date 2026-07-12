@@ -62,6 +62,35 @@ def test_legacy_robot_ws_ok_is_preserved():
     assert_transport("legacy unreachable", {"robot_ws_ok": False}, "reported-unreachable")
 
 
+def test_unknown_probe_state_is_normalized():
+    result = assert_transport(
+        "unknown html probe",
+        {"robot_ws_probe_state": '<img src=x onerror="alert(1)">', "robot_ws_ok": True},
+        "reported-ready",
+    )
+    if result.get("transport_probe_state") != "unknown":
+        raise AssertionError(f"unexpected probe state: {result.get('transport_probe_state')!r}")
+
+
+def test_panel_escapes_diag_pill_and_details_html_fragments():
+    source = PANEL_HTML.read_text(encoding="utf-8")
+    if "${escapeHtml(formatDiagLabel(label))}: ${escapeHtml(formatDiagValue(state))}" not in source:
+        raise AssertionError("diagPill must escape label and value before rendering HTML")
+    if 'details.map(escapeHtml).join("<br>")' not in source:
+        raise AssertionError("connection details must escape each text line before joining with <br>")
+
+    html_fragment = '<img src=x onerror="alert(1)">'
+    escaped = (
+        html_fragment.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#039;")
+    )
+    if escaped != "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;":
+        raise AssertionError("test HTML fragment escaping expectation is wrong")
+
+
 def test_panel_cache_age_missing_values_are_not_zero():
     source = PANEL_HTML.read_text(encoding="utf-8")
     function_start = source.index("function formatCacheAgeMs(value)")
@@ -77,6 +106,8 @@ def main():
     test_skipped_uses_explicit_cached_states_and_age()
     test_stale_never_reports_ready()
     test_legacy_robot_ws_ok_is_preserved()
+    test_unknown_probe_state_is_normalized()
+    test_panel_escapes_diag_pill_and_details_html_fragments()
     test_panel_cache_age_missing_values_are_not_zero()
     print("edge-hub transport diagnostics tests: OK")
 

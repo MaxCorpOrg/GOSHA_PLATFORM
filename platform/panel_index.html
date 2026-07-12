@@ -5957,7 +5957,7 @@
       if (state === "verified_online" || state === "delivered") cls = "ok";
       if (["offline", "unreachable", "missing", "auth_error", "mcp_client_missing", "reported-unreachable", "cached-unreachable"].includes(state)) cls = "bad";
       if (state === "mcp_endpoint_alive_not_robot_ack") cls = "warn";
-      return `<span class="pill ${cls}">${formatDiagLabel(label)}: ${formatDiagValue(state)}</span>`;
+      return `<span class="pill ${cls}">${escapeHtml(formatDiagLabel(label))}: ${escapeHtml(formatDiagValue(state))}</span>`;
     }
 
     function formatCacheAgeMs(value) {
@@ -6081,7 +6081,7 @@
         <div class="status-stack">${pills.join("")}</div>
         <details class="soft-box">
           <summary class="details-toggle">Подробнее о подключении</summary>
-          <div class="details-body">${details.join("<br>") || "Без дополнительных данных"}</div>
+          <div class="details-body">${details.map(escapeHtml).join("<br>") || "Без дополнительных данных"}</div>
         </details>
       `;
     }

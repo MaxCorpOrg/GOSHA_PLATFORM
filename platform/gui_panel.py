@@ -2847,9 +2847,19 @@ def _optional_int(value):
         return None
 
 
+EDGE_HUB_PROBE_STATES = {"executed", "skipped", "stale", "unknown"}
+
+
+def _normalize_edge_hub_probe_state(value):
+    probe_state = str(value or "").strip().lower()
+    if probe_state in EDGE_HUB_PROBE_STATES:
+        return probe_state
+    return "unknown"
+
+
 def edge_hub_transport_diagnostics(status):
     status = status if isinstance(status, dict) else {}
-    probe_state = str(status.get("robot_ws_probe_state", "") or "").strip().lower()
+    probe_state = _normalize_edge_hub_probe_state(status.get("robot_ws_probe_state"))
     cache_age_ms = _optional_int(status.get("robot_ws_probe_cached_age_ms"))
     ok = status.get("robot_ws_ok")
 
