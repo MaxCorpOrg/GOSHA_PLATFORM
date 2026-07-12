@@ -252,6 +252,19 @@
   - канал открылся, но сессия оборвалась сразу после `initialize`
   - handshake дошёл до `tools/call`, но робот не прислал `ACK`
   - карточка уже в режиме `Платформа Гоша`, но endpoint робота всё ещё указывает на внешний `api.xiaozhi.me`
+- Закрыта P1-правка операторской диагностики `edge-hub`:
+  - `diagnostics.transport_state` теперь учитывает `status.robot_ws_probe_state` и `status.robot_ws_probe_cached_age_ms` вместе с legacy-полем `status.robot_ws_ok`;
+  - для `executed` сохранены состояния `reported-ready` и `reported-unreachable`;
+  - для `skipped` панель показывает явный кешированный результат `cached-ready` / `cached-unreachable` и возраст кеша, не выдавая его за свежую проверку;
+  - для `stale` панель больше не показывает `reported-ready`, а отдаёт устаревшие состояния `stale-ready` / `stale-unreachable`;
+  - русские подписи UI синхронизированы в `platform/panel_index.html`;
+  - точечный тест добавлен в `platform/test_edge_hub_transport_diagnostics.py`;
+  - независимый review PR `#25` через AI_OFFICE нашёл P2 внедрения HTML через неизвестное значение `robot_ws_probe_state`;
+  - P2 закрыт двойной защитой: белым списком `executed / skipped / stale / unknown` в `gui_panel.py` и экранированием диагностических значений в `panel_index.html`;
+  - тест дополнен вредоносным HTML-фрагментом и проверкой обратной совместимости `robot_ws_ok`;
+  - финальный повторный review не нашёл P0/P1/P2 и не обнаружил публикации внутренних endpoint, OTA- или WebSocket-адресов;
+  - ветка `hotfix/edge-hub-probe-state` содержит коммиты `10bcbf1` и `551cbb7`;
+  - проверки `git diff --check`, синтаксиса `platform/gui_panel.py` и `platform/test_edge_hub_transport_diagnostics.py` завершены успешно.
 - На боевом сервере подтверждено, что после установки `websockets` панель уже не падает в `websockets_missing`, а доходит до реальных фаз probe:
   - `gosha-main` сейчас рвёт сессию после `initialize_sent`
   - `gosha-01` сейчас доходит до `waiting_tools_call_ack`

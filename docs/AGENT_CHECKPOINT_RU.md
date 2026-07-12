@@ -102,6 +102,18 @@
     - сессия оборвалась сразу после `initialize`
     - handshake дошёл до `tools/call`, но робот не прислал `ACK`
     - карточка уже в `Платформе Гоша`, но робот всё ещё смотрит на внешний `api.xiaozhi.me`
+- Операторская диагностика `edge-hub` теперь честно различает свежую проверку и кеш:
+  - `status.robot_ws_probe_state = executed` оставляет `reported-ready` / `reported-unreachable`;
+  - `status.robot_ws_probe_state = skipped` показывает `cached-ready` / `cached-unreachable` и возраст кеша из `status.robot_ws_probe_cached_age_ms`;
+  - `status.robot_ws_probe_state = stale` не превращается в `reported-ready`, даже если кеш раньше был успешным;
+  - legacy-агенты без `robot_ws_probe_state` продолжают работать через `status.robot_ws_ok`;
+  - точечная проверка лежит в `platform/test_edge_hub_transport_diagnostics.py`;
+  - независимый review через AI_OFFICE нашёл и закрыл P2: неизвестный `robot_ws_probe_state` больше не может попасть в операторский HTML как разметка;
+  - сервер нормализует состояние по белому списку `executed / skipped / stale / unknown`, а `diagPill` и подробности дополнительно используют `escapeHtml`;
+  - регрессионный тест передаёт HTML-фрагмент как состояние и проверяет нормализацию вместе с legacy `robot_ws_ok`;
+  - задача `task-20260712T092101Z-review-gosha-plat` прошла manager, reviewer, fixer и финальный reviewer без оставшихся P0/P1/P2;
+  - каноническая ветка `hotfix/edge-hub-probe-state` содержит `10bcbf1` и защитный коммит `551cbb7`;
+  - `git diff --check`, синтаксическая проверка Python без записи `pyc` и `python3 -B platform/test_edge_hub_transport_diagnostics.py` проходят.
 - Верх страницы конкретного робота теперь ещё проще:
   - верхние поля `Связь`, `Сеть`, `Последний выход на связь`, `Плата и прошивка` и причина проблемы собраны в единый блок `Главный статус робота`
   - это заменило лишнее дублирование двух отдельных верхних панелей и сделало рабочую страницу робота понятнее для оператора

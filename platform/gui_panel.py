@@ -2838,6 +2838,70 @@ def fetch_edge_snapshot():
     return snapshot
 
 
+def _optional_int(value):
+    if value is None or value == "":
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+EDGE_HUB_PROBE_STATES = {"executed", "skipped", "stale", "unknown"}
+
+
+def _normalize_edge_hub_probe_state(value):
+    probe_state = str(value or "").strip().lower()
+    if probe_state in EDGE_HUB_PROBE_STATES:
+        return probe_state
+    return "unknown"
+
+
+def edge_hub_transport_diagnostics(status):
+    status = status if isinstance(status, dict) else {}
+    probe_state = _normalize_edge_hub_probe_state(status.get("robot_ws_probe_state"))
+    cache_age_ms = _optional_int(status.get("robot_ws_probe_cached_age_ms"))
+    ok = status.get("robot_ws_ok")
+
+    result = {
+        "transport_state": "unknown",
+        "transport_probe_state": probe_state,
+        "transport_cache_age_ms": cache_age_ms,
+        "last_error": str(status.get("robot_ws_error", "") or ""),
+    }
+
+    if probe_state == "executed":
+        if ok is True:
+            result["transport_state"] = "reported-ready"
+        elif ok is False:
+            result["transport_state"] = "reported-unreachable"
+        return result
+
+    if probe_state == "skipped":
+        if ok is True:
+            result["transport_state"] = "cached-ready"
+        elif ok is False:
+            result["transport_state"] = "cached-unreachable"
+        else:
+            result["transport_state"] = "cached-unknown"
+        return result
+
+    if probe_state == "stale":
+        if ok is True:
+            result["transport_state"] = "stale-ready"
+        elif ok is False:
+            result["transport_state"] = "stale-unreachable"
+        else:
+            result["transport_state"] = "stale"
+        return result
+
+    if ok is True:
+        result["transport_state"] = "reported-ready"
+    elif ok is False:
+        result["transport_state"] = "reported-unreachable"
+    return result
+
+
 def build_link_diagnostics(robot_id, control_cfg, edge_snapshot):
     target = control_cfg.get("target") or ""
     mode = control_cfg.get("transport") or "missing"
@@ -2879,14 +2943,7 @@ def build_link_diagnostics(robot_id, control_cfg, edge_snapshot):
         diagnostics["agent_state"] = "stale" if age is not None and age > EDGE_AGENT_STALE_SECONDS else "seen"
 
         status = agent.get("status") or {}
-        ok = status.get("robot_ws_ok")
-        if ok is True:
-            diagnostics["transport_state"] = "reported-ready"
-        elif ok is False:
-            diagnostics["transport_state"] = "reported-unreachable"
-        else:
-            diagnostics["transport_state"] = "unknown"
-        diagnostics["last_error"] = str(status.get("robot_ws_error", "") or "")
+        diagnostics.update(edge_hub_transport_diagnostics(status))
         return diagnostics
 
     diagnostics["transport_state"] = "configured" if target else "missing"

@@ -5906,8 +5906,16 @@
         "online": "пассивно виден, но связь не подтверждена",
         "offline": "не в сети",
         "seen": "есть пассивная отметка `last_seen`",
-        "reported-ready": "клиент ранее видел канал",
-        "reported-unreachable": "клиент ранее не видел канал",
+        "reported-ready": "агент сообщил: канал доступен",
+        "reported-unreachable": "агент сообщил: канал недоступен",
+        "cached-ready": "кешированный отчёт: канал был доступен",
+        "cached-unreachable": "кешированный отчёт: канал был недоступен",
+        "cached-unknown": "кешированный отчёт: результат неясен",
+        "stale-ready": "устаревший кеш: канал был доступен",
+        "stale-unreachable": "устаревший кеш: канал был недоступен",
+        "stale": "устаревший кеш, нужна проверка",
+        "executed": "активная проверка выполнена",
+        "skipped": "активная проверка пропущена, показан кеш",
         "verified_online": "подтверждённо в сети",
         "mcp_endpoint_alive_not_robot_ack": "MCP-мост доступен, робот не подтвердил ответ",
         "auth_error": "ошибка доступа",
@@ -5934,7 +5942,8 @@
         "bridge": "мост",
         "policy": "политика",
         "hub": "шлюз",
-        "source": "источник"
+        "source": "источник",
+        "probe": "проверка"
       }[label] || label;
     }
 
@@ -5946,9 +5955,30 @@
     function diagPill(label, state) {
       let cls = "warn";
       if (state === "verified_online" || state === "delivered") cls = "ok";
-      if (["offline", "unreachable", "missing", "auth_error", "mcp_client_missing"].includes(state)) cls = "bad";
+      if (["offline", "unreachable", "missing", "auth_error", "mcp_client_missing", "reported-unreachable", "cached-unreachable"].includes(state)) cls = "bad";
       if (state === "mcp_endpoint_alive_not_robot_ack") cls = "warn";
-      return `<span class="pill ${cls}">${formatDiagLabel(label)}: ${formatDiagValue(state)}</span>`;
+      return `<span class="pill ${cls}">${escapeHtml(formatDiagLabel(label))}: ${escapeHtml(formatDiagValue(state))}</span>`;
+    }
+
+    function formatCacheAgeMs(value) {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "string" && value.trim() === "") return "";
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms < 0) return "";
+      const seconds = Math.floor(ms / 1000);
+      if (seconds < 10) return "только что";
+      if (seconds < 60) return `${seconds} сек назад`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)} мин назад`;
+      return `${Math.floor(seconds / 3600)} ч назад`;
+    }
+
+    function transportCacheAgePill(d) {
+      const state = String(d?.transport_state || "").toLowerCase();
+      const probeState = String(d?.transport_probe_state || "").toLowerCase();
+      const isCached = state.startsWith("cached-") || state.startsWith("stale-") || state === "stale" || ["skipped", "stale"].includes(probeState);
+      if (!isCached) return "";
+      const age = formatCacheAgeMs(d?.transport_cache_age_ms);
+      return `<span class="pill warn">кеш: ${escapeHtml(age || "возраст не передан")}</span>`;
     }
 
     function yesNoPill(label, value) {
@@ -5998,11 +6028,14 @@
       if ((d.mode || "") === "edge-hub") {
         pills.push(diagPill("hub", d.hub_state || "offline"));
         pills.push(diagPill("агент", d.agent_state || "offline"));
+        if (d.transport_probe_state) pills.push(diagPill("probe", d.transport_probe_state));
       }
       if (rustoreTest) {
         pills.push(`<span class="pill warn">связь: без физического робота</span>`);
       } else {
         pills.push(diagPill("связь", d.transport_state || "unknown"));
+        const cacheAgePill = transportCacheAgePill(d);
+        if (cacheAgePill) pills.push(cacheAgePill);
       }
       if (cloud.configured) {
         const cloudLabel = String(cloud.state || "").toLowerCase() === "online" ? "видит устройство, но связь не подтверждена" : formatDiagValue(cloud.state || "unknown");
@@ -6023,6 +6056,8 @@
       if (rustoreTest) details.push("Тестовая карточка RuStore: нужна для проверки входа по коду, а не для управления железом.");
       if (d.source) details.push(`Источник: ${d.source}`);
       if (d.agent_last_seen) details.push(`last_seen: ${fmtLastSeen(d.agent_last_seen)} (пассивная отметка, не подтверждает связь)`);
+      if (d.transport_probe_state) details.push(`Проверка edge-hub: ${formatDiagValue(d.transport_probe_state)}.`);
+      if (transportCacheAgePill(d)) details.push(`Возраст кеша edge-hub: ${formatCacheAgeMs(d.transport_cache_age_ms) || "не передан"}. Это не свежая проверка связи.`);
       if (d.target) details.push("Канал MCP: настроен");
       if (cloud.configured && isSelfhostRobot(robot)) details.push("Платформа Гоша включена для этого робота.");
       if (cloud.configured && !isSelfhostRobot(robot)) details.push("Метаданные совместимого облачного агента: есть");
@@ -6046,7 +6081,7 @@
         <div class="status-stack">${pills.join("")}</div>
         <details class="soft-box">
           <summary class="details-toggle">Подробнее о подключении</summary>
-          <div class="details-body">${details.join("<br>") || "Без дополнительных данных"}</div>
+          <div class="details-body">${details.map(escapeHtml).join("<br>") || "Без дополнительных данных"}</div>
         </details>
       `;
     }
