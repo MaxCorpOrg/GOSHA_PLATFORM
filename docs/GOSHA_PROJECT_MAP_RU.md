@@ -19,9 +19,12 @@
    - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
 2. Затем открыть этот файл:
    - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
-3. Если задача уже уходит в прошивку, дальше переходить в:
+3. Если задача относится к массовому парку, организациям, флотам, очереди команд, статусам или OTA-волнам, открыть:
+   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`
+   - для PR1: `/home/max/GOSHA_PLATFORM/docs/GOSHA_FLEET_CONTRACT_SCHEMA_PR1_RU.md`
+4. Если задача уже уходит в прошивку, дальше переходить в:
    - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
-4. Если задача уходит в Android-клиент, дальше переходить в:
+5. Если задача уходит в Android-клиент, дальше переходить в:
    - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
 
 ## 2. Основные репозитории и их назначение
@@ -37,6 +40,8 @@
   - совместимый голосовой серверный контур;
   - профили ассистента, движков синтеза речи, голоса, памяти, экрана, пробуждения и `MCP`.
 - Это текущий главный источник истины для серверного контура `Гоша`.
+- Целевая модель массового парка и граница между `robot_template` и `robot_instance` описаны в `docs/GOSHA_FLEET_SCALE_ARCHITECTURE_RU.md`.
+- Поля, матрица наследования, безопасные состояния привязки и совместимость API первого пакета описаны в `docs/GOSHA_FLEET_CONTRACT_SCHEMA_PR1_RU.md`.
 - Важно для сопровождения:
   - пользовательская панель уже очищена от активных китайских строк;
   - старый музыкальный слот `music-tools` отключён и скрыт;
@@ -364,6 +369,8 @@
 
 ### Для платформы
 
+- Актуальная межрепозиторная контрольная точка 10 июля 2026:
+  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_INTEGRATION_CHECKPOINT_2026-07-10_RU.md`
 - Общая карта:
   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
 - Короткая точка входа:
