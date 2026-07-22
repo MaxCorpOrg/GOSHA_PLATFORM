@@ -276,6 +276,19 @@ def find_claim_by_robot(robot_id, state=None):
     return None
 
 
+def find_claim_by_device(device_id, state=None):
+    data = state if isinstance(state, dict) else load_state()
+    device_key = str(device_id or "").strip()
+    if not device_key:
+        return None
+    item = (data.get("claims") or {}).get(device_key)
+    if not isinstance(item, dict):
+        return None
+    normalized = normalize_device_record(item, device_id=device_key)
+    normalized["status"] = "claimed"
+    return normalized
+
+
 def list_pending_devices(state=None):
     data = state if isinstance(state, dict) else load_state()
     items = [normalize_device_record(item, device_id=device_id) for device_id, item in (data.get("pending_devices") or {}).items()]
@@ -474,12 +487,19 @@ def ota_payload_for_device(device_id):
         "url": "",
     }
     if claim["device_id"]:
+        runtime_events_url = str(backend.get("public_http_base", "") or "").rstrip("/") + "/gosha/events"
         return {
             "activation": {},
             "websocket": {
                 "url": claim.get("websocket_url") or backend.get("websocket_url", ""),
                 "token": claim.get("websocket_token", ""),
                 "version": 1,
+            },
+            "runtime_events": {
+                "url": runtime_events_url,
+                "token": claim.get("websocket_token", ""),
+                "schema_version": "gosha.runtime.event.v1",
+                "heartbeat_interval_seconds": 30,
             },
             "server_time": server_time,
             "firmware": firmware,

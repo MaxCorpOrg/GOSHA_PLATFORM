@@ -366,6 +366,8 @@
 
 - Общая карта:
   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
+- Канонический контракт общего состояния робота, мобильного приложения и панели:
+  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_RUNTIME_TRIANGLE_CONTRACT_RU.md`
 - Короткая точка входа:
   - `/home/max/GOSHA_PLATFORM/docs/NEW_CHAT_CHECKPOINT_RU.md`
 - Подробная рабочая точка:

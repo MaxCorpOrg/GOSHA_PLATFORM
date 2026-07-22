@@ -2952,6 +2952,12 @@
 
   <script>
     let currentRobots = [];
+    let runtimeEventSource = null;
+    let runtimeRefreshTimer = null;
+    let runtimeRefreshInFlight = false;
+    let runtimePanelHeartbeatTimer = null;
+    const runtimePanelSessionId = `session-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+    const runtimePanelPublishedRobots = new Set();
     let currentSelfhostState = null;
     let currentAgentProfiles = [];
     let currentAgentGatewayState = null;
@@ -3093,6 +3099,104 @@
 
     function operatorUrl(path) {
       return `/api/operator${path}`;
+    }
+
+    async function publishPanelObservation(robotId, tab, heartbeat = false) {
+      if (!robotId || (!heartbeat && runtimePanelPublishedRobots.has(robotId))) return;
+      if (!heartbeat) runtimePanelPublishedRobots.add(robotId);
+      const eventId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `event-${Date.now()}`;
+      try {
+        const res = await apiPost(operatorUrl(`/robots/${robotId}/events`), {
+          schema_version: "gosha.runtime.event.v1",
+          event_id: eventId,
+          event_type: heartbeat ? "panel.runtime.heartbeat" : "panel.robot_workspace.opened",
+          source: { instance_id: runtimePanelSessionId },
+          trace: { session_id: runtimePanelSessionId },
+          occurred_at: new Date().toISOString(),
+          severity: "info",
+          state: { domain: "observation", name: "robot_workspace", status: "observing" },
+          link: { kind: "panel_platform", status: "available" },
+          attributes: { workspace_tab: tab || "overview" }
+        });
+        if (!res.ok && !heartbeat) runtimePanelPublishedRobots.delete(robotId);
+      } catch (err) {
+        if (!heartbeat) runtimePanelPublishedRobots.delete(robotId);
+      }
+    }
+
+    function runtimeTimestampFresh(value, maxAgeSeconds = 120) {
+      const timestamp = Date.parse(value || "");
+      if (!Number.isFinite(timestamp)) return false;
+      return Date.now() - timestamp <= maxAgeSeconds * 1000;
+    }
+
+    function runtimeComponentFresh(entry) {
+      return !!entry && runtimeTimestampFresh(entry.last_seen_at, 120);
+    }
+
+    function runtimeComponentLabel(kind) {
+      return ({ robot: "робот", mobile: "приложение", panel: "панель", service: "платформа" })[kind] || kind;
+    }
+
+    function renderTriangleSummaryPills(robot) {
+      const triangle = robot?.triangle || {};
+      const components = triangle.components || {};
+      const links = Array.isArray(triangle.links) ? triangle.links : [];
+      const activeTasks = Array.isArray(triangle.tasks?.active)
+        ? triangle.tasks.active.filter((task) => runtimeTimestampFresh(task.updated_at, 900)).length
+        : 0;
+      const errors = Array.isArray(triangle.errors?.recent)
+        ? triangle.errors.recent.filter((error) => runtimeTimestampFresh(error.occurred_at, 86400)).length
+        : 0;
+      const componentPills = ["robot", "mobile", "panel"].map((kind) => {
+        const entries = Array.isArray(components[kind]) ? components[kind] : [];
+        const fresh = entries.some(runtimeComponentFresh);
+        return `<span class="pill ${fresh ? "ok" : "warn"}">${escapeHtml(runtimeComponentLabel(kind))}: ${fresh ? "есть свежий сигнал" : entries.length ? "сигнал устарел" : "нет сигнала"}</span>`;
+      }).join("");
+      const freshLinks = links.filter((link) => runtimeTimestampFresh(link.updated_at, 120));
+      return `${componentPills}<span class="pill ${freshLinks.length ? "ok" : "warn"}">свежих связей: ${escapeHtml(String(freshLinks.length))}</span><span class="pill ${activeTasks ? "warn" : "ok"}">задач: ${escapeHtml(String(activeTasks))}</span><span class="pill ${errors ? "bad" : "ok"}">ошибок: ${escapeHtml(String(errors))}</span>`;
+    }
+
+    function renderTriangleRuntime(robot) {
+      const triangle = robot?.triangle || {};
+      const components = triangle.components || {};
+      const links = Array.isArray(triangle.links) ? triangle.links : [];
+      const activeTasks = Array.isArray(triangle.tasks?.active)
+        ? triangle.tasks.active.filter((task) => runtimeTimestampFresh(task.updated_at, 900))
+        : [];
+      const recentErrors = Array.isArray(triangle.errors?.recent)
+        ? triangle.errors.recent.filter((error) => runtimeTimestampFresh(error.occurred_at, 86400))
+        : [];
+      const statistics = triangle.statistics || {};
+      const componentBlocks = ["robot", "mobile", "panel"].map((kind) => {
+        const entries = Array.isArray(components[kind]) ? components[kind] : [];
+        const latest = entries[0] || null;
+        const fresh = runtimeComponentFresh(latest);
+        const status = !fresh && latest ? "сигнал устарел" : latest?.state?.status || latest?.state?.name || (latest ? "сигнал принят" : "нет данных");
+        const cls = !latest || !fresh ? "warn" : latest.severity === "error" || latest.severity === "critical" ? "bad" : "ok";
+        return `<div class="robot-summary-block"><h3>${escapeHtml(runtimeComponentLabel(kind))}</h3><span class="pill ${cls}">${escapeHtml(status)}</span><div class="mini" style="max-width:none; margin-top:8px;">${escapeHtml(latest?.event_type || "События ещё не поступали")}</div><div class="microcopy">${escapeHtml(latest?.last_seen_at || "")}</div></div>`;
+      }).join("");
+      const linkPills = links.length
+        ? links.slice(0, 8).map((link) => `<span class="pill ${runtimeTimestampFresh(link.updated_at, 120) && ["available", "connected", "ready", "reachable"].includes(link.status) ? "ok" : "warn"}">${escapeHtml(link.kind || "связь")}: ${escapeHtml(runtimeTimestampFresh(link.updated_at, 120) ? link.status || "неизвестно" : "сигнал устарел")}</span>`).join("")
+        : '<span class="pill warn">событий о связях ещё нет</span>';
+      const taskLines = activeTasks.length
+        ? activeTasks.slice(0, 5).map((task) => `<div class="mini">${escapeHtml(task.kind || task.id || "задача")}: ${escapeHtml(task.status || "выполняется")}</div>`).join("")
+        : '<div class="mini">Активных задач нет.</div>';
+      const errorLines = recentErrors.length
+        ? recentErrors.slice(0, 5).map((error) => `<div class="mini"><strong>${escapeHtml(error.code || "ошибка")}</strong>: ${escapeHtml(error.message || error.event_type || "без описания")}</div>`).join("")
+        : '<div class="mini">Новых ошибок нет.</div>';
+      return `
+        <section class="robot-panel robot-panel-wide">
+          <h3>Робот — приложение — панель</h3>
+          <div class="robot-summary-meta">${componentBlocks}</div>
+          <div class="workspace-section-note">Последнее обновление: ${escapeHtml(triangle.updated_at || "событий ещё нет")}. Событий принято: ${escapeHtml(String(statistics.events_total || 0))}.</div>
+          <div class="robot-overview-grid" style="margin-top:12px;">
+            <div class="robot-summary-block"><h3>Связи</h3><div class="status-stack">${linkPills}</div></div>
+            <div class="robot-summary-block"><h3>Активные задачи</h3>${taskLines}</div>
+            <div class="robot-summary-block"><h3>Последние ошибки</h3>${errorLines}</div>
+          </div>
+        </section>
+      `;
     }
 
     function setStatus(text) {
@@ -4542,6 +4646,7 @@
         syncRobotWorkspaceRoute({ replace: replaceHistory });
       }
       renderRobotWorkspace();
+      publishPanelObservation(robotId, robotWorkspaceTab);
       if (scroll) {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -4621,6 +4726,7 @@
       const assistantConfig = robotWorkspaceConfigData?.config || robot.assistant_control || {};
       return `
         ${renderRobotOperatorControlCenter(robot)}
+        ${renderTriangleRuntime(robot)}
         <section class="robot-panel robot-panel-wide health-callout ${healthClass}">
           <div class="health-title">
             <div>
@@ -8970,6 +9076,43 @@
       await autoDetectLiveRobots();
     }
 
+    async function refreshRuntimeRobots() {
+      if (runtimeRefreshInFlight || !operatorAuthenticated) return;
+      runtimeRefreshInFlight = true;
+      try {
+        const res = await apiGet(operatorUrl("/robots"));
+        if (!res.ok) return;
+        currentRobots = sortRobotsForOperator(res.robots || []);
+        syncRobotDetectionsFromRecords(currentRobots);
+        renderRobots();
+      } finally {
+        runtimeRefreshInFlight = false;
+      }
+    }
+
+    function scheduleRuntimeRefresh() {
+      if (runtimeRefreshTimer) clearTimeout(runtimeRefreshTimer);
+      runtimeRefreshTimer = setTimeout(() => {
+        runtimeRefreshTimer = null;
+        refreshRuntimeRobots();
+      }, 350);
+    }
+
+    function connectRuntimeEventStream() {
+      if (!operatorAuthenticated || runtimeEventSource || typeof EventSource === "undefined") return;
+      runtimeEventSource = new EventSource(operatorUrl("/runtime-events/stream"));
+      runtimeEventSource.addEventListener("runtime-event", scheduleRuntimeRefresh);
+      runtimeEventSource.onerror = () => {
+        // EventSource reconnects automatically; the panel remains usable while
+        // the versioned runtime stream is temporarily unavailable.
+      };
+      if (!runtimePanelHeartbeatTimer) {
+        runtimePanelHeartbeatTimer = setInterval(() => {
+          if (robotWorkspaceId) publishPanelObservation(robotWorkspaceId, robotWorkspaceTab, true);
+        }, 60_000);
+      }
+    }
+
     async function claimPendingDevice(deviceId, buttonEl = null) {
       const robotId = selectedRobotIdForClaim(deviceId);
       if (!robotId) {
@@ -9024,6 +9167,9 @@
                 ${detectionStatusPill(robot)}
                 ${cloudStatusPill(robot)}
                 ${renderRobotAgentPill(robot)}
+              </div>
+              <div class="robot-quick-pills" title="Состояние общего контура робот — приложение — панель">
+                ${renderTriangleSummaryPills(robot)}
               </div>
               ${renderRobotCardOperatorSnapshot(robot)}
               <div class="robot-summary-meta">
@@ -9797,6 +9943,7 @@
       if (!operatorAuthenticated) return;
       await loadPlans();
       await reloadRobots();
+      connectRuntimeEventStream();
       await reloadWifi();
       await applyRobotWorkspaceRoute({ replace: true, scroll: false });
     }
