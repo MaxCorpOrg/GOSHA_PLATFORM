@@ -77,9 +77,11 @@ bash bin/check_gosha_panel_stack.sh
 
 - `gosha-main` после `init_local_lab.sh` теперь тоже переводится в `self_hosted_xiaozhi`;
 - локальный `create-code` для `gosha-main` отдаёт:
-  - `edge_hub_url = ws://127.0.0.1:18876/mcp`
+  - `edge_hub_url = ""` по умолчанию; заполняется только явно настроенным `PUBLIC_EDGE_HUB_URL`
   - `backend_mode = self_hosted_xiaozhi`
   - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
+
+Важно: до отдельного интеграционного quality-gate этот слой остаётся presence-only. Не подставлять voice WebSocket `/mcp` как `edge_hub_url` и не начинать operator-command gateway из этого runbook.
 
 ## Что проверять первым
 

@@ -72,7 +72,7 @@ RUNTIME_EVENT_STORE = runtime_events.RuntimeEventStore(
     max_events_per_robot=int(os.environ.get("RUNTIME_EVENTS_MAX_PER_ROBOT", "10000")),
 )
 PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "http://151.241.228.232:18876").rstrip("/")
-PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "ws://151.241.228.232:18080/mcp").rstrip("/")
+PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "").strip().rstrip("/")
 PANEL_PUBLIC_SCHEME = urlparse(PUBLIC_PANEL_URL).scheme.lower()
 GOSHA_INTERNAL_OPENAI_PROXY_TOKEN = env_or_file_value(
     "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN",

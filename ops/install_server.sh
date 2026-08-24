@@ -59,6 +59,7 @@ AGENT_GATEWAY_PORT="${GOSHA_AGENT_GATEWAY_PORT:-18110}"
 PANEL_URL="http://${PUBLIC_HOST}:${PANEL_PORT}"
 WS_URL="ws://${PUBLIC_HOST}:${WS_PORT}/xiaozhi/v1/"
 MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
+PUBLIC_EDGE_HUB_URL_VALUE="${GOSHA_PUBLIC_EDGE_HUB_URL:-${PUBLIC_EDGE_HUB_URL:-}}"
 PANEL_PASSWORD_FILE="${ENV_ROOT}/panel.password"
 DB_PASSWORD_FILE="${ENV_ROOT}/selfhost-db.password"
 INTERNAL_PROXY_TOKEN_FILE="${ENV_ROOT}/internal-openai-proxy.token"
@@ -199,7 +200,8 @@ APP_ROOT=${APP_ROOT}
 PANEL_HOST=0.0.0.0
 PANEL_PORT=${PANEL_PORT}
 PUBLIC_PANEL_URL=${PANEL_URL}
-PUBLIC_EDGE_HUB_URL=ws://${PUBLIC_HOST}:18080/mcp
+# Optional future operator edge hub. Keep empty during the presence-only triangle stage.
+PUBLIC_EDGE_HUB_URL=${PUBLIC_EDGE_HUB_URL_VALUE}
 PANEL_OPERATOR_USER=operator
 PANEL_OPERATOR_PASSWORD_FILE=${PANEL_PASSWORD_FILE}
 PANEL_SESSION_TTL_SECONDS=43200
@@ -267,7 +269,7 @@ ensure_env_key "${ENV_ROOT}/panel.env" "APP_ROOT" "${APP_ROOT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_HOST" "0.0.0.0"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_PORT" "${PANEL_PORT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_PANEL_URL" "${PANEL_URL}"
-ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "ws://${PUBLIC_HOST}:18080/mcp"
+ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "${PUBLIC_EDGE_HUB_URL_VALUE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_USER" "operator"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_PASSWORD_FILE" "${PANEL_PASSWORD_FILE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"

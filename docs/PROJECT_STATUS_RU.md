@@ -241,9 +241,12 @@
   - создаёт `gosha-main`, если его ещё нет
   - мигрирует локальный `gosha-main` из `xiaozhi_cloud` в `self_hosted_xiaozhi`
 - После этой миграции локальный onboarding bundle для `gosha-main` уже отдаёт честный self-hosted пакет:
-  - `edge_hub_url = ws://127.0.0.1:18876/mcp`
+  - `edge_hub_url = ""` по умолчанию; поле заполняется только явно настроенным `PUBLIC_EDGE_HUB_URL`
   - `backend_mode = self_hosted_xiaozhi`
   - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
+- До отдельного интеграционного quality-gate текущий треугольник остаётся presence-only:
+  - `PUBLIC_EDGE_HUB_URL` не должен автоматически указывать на voice WebSocket `/mcp`
+  - operator-command gateway из этой ветки не создаётся
 - Главный экран панели упрощён ещё на один шаг:
   - в верхнюю часть карточки робота вынесены четыре операторских статуса:
     - робот на связи / не на связи
@@ -511,6 +514,9 @@
     - `GOSHA-`
     - `Xiaozhi-`
   - предпочитаемый режим `self_hosted_xiaozhi`
+- Отдельное поле `edge_hub_url` в onboarding bundle остаётся совместимым, но по умолчанию пустое:
+  - заполняется только явно заданным `PUBLIC_EDGE_HUB_URL`
+  - адрес voice WebSocket `/mcp` не является operator edge hub
 - Создан отдельный мобильный проект:
   - `/home/max/GOSHA_MOBILE`
 - Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
@@ -527,7 +533,7 @@
   - прохождение шага регистрации по коду `MJ6SG97A`
   - сохранение в `shared_prefs` нового серверного контура:
     - `panel_url = http://151.241.228.232:18876`
-    - `hub_url = ws://151.241.228.232:18080/mcp/`
+    - исторически приложение сохраняло `hub_url` на voice WebSocket `/mcp/`; это больше не считается корректным default для `edge_hub_url`
     - `cloud_endpoint = ws://151.241.228.232:18080/mcp/?token=...&robot_id=gosha-main`
     - `mobile_websocket_url = ws://151.241.228.232:18080/xiaozhi/v1/`
     - `robot_id = gosha-main`

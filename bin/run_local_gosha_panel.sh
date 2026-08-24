@@ -8,7 +8,8 @@ export APP_ROOT
 export PANEL_HOST="127.0.0.1"
 export PANEL_PORT="18876"
 export PUBLIC_PANEL_URL="http://127.0.0.1:18876"
-export PUBLIC_EDGE_HUB_URL="ws://127.0.0.1:18876/mcp"
+# Optional future operator edge hub. Empty by default until the integration quality-gate.
+export PUBLIC_EDGE_HUB_URL="${PUBLIC_EDGE_HUB_URL:-}"
 export GOSHA_AGENT_GATEWAY_URL="http://127.0.0.1:18110"
 export GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS="5"
 export SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE="http://127.0.0.1:18876"
