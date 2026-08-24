@@ -1756,6 +1756,33 @@ def generate_onboarding_code(length=8, existing_codes=None):
             return code
 
 
+def mobile_onboarding_code_created_at(code):
+    clean_code = str(code or "").strip().upper()
+    if not clean_code:
+        return 0
+    entry = load_mobile_codes().get(clean_code)
+    if not isinstance(entry, dict):
+        return 0
+    normalized = normalize_mobile_code_entry(entry, fallback_robot_id=str(entry.get("robot_id", "")).strip())
+    return int(normalized.get("created_at", 0) or 0)
+
+
+def selfhost_claim_for_onboarding(robot_id, code=None):
+    claim = selfhost_xiaozhi.find_claim_by_robot(robot_id)
+    if not claim:
+        return None
+    code_created_at = mobile_onboarding_code_created_at(code)
+    if code_created_at <= 0:
+        return None
+    try:
+        claimed_at = int(claim.get("claimed_at", 0) or 0)
+    except Exception:
+        claimed_at = 0
+    if claimed_at <= code_created_at:
+        return None
+    return claim
+
+
 def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
     env = load_env(robot_env_path(robot_id))
     cfg = load_json(ROBOTS_DIR / robot_id / "mcp_config.json", {"mcpServers": {}})
@@ -1764,6 +1791,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
     users = load_users(robot_id)
     backend_mode = robot_backend_mode(env)
     selfhost_bundle = selfhost_gateway_state() if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
+    selfhost_claim = selfhost_claim_for_onboarding(robot_id, code=code) if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
     bundle = {
         "code": code,
         "panel_url": PUBLIC_PANEL_URL,
@@ -1792,6 +1820,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
         mcp_endpoint_base = str(backend.get("mcp_endpoint_base", "") or "")
         bundle["selfhost_xiaozhi"] = {
             "provider": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
+            "device_id": str((selfhost_claim or {}).get("device_id", "") or ""),
             "ota_url": str(backend.get("ota_url", "") or ""),
             "activate_url": str(backend.get("activate_url", "") or ""),
             "websocket_url": websocket_url,
