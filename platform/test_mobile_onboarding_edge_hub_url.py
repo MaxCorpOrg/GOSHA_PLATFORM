@@ -11,6 +11,8 @@ PANEL_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PANEL_DIR.parent
 REMOVED_PUBLIC_ENDPOINT = "151" + ".241" + ".228" + ".232"
 REMOVED_EXAMPLE_PASSWORD = "change" + "-me"
+REMOVED_LEGACY_PANEL_PORT = "88" + "76"
+REMOVED_LEGACY_EDGE_PORT = "88" + "90"
 
 ONBOARDING_PROBE = r"""
 import json
@@ -111,10 +113,18 @@ def test_backend_env_example_requires_runtime_database_password():
     assert "${SELFHOST_XIAOZHI_DB_PASSWORD:?set SELFHOST_XIAOZHI_DB_PASSWORD in the runtime env file}" in compose
 
 
+def test_gui_panel_direct_run_uses_canonical_or_explicit_ports():
+    gui_panel = (REPO_ROOT / "platform" / "gui_panel.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("PANEL_PORT", "18876")' in gui_panel
+    assert f'os.environ.get("PANEL_PORT", "{REMOVED_LEGACY_PANEL_PORT}")' not in gui_panel
+    assert f"http://127.0.0.1:{REMOVED_LEGACY_EDGE_PORT}" not in gui_panel
+
+
 if __name__ == "__main__":
     test_public_edge_hub_url_defaults_empty()
     test_public_edge_hub_url_uses_explicit_env_only()
     test_installer_does_not_seed_voice_mcp_as_edge_hub()
     test_public_endpoint_defaults_are_explicit_configuration_only()
     test_backend_env_example_requires_runtime_database_password()
+    test_gui_panel_direct_run_uses_canonical_or_explicit_ports()
     print("mobile onboarding edge hub URL tests: OK")

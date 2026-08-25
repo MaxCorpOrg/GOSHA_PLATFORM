@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+import json
+import sqlite3
 import tempfile
 from pathlib import Path
 
-from gosha_runtime_events import EVENT_SCHEMA_VERSION, RuntimeEventStore, normalize_event
+from gosha_runtime_events import EVENT_SCHEMA_VERSION, RuntimeEventStore, _json_digest, normalize_event
 
 
 def sample_event(event_id="mobile-install-1:1"):
@@ -175,6 +177,167 @@ def test_per_robot_journal_retention_is_bounded():
         assert store.snapshot("robot-01")["statistics"]["events_total"] == 120
 
 
+def test_db_snapshot_preserves_lifetime_state_after_journal_pruning_and_cache_loss():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+        bootstrap = sample_event("pruned-bootstrap-0")
+        bootstrap["event_type"] = "service.runtime.started"
+        bootstrap["source"]["instance_id"] = "bootstrap-process"
+        bootstrap["state"]["status"] = "bootstrapped"
+        bootstrap["task"] = {"id": "provisioning", "kind": "bootstrap", "status": "running"}
+        bootstrap.pop("error")
+        store.record(bootstrap, robot_id="robot-01", source_kind="service", source_id="bootstrap-service")
+
+        for index in range(1, 120):
+            item = sample_event(f"retention-state-{index}")
+            item["event_type"] = "mobile.runtime.heartbeat"
+            item["source"]["instance_id"] = "mobile-process"
+            item["state"]["status"] = f"heartbeat-{index}"
+            item.pop("task")
+            item.pop("error")
+            store.record(item, robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+
+        events = store.list_events("robot-01", limit=500)
+        assert len(events) == 100
+        assert all(item["event_id"] != "pruned-bootstrap-0" for item in events)
+
+        snapshot_path = store._snapshot_path("robot-01")
+        snapshot_path.unlink()
+        recovered = store.snapshot("robot-01")
+        assert recovered["statistics"]["events_total"] == 120
+        assert recovered["components"]["service"][0]["state"]["status"] == "bootstrapped"
+        assert recovered["tasks"]["active"][0]["id"] == "provisioning"
+
+        snapshot_path.write_text("{corrupted-json", encoding="utf-8")
+        healed = store.snapshot("robot-01")
+        assert healed["statistics"]["events_total"] == 120
+        assert healed["components"]["service"][0]["state"]["status"] == "bootstrapped"
+        assert healed["tasks"]["active"][0]["id"] == "provisioning"
+
+
+def build_pruned_legacy_fixture(temp_dir):
+    store = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+    bootstrap = sample_event("legacy-bootstrap-0")
+    bootstrap["event_type"] = "service.runtime.started"
+    bootstrap["source"]["instance_id"] = "legacy-bootstrap-process"
+    bootstrap["state"]["status"] = "legacy-bootstrapped"
+    bootstrap["task"] = {"id": "legacy-provisioning", "kind": "bootstrap", "status": "running"}
+    bootstrap.pop("error")
+    store.record(bootstrap, robot_id="robot-01", source_kind="service", source_id="bootstrap-service")
+    for index in range(1, 120):
+        item = sample_event(f"legacy-retained-{index}")
+        item["event_type"] = "mobile.runtime.heartbeat"
+        item["source"]["instance_id"] = "legacy-mobile-process"
+        item["state"]["status"] = f"legacy-heartbeat-{index}"
+        item.pop("task")
+        item.pop("error")
+        store.record(item, robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+    connection = store._connect()
+    connection.execute("DROP TABLE runtime_snapshots")
+    connection.commit()
+    store._connection = None
+    return store._snapshot_path("robot-01")
+
+
+def assert_db_snapshot_row_is_consistent(temp_dir, expected_total):
+    db_path = Path(temp_dir) / "events.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT payload, last_event_rowid, last_event_id, events_total, payload_digest "
+            "FROM runtime_snapshots WHERE robot_id = ?",
+            ("robot-01",),
+        ).fetchone()
+    assert row is not None
+    payload = json.loads(row[0])
+    projection = payload["projection"]
+    assert row[4] == _json_digest(payload)
+    assert int(row[1]) == int(projection["last_event_rowid"])
+    assert row[2] == projection["last_event_id"]
+    assert int(row[3]) == expected_total
+    assert int(projection["events_total"]) == expected_total
+
+
+def test_pre_upgrade_valid_legacy_snapshot_seeds_db_projection_after_pruning():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        build_pruned_legacy_fixture(temp_dir)
+        upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+
+        snapshot = upgraded.snapshot("robot-01")
+        assert snapshot["statistics"]["events_total"] == 120
+        assert snapshot["components"]["service"][0]["state"]["status"] == "legacy-bootstrapped"
+        assert snapshot["tasks"]["active"][0]["id"] == "legacy-provisioning"
+        assert len(upgraded.list_events("robot-01", limit=500)) == 100
+        assert_db_snapshot_row_is_consistent(temp_dir, expected_total=120)
+
+
+def test_pre_upgrade_valid_legacy_snapshot_is_seeded_before_first_new_record():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        build_pruned_legacy_fixture(temp_dir)
+        upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+        new_event = sample_event("legacy-new-120")
+        new_event["event_type"] = "mobile.runtime.heartbeat"
+        new_event["source"]["instance_id"] = "legacy-mobile-process"
+        new_event["state"]["status"] = "legacy-new-state"
+        new_event.pop("task")
+        new_event.pop("error")
+
+        _, snapshot, duplicate = upgraded.record(
+            new_event,
+            robot_id="robot-01",
+            source_kind="mobile",
+            source_id="installation-01",
+        )
+        assert not duplicate
+        assert snapshot["statistics"]["events_total"] == 121
+        assert snapshot["components"]["service"][0]["state"]["status"] == "legacy-bootstrapped"
+        assert snapshot["tasks"]["active"][0]["id"] == "legacy-provisioning"
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "legacy-new-state"
+        assert_db_snapshot_row_is_consistent(temp_dir, expected_total=121)
+
+
+def test_stale_corrupt_or_mismatched_legacy_snapshot_is_rejected():
+    variants = ("stale-tip", "corrupt-json", "wrong-robot")
+    for variant in variants:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot_path = build_pruned_legacy_fixture(temp_dir)
+            if variant == "stale-tip":
+                snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                snapshot["recent_events"][0]["event_id"] = "not-the-journal-tip"
+                snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+            elif variant == "corrupt-json":
+                snapshot_path.write_text("{not-json", encoding="utf-8")
+            else:
+                snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                snapshot["robot_id"] = "other-robot"
+                snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+
+            upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+            snapshot = upgraded.snapshot("robot-01")
+            assert snapshot["statistics"]["events_total"] == 100
+            assert snapshot["components"]["service"] == []
+            assert snapshot["tasks"]["active"] == []
+            assert_db_snapshot_row_is_consistent(temp_dir, expected_total=100)
+
+
+def test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        connected = sample_event("digest-heal-1")
+        connected["state"]["status"] = "connected"
+        connected.pop("error")
+        store.record(connected, robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+
+        snapshot_path = store._snapshot_path("robot-01")
+        corrupted = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        corrupted["components"]["mobile"][0]["state"]["status"] = "corrupted-but-same-tip"
+        snapshot_path.write_text(json.dumps(corrupted, ensure_ascii=False), encoding="utf-8")
+
+        healed = store.snapshot("robot-01")
+        assert healed["components"]["mobile"][0]["state"]["status"] == "connected"
+        healed_file = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        assert healed_file["components"]["mobile"][0]["state"]["status"] == "connected"
+
+
 def test_late_retry_does_not_roll_back_component_or_link_state():
     with tempfile.TemporaryDirectory() as temp_dir:
         store = RuntimeEventStore(temp_dir)
@@ -217,6 +380,151 @@ def test_late_retry_does_not_resurrect_completed_task():
         assert snapshot["tasks"]["recent"][0]["sequence"] == 2
 
 
+def test_snapshot_projection_recovers_after_write_failure_restart_and_retry():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+
+        running = sample_event("recoverable-task:1")
+        running["source"]["instance_id"] = "app-process-1"
+        running["sequence"] = 1
+        running["state"]["status"] = "recovering"
+        running["task"]["status"] = "running"
+        store.record(running, **kwargs)
+
+        completed = sample_event("recoverable-task:2")
+        completed["source"]["instance_id"] = "app-process-1"
+        completed["sequence"] = 2
+        completed["state"]["status"] = "connected"
+        completed["link"]["status"] = "available"
+        completed["task"]["status"] = "completed"
+        completed.pop("error")
+
+        original_save_snapshot = store._save_snapshot
+
+        def fail_snapshot_once(path, snapshot):
+            store._save_snapshot = original_save_snapshot
+            raise OSError("simulated snapshot write failure")
+
+        store._save_snapshot = fail_snapshot_once
+        event, snapshot, duplicate = store.record(completed, **kwargs)
+        assert not duplicate
+        assert event["event_id"] == "recoverable-task:2"
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "connected"
+        assert snapshot["tasks"]["active"] == []
+        assert "simulated snapshot write failure" in store._last_snapshot_export_error
+
+        restarted = RuntimeEventStore(temp_dir)
+        event, snapshot, duplicate = restarted.record(completed, **kwargs)
+
+        assert duplicate
+        assert event["event_id"] == "recoverable-task:2"
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "connected"
+        assert snapshot["links"][0]["status"] == "available"
+        assert snapshot["tasks"]["active"] == []
+        assert snapshot["tasks"]["recent"][0]["status"] == "completed"
+        assert snapshot["tasks"]["recent"][0]["sequence"] == 2
+
+        recovered = restarted.snapshot("robot-01")
+        assert recovered["components"]["mobile"][0]["state"]["status"] == "connected"
+        assert recovered["tasks"]["active"] == []
+        assert recovered["tasks"]["recent"][0]["status"] == "completed"
+
+
+def test_retention_boundary_export_failure_duplicate_uses_db_projection_without_double_apply():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+        kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+        for index in range(100):
+            item = sample_event(f"boundary-{index}")
+            item["event_type"] = "mobile.runtime.heartbeat"
+            item["source"]["instance_id"] = "mobile-process"
+            item["state"]["status"] = f"before-boundary-{index}"
+            item.pop("task")
+            item.pop("error")
+            store.record(item, **kwargs)
+
+        boundary = sample_event("boundary-100")
+        boundary["source"]["instance_id"] = "mobile-process"
+        boundary["sequence"] = 100
+        boundary["state"]["status"] = "event-101"
+        boundary["link"]["status"] = "available"
+        boundary["task"]["status"] = "completed"
+        boundary.pop("error")
+
+        original_save_snapshot = store._save_snapshot
+
+        def fail_snapshot_once(path, snapshot):
+            store._save_snapshot = original_save_snapshot
+            raise OSError("simulated retention-boundary export failure")
+
+        store._save_snapshot = fail_snapshot_once
+        event, snapshot, duplicate = store.record(boundary, **kwargs)
+        assert not duplicate
+        assert event["event_id"] == "boundary-100"
+        assert snapshot["statistics"]["events_total"] == 101
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "event-101"
+        assert "retention-boundary" in store._last_snapshot_export_error
+
+        restarted = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+        event, snapshot, duplicate = restarted.record(boundary, **kwargs)
+        assert duplicate
+        assert event["event_id"] == "boundary-100"
+        assert snapshot["statistics"]["events_total"] == 101
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "event-101"
+        assert snapshot["links"][0]["status"] == "available"
+        assert snapshot["tasks"]["active"] == []
+        assert snapshot["tasks"]["recent"][0]["status"] == "completed"
+        assert len(restarted.list_events("robot-01", limit=500)) == 100
+
+
+def test_persistent_snapshot_export_failure_keeps_db_read_and_sse_best_effort():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        event_payload = sample_event("persistent-export-failure-1")
+
+        def always_fail_snapshot_export(path, snapshot):
+            raise OSError("persistent snapshot export failure")
+
+        store._save_snapshot = always_fail_snapshot_export
+        event, snapshot, duplicate = store.record(
+            event_payload,
+            robot_id="robot-01",
+            source_kind="mobile",
+            source_id="installation-01",
+        )
+        assert not duplicate
+        assert event["event_id"] == "persistent-export-failure-1"
+        assert snapshot["statistics"]["events_total"] == 1
+        assert "persistent snapshot export failure" in store._last_snapshot_export_error
+
+        cursor, published = store.wait_for_events(0, timeout=0)
+        assert cursor == 1
+        assert published[0][1]["event_id"] == "persistent-export-failure-1"
+
+        read_snapshot = store.snapshot("robot-01")
+        assert read_snapshot["statistics"]["events_total"] == 1
+        assert "persistent snapshot export failure" in store._last_snapshot_export_error
+
+        _, duplicate_snapshot, duplicate = store.record(
+            event_payload,
+            robot_id="robot-01",
+            source_kind="mobile",
+            source_id="installation-01",
+        )
+        assert duplicate
+        assert duplicate_snapshot["statistics"]["events_total"] == 1
+        next_cursor, duplicate_published = store.wait_for_events(cursor, timeout=0)
+        assert next_cursor == cursor
+        assert duplicate_published == []
+
+        healthy = RuntimeEventStore(temp_dir)
+        snapshot = healthy.snapshot("robot-01")
+        assert snapshot["statistics"]["events_total"] == 1
+        assert len(healthy.list_events("robot-01")) == 1
+        assert healthy._snapshot_path("robot-01").exists()
+
+
 def test_sse_cursor_recovers_after_process_restart():
     with tempfile.TemporaryDirectory() as temp_dir:
         store = RuntimeEventStore(temp_dir)
@@ -241,8 +549,16 @@ def main():
     test_panel_identity_is_taken_from_authenticated_context()
     test_idempotency_survives_recent_event_window()
     test_per_robot_journal_retention_is_bounded()
+    test_db_snapshot_preserves_lifetime_state_after_journal_pruning_and_cache_loss()
+    test_pre_upgrade_valid_legacy_snapshot_seeds_db_projection_after_pruning()
+    test_pre_upgrade_valid_legacy_snapshot_is_seeded_before_first_new_record()
+    test_stale_corrupt_or_mismatched_legacy_snapshot_is_rejected()
+    test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest()
     test_late_retry_does_not_roll_back_component_or_link_state()
     test_late_retry_does_not_resurrect_completed_task()
+    test_snapshot_projection_recovers_after_write_failure_restart_and_retry()
+    test_retention_boundary_export_failure_duplicate_uses_db_projection_without_double_apply()
+    test_persistent_snapshot_export_failure_keeps_db_read_and_sse_best_effort()
     test_sse_cursor_recovers_after_process_restart()
     print("runtime triangle event tests: OK")
 

@@ -60,7 +60,7 @@ TERMS_OF_USE_SHARE_PATH = Path(
         str(APP_ROOT / "share" / "legal" / "gosha-terms-of-use.html"),
     )
 ).resolve()
-EDGE_HUB_LOCAL_URL = os.environ.get("EDGE_HUB_LOCAL_URL", "http://127.0.0.1:8890").rstrip("/")
+EDGE_HUB_LOCAL_URL = os.environ.get("EDGE_HUB_LOCAL_URL", "").strip().rstrip("/")
 EDGE_AGENT_STALE_SECONDS = int(os.environ.get("EDGE_AGENT_STALE_SECONDS", "45"))
 DIRECT_PROBE_TIMEOUT_SECONDS = float(os.environ.get("DIRECT_PROBE_TIMEOUT_SECONDS", "2.5"))
 EDGE_CONTROL_PROBE_TIMEOUT_SECONDS = float(os.environ.get("EDGE_CONTROL_PROBE_TIMEOUT_SECONDS", "6.0"))
@@ -2884,6 +2884,10 @@ def fetch_edge_snapshot():
         "agents": {},
     }
 
+    if not EDGE_HUB_LOCAL_URL:
+        snapshot["hub_error"] = "edge_hub_url_not_configured"
+        return snapshot
+
     health = http_get_json(f"{EDGE_HUB_LOCAL_URL}/healthz", timeout=2.0)
     if health.get("ok"):
         snapshot["hub_state"] = "online"
@@ -4966,7 +4970,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     host = os.environ.get("PANEL_HOST", "0.0.0.0")
-    port = int(os.environ.get("PANEL_PORT", "8876"))
+    port = int(os.environ.get("PANEL_PORT", "18876"))
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"AI Robot GUI panel: http://{host}:{port}")
     print(f"APP_ROOT={APP_ROOT}")
