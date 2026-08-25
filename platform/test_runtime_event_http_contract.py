@@ -69,6 +69,23 @@ def test_operator_panel_event_round_trip():
             assert status == 422
             assert rejected["error_type"] == "validation_error"
 
+            for event_id, value in (
+                ("invalid-nan", float("nan")),
+                ("invalid-positive-infinity", float("inf")),
+                ("invalid-negative-infinity", float("-inf")),
+            ):
+                status, rejected_number = request_json(
+                    base_url + "/api/operator/robots/robot-01/events",
+                    method="POST",
+                    payload={
+                        "event_id": event_id,
+                        "event_type": "panel.runtime.heartbeat",
+                        "metrics": {"value": value},
+                    },
+                )
+                assert status == 422
+                assert rejected_number["error_type"] == "validation_error"
+
             original_record = gui_panel.RUNTIME_EVENT_STORE.record
             gui_panel.RUNTIME_EVENT_STORE.record = lambda *args, **kwargs: (_ for _ in ()).throw(
                 OSError("temporary database failure")

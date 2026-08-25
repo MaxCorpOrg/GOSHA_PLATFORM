@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import math
 import re
 import sqlite3
 import tempfile
@@ -34,9 +35,25 @@ FORBIDDEN_KEYS = {
 MAX_EVENT_BYTES = 64 * 1024
 MAX_STRING_LENGTH = 2048
 MAX_ATTRIBUTES_DEPTH = 4
+MAX_JSON_SAFE_DEPTH = 16
 MAX_RECENT_EVENTS = 100
 MAX_RECENT_ERRORS = 40
 MAX_RECENT_TASKS = 40
+SQLITE_INT64_MIN = -(2**63)
+SQLITE_INT64_MAX = 2**63 - 1
+SNAPSHOT_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "robot_id",
+    "updated_at",
+    "components",
+    "links",
+    "tasks",
+    "errors",
+    "statistics",
+    "recent_events",
+    "projection",
+}
+SNAPSHOT_PROJECTION_KEYS = {"kind", "last_event_rowid", "last_event_id", "events_total"}
 SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"(?i)\b(?:https?|wss?)://\S+"),
     re.compile(r"(?i)\bbearer\s+\S+"),
@@ -47,9 +64,103 @@ SENSITIVE_VALUE_PATTERNS = (
 )
 
 
+def _json_dumps(value, **kwargs):
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, **kwargs)
+
+
 def _json_digest(value):
-    data = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    data = _json_dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+def _int64_is_safe(value):
+    return isinstance(value, int) and not isinstance(value, bool) and SQLITE_INT64_MIN <= value <= SQLITE_INT64_MAX
+
+
+def _nonnegative_int64_is_safe(value):
+    return _int64_is_safe(value) and value >= 0
+
+
+def _json_value_is_safe(value, *, depth=0):
+    if depth > MAX_JSON_SAFE_DEPTH:
+        return False
+    if value is None or isinstance(value, bool) or isinstance(value, str):
+        return True
+    if isinstance(value, int):
+        return _int64_is_safe(value)
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_json_value_is_safe(item, depth=depth + 1) for item in value)
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return False
+            if not _json_value_is_safe(item, depth=depth + 1):
+                return False
+        return True
+    return False
+
+
+def _string_value_is_safe(value, *, required=False):
+    if value is None:
+        return not required
+    if not isinstance(value, str):
+        return False
+    if not value:
+        return not required
+    return True
+
+
+def _identifier_value_is_safe(value, *, required=False):
+    if not _string_value_is_safe(value, required=required):
+        return False
+    if not value:
+        return not required
+    return IDENTIFIER_RE.fullmatch(value) is not None
+
+
+def _event_type_value_is_safe(value, *, required=False):
+    if not _string_value_is_safe(value, required=required):
+        return False
+    if not value:
+        return not required
+    return EVENT_TYPE_RE.fullmatch(value) is not None
+
+
+def _require_string_value(value, name, *, required=False):
+    if not _string_value_is_safe(value, required=required):
+        raise ValueError(f"invalid {name}")
+
+
+def _require_identifier_value(value, name, *, required=False):
+    if not _identifier_value_is_safe(value, required=required):
+        raise ValueError(f"invalid {name}")
+
+
+def _validate_clean_section(name, clean):
+    if not _json_value_is_safe(clean):
+        raise ValueError(f"invalid {name}")
+    if name == "state":
+        for field in ("domain", "name", "status"):
+            if field in clean:
+                _require_string_value(clean[field], f"state.{field}")
+    elif name == "link":
+        if "kind" in clean:
+            _require_identifier_value(clean["kind"], "link.kind")
+        if "status" in clean:
+            _require_string_value(clean["status"], "link.status")
+    elif name == "task":
+        if "id" in clean:
+            _require_identifier_value(clean["id"], "task.id")
+        for field in ("kind", "status"):
+            if field in clean:
+                _require_string_value(clean[field], f"task.{field}")
+    elif name == "error":
+        if "code" in clean:
+            _require_identifier_value(clean["code"], "error.code")
+        if "message" in clean:
+            _require_string_value(clean["message"], "error.message")
 
 
 def _now_iso():
@@ -125,7 +236,15 @@ def _clean_map(value, *, depth=0):
 
 
 def _clean_scalar(value):
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if not _int64_is_safe(value):
+            raise ValueError("integer is outside signed 64-bit range")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("non-finite float is not allowed")
         return value
     return _clean_sensitive_text(value)
 
@@ -138,7 +257,10 @@ def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
 
 
 def _clean_section(payload, name):
-    return _clean_map(payload.get(name, {}))
+    clean = _clean_map(payload.get(name, {}))
+    if clean:
+        _validate_clean_section(name, clean)
+    return clean
 
 
 def _summary(event):
@@ -168,7 +290,9 @@ def _summary(event):
 def normalize_event(payload, *, robot_id, source_kind, source_id, client_id="", panel_id=""):
     if not isinstance(payload, dict):
         raise ValueError("event payload must be an object")
-    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_EVENT_BYTES:
+    if not _json_value_is_safe(payload):
+        raise ValueError("event payload contains invalid JSON value")
+    if len(_json_dumps(payload).encode("utf-8")) > MAX_EVENT_BYTES:
         raise ValueError("event payload is too large")
 
     supplied_schema = _clean_text(payload.get("schema_version"), limit=64)
@@ -185,12 +309,19 @@ def normalize_event(payload, *, robot_id, source_kind, source_id, client_id="", 
     normalized_source_id = _identifier(source_id, "source.id", required=True)
     event_id = _identifier(payload.get("event_id") or str(uuid.uuid4()), "event_id", required=True)
 
+    if "source" in payload and payload.get("source") is not None and not isinstance(payload.get("source"), dict):
+        raise ValueError("invalid source")
     raw_source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
     source = {
         "kind": normalized_source_kind,
         "id": normalized_source_id,
     }
+    instance_id = _identifier(raw_source.get("instance_id"), "source.instance_id")
+    if instance_id:
+        source["instance_id"] = instance_id
     for key in ("instance_id", "app_version", "firmware_version"):
+        if key == "instance_id":
+            continue
         text = _clean_sensitive_text(raw_source.get(key), limit=128)
         if text:
             source[key] = text
@@ -216,7 +347,7 @@ def normalize_event(payload, *, robot_id, source_kind, source_id, client_id="", 
     occurred_at = _clean_sensitive_text(payload.get("occurred_at") or _now_iso(), limit=64)
     sequence = payload.get("sequence")
     if sequence is not None:
-        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+        if not _nonnegative_int64_is_safe(sequence):
             raise ValueError("invalid sequence")
 
     event = {
@@ -346,24 +477,36 @@ class RuntimeEventStore:
             return None
         if not isinstance(payload, dict):
             return None
+        if not self._legacy_snapshot_shape_is_safe(payload, normalized_robot_id, require_projection=True):
+            return None
         digest = str(row[5] or "")
-        if digest != _json_digest(payload):
+        try:
+            calculated_digest = _json_digest(payload)
+        except (TypeError, ValueError):
+            return None
+        if digest != calculated_digest:
             return None
         projection = payload.get("projection") if isinstance(payload.get("projection"), dict) else {}
-        payload_events_total = int((payload.get("statistics") or {}).get("events_total", 0) or 0)
+        try:
+            row_last_event_rowid = int(row[2] or 0)
+            row_last_event_id = str(row[3] or "")
+            row_events_total = int(row[4] or 0)
+        except (TypeError, ValueError):
+            return None
+        payload_events_total = payload["statistics"]["events_total"]
         if (
-            int(projection.get("last_event_rowid", 0) or 0) != int(row[2] or 0)
-            or str(projection.get("last_event_id", "") or "") != str(row[3] or "")
-            or int(projection.get("events_total", 0) or 0) != int(row[4] or 0)
-            or payload_events_total != int(row[4] or 0)
+            int(projection.get("last_event_rowid", 0) or 0) != row_last_event_rowid
+            or str(projection.get("last_event_id", "") or "") != row_last_event_id
+            or int(projection.get("events_total", 0) or 0) != row_events_total
+            or payload_events_total != row_events_total
         ):
             return None
         return {
             "payload": payload,
             "updated_at": str(row[1] or ""),
-            "last_event_rowid": int(row[2] or 0),
-            "last_event_id": str(row[3] or ""),
-            "events_total": int(row[4] or 0),
+            "last_event_rowid": row_last_event_rowid,
+            "last_event_id": row_last_event_id,
+            "events_total": row_events_total,
             "payload_digest": digest,
         }
 
@@ -417,37 +560,298 @@ class RuntimeEventStore:
             last_event_id=tip_event_id,
         )
 
-    def _legacy_snapshot_shape_is_safe(self, snapshot, robot_id):
+    @staticmethod
+    def _nonnegative_int(value):
+        return _nonnegative_int64_is_safe(value)
+
+    @staticmethod
+    def _safe_counter_key(value):
+        return isinstance(value, str) and IDENTIFIER_RE.fullmatch(value) is not None
+
+    @classmethod
+    def _counter_map_is_safe(cls, value):
+        if not isinstance(value, dict):
+            return False
+        for key, counter in value.items():
+            if not cls._safe_counter_key(key) or not cls._nonnegative_int(counter):
+                return False
+        return True
+
+    @staticmethod
+    def _dict_list_is_safe(value, *, item_validator=None):
+        if not isinstance(value, list):
+            return False
+        for item in value:
+            if not isinstance(item, dict):
+                return False
+            if item_validator is not None and not item_validator(item):
+                return False
+        return True
+
+    @staticmethod
+    def _component_record_is_safe(item):
+        if item.get("kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(item.get("id"), required=True):
+            return False
+        for field in ("instance_id", "source_instance_id"):
+            if field in item and not _identifier_value_is_safe(item.get(field)):
+                return False
+        if not _event_type_value_is_safe(item.get("event_type"), required=True):
+            return False
+        if item.get("severity") not in SEVERITIES:
+            return False
+        if not _string_value_is_safe(item.get("last_seen_at"), required=True):
+            return False
+        sequence = item.get("sequence")
+        if sequence is not None and not _nonnegative_int64_is_safe(sequence):
+            return False
+        state = item.get("state")
+        if state is None:
+            return True
+        if not isinstance(state, dict):
+            return False
+        try:
+            _validate_clean_section("state", state)
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    @staticmethod
+    def _link_record_is_safe(item):
+        if not _identifier_value_is_safe(item.get("kind"), required=True):
+            return False
+        if item.get("source_kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(item.get("source_id"), required=True):
+            return False
+        if "source_instance_id" in item and not _identifier_value_is_safe(item.get("source_instance_id")):
+            return False
+        if not _string_value_is_safe(item.get("updated_at"), required=True):
+            return False
+        if "status" in item and not _string_value_is_safe(item.get("status")):
+            return False
+        sequence = item.get("sequence")
+        return sequence is None or _nonnegative_int64_is_safe(sequence)
+
+    @staticmethod
+    def _task_record_is_safe(item):
+        if not _identifier_value_is_safe(item.get("id"), required=True):
+            return False
+        for field in ("kind", "status"):
+            if field in item and not _string_value_is_safe(item.get(field)):
+                return False
+        if item.get("source_kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(item.get("source_id"), required=True):
+            return False
+        if "source_instance_id" in item and not _identifier_value_is_safe(item.get("source_instance_id")):
+            return False
+        if not _string_value_is_safe(item.get("updated_at"), required=True):
+            return False
+        sequence = item.get("sequence")
+        return sequence is None or _nonnegative_int64_is_safe(sequence)
+
+    @staticmethod
+    def _error_record_is_safe(item):
+        if not _identifier_value_is_safe(item.get("event_id"), required=True):
+            return False
+        if not _event_type_value_is_safe(item.get("event_type"), required=True):
+            return False
+        if item.get("severity") not in SEVERITIES:
+            return False
+        if item.get("source_kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(item.get("source_id"), required=True):
+            return False
+        if not _string_value_is_safe(item.get("occurred_at"), required=True):
+            return False
+        if "code" in item and not _identifier_value_is_safe(item.get("code")):
+            return False
+        if "message" in item and not _string_value_is_safe(item.get("message")):
+            return False
+        if "retryable" in item and not isinstance(item.get("retryable"), bool):
+            return False
+        return True
+
+    @staticmethod
+    def _recent_event_record_is_safe(item):
+        if item.get("schema_version") != EVENT_SCHEMA_VERSION:
+            return False
+        if not _identifier_value_is_safe(item.get("event_id"), required=True):
+            return False
+        if not _event_type_value_is_safe(item.get("event_type"), required=True):
+            return False
+        if item.get("severity") not in SEVERITIES:
+            return False
+        if not _string_value_is_safe(item.get("occurred_at"), required=True):
+            return False
+        if not _string_value_is_safe(item.get("received_at"), required=True):
+            return False
+        source = item.get("source")
+        if not isinstance(source, dict) or source.get("kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(source.get("id"), required=True):
+            return False
+        subject = item.get("subject")
+        if not isinstance(subject, dict) or not isinstance(subject.get("robot_id"), str):
+            return False
+        for field in ("trace", "state", "link", "task", "error", "metrics"):
+            if field in item and not isinstance(item.get(field), dict):
+                return False
+        try:
+            for section in ("state", "link", "task", "error", "metrics"):
+                if section in item:
+                    _validate_clean_section(section, item[section])
+        except (TypeError, ValueError):
+            return False
+        sequence = item.get("sequence")
+        return sequence is None or _nonnegative_int64_is_safe(sequence)
+
+    @staticmethod
+    def _stored_event_is_safe(event):
+        if not isinstance(event, dict) or not _json_value_is_safe(event):
+            return False
+        if event.get("schema_version") != EVENT_SCHEMA_VERSION:
+            return False
+        if not _identifier_value_is_safe(event.get("event_id"), required=True):
+            return False
+        if not _event_type_value_is_safe(event.get("event_type"), required=True):
+            return False
+        if event.get("severity") not in SEVERITIES:
+            return False
+        if not _string_value_is_safe(event.get("occurred_at"), required=True):
+            return False
+        if not _string_value_is_safe(event.get("received_at"), required=True):
+            return False
+        source = event.get("source")
+        if not isinstance(source, dict) or source.get("kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(source.get("id"), required=True):
+            return False
+        if "instance_id" in source and not _identifier_value_is_safe(source.get("instance_id")):
+            return False
+        for field in ("app_version", "firmware_version"):
+            if field in source and not _string_value_is_safe(source.get(field)):
+                return False
+        subject = event.get("subject")
+        if not isinstance(subject, dict):
+            return False
+        subject_robot_id = subject.get("robot_id")
+        if not isinstance(subject_robot_id, str) or ROBOT_ID_RE.fullmatch(subject_robot_id) is None:
+            return False
+        for field in ("client_id", "panel_id"):
+            if field in subject and not _identifier_value_is_safe(subject.get(field)):
+                return False
+        trace = event.get("trace")
+        if trace is not None:
+            if not isinstance(trace, dict):
+                return False
+            for field in ("session_id", "correlation_id", "causation_id"):
+                if field in trace and not _identifier_value_is_safe(trace.get(field)):
+                    return False
+        sequence = event.get("sequence")
+        if sequence is not None and not _nonnegative_int64_is_safe(sequence):
+            return False
+        try:
+            for section in ("state", "link", "task", "error", "metrics", "attributes"):
+                if section not in event:
+                    continue
+                value = event.get(section)
+                if not isinstance(value, dict):
+                    return False
+                _validate_clean_section(section, value)
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    @classmethod
+    def _projection_is_safe(cls, projection):
+        if not isinstance(projection, dict):
+            return False
+        if set(projection) != SNAPSHOT_PROJECTION_KEYS:
+            return False
+        if projection.get("kind") != "sqlite-runtime-snapshot.v1":
+            return False
+        if not cls._nonnegative_int(projection.get("last_event_rowid")):
+            return False
+        last_event_id = projection.get("last_event_id")
+        if not isinstance(last_event_id, str):
+            return False
+        if last_event_id and IDENTIFIER_RE.fullmatch(last_event_id) is None:
+            return False
+        return cls._nonnegative_int(projection.get("events_total"))
+
+    def _legacy_snapshot_shape_is_safe(self, snapshot, robot_id, *, require_projection=False):
+        try:
+            return self._legacy_snapshot_shape_is_safe_unchecked(
+                snapshot,
+                _robot_id(robot_id),
+                require_projection=require_projection,
+            )
+        except Exception:
+            return False
+
+    def _legacy_snapshot_shape_is_safe_unchecked(self, snapshot, normalized_robot_id, *, require_projection):
         if not isinstance(snapshot, dict):
+            return False
+        if not _json_value_is_safe(snapshot):
+            return False
+        if not set(snapshot).issubset(SNAPSHOT_TOP_LEVEL_KEYS):
             return False
         if snapshot.get("schema_version") != SNAPSHOT_SCHEMA_VERSION:
             return False
-        if str(snapshot.get("robot_id", "") or "") != _robot_id(robot_id):
+        if snapshot.get("robot_id") != normalized_robot_id:
             return False
+        updated_at = snapshot.get("updated_at", "")
+        if not isinstance(updated_at, str):
+            return False
+
+        projection = snapshot.get("projection")
+        if require_projection or projection is not None:
+            if not self._projection_is_safe(projection):
+                return False
+
         components = snapshot.get("components")
         if not isinstance(components, dict):
             return False
-        for kind in SOURCE_KINDS:
-            if not isinstance(components.get(kind, []), list):
+        allowed_component_keys = SOURCE_KINDS | {"all"}
+        for kind, records in components.items():
+            if kind not in allowed_component_keys:
                 return False
-        if not isinstance(snapshot.get("links", []), list):
+            if not self._dict_list_is_safe(records, item_validator=self._component_record_is_safe):
+                return False
+        for kind in SOURCE_KINDS:
+            if kind in components and not isinstance(components[kind], list):
+                return False
+
+        if not self._dict_list_is_safe(snapshot.get("links"), item_validator=self._link_record_is_safe):
             return False
+
         tasks = snapshot.get("tasks")
-        if not isinstance(tasks, dict) or not isinstance(tasks.get("active", []), list) or not isinstance(tasks.get("recent", []), list):
+        if not isinstance(tasks, dict):
             return False
+        if not self._dict_list_is_safe(tasks.get("active"), item_validator=self._task_record_is_safe):
+            return False
+        if not self._dict_list_is_safe(tasks.get("recent"), item_validator=self._task_record_is_safe):
+            return False
+
         errors = snapshot.get("errors")
-        if not isinstance(errors, dict) or not isinstance(errors.get("recent", []), list):
+        if not isinstance(errors, dict):
             return False
+        if not self._dict_list_is_safe(errors.get("recent"), item_validator=self._error_record_is_safe):
+            return False
+
         stats = snapshot.get("statistics")
         if not isinstance(stats, dict):
             return False
-        try:
-            events_total = int(stats.get("events_total", 0) or 0)
-        except Exception:
+        if not self._nonnegative_int(stats.get("events_total")):
             return False
-        if events_total < 0:
-            return False
-        if not isinstance(snapshot.get("recent_events", []), list):
+        for field in ("by_type", "by_source_kind", "by_severity"):
+            if not self._counter_map_is_safe(stats.get(field)):
+                return False
+
+        if not self._dict_list_is_safe(snapshot.get("recent_events"), item_validator=self._recent_event_record_is_safe):
             return False
         return True
 
@@ -465,7 +869,7 @@ class RuntimeEventStore:
                 event = json.loads(raw)
             except Exception:
                 continue
-            if not isinstance(event, dict):
+            if not self._stored_event_is_safe(event):
                 continue
             snapshot = self._apply_event(snapshot, event)
             last_event_rowid = int(rowid or 0)
@@ -490,7 +894,9 @@ class RuntimeEventStore:
             last_event_rowid=last_event_rowid,
             last_event_id=last_event_id,
         )
-        payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+        if not self._legacy_snapshot_shape_is_safe(snapshot, normalized_robot_id, require_projection=True):
+            raise ValueError("invalid runtime snapshot projection")
+        payload = _json_dumps(snapshot, separators=(",", ":"))
         digest = _json_digest(snapshot)
         connection.execute(
             """
@@ -561,13 +967,22 @@ class RuntimeEventStore:
             raw = self._read_snapshot_cache(path)
         except Exception:
             return False
-        if _json_digest(raw) != row["payload_digest"]:
+        try:
+            cache_digest = _json_digest(raw)
+        except (TypeError, ValueError):
+            return False
+        if cache_digest != row["payload_digest"]:
             return False
         projection = raw.get("projection") if isinstance(raw.get("projection"), dict) else {}
-        return (
-            int(projection.get("last_event_rowid", 0) or 0) == int(row.get("last_event_rowid", 0) or 0)
-            and str(projection.get("last_event_id", "") or "") == str(row.get("last_event_id", "") or "")
-        )
+        if not self._projection_is_safe(projection):
+            return False
+        try:
+            return (
+                int(projection.get("last_event_rowid", 0) or 0) == int(row.get("last_event_rowid", 0) or 0)
+                and str(projection.get("last_event_id", "") or "") == str(row.get("last_event_id", "") or "")
+            )
+        except (TypeError, ValueError):
+            return False
 
     def list_events(self, robot_id, *, limit=100):
         bounded_limit = max(1, min(int(limit), 500))
@@ -586,14 +1001,14 @@ class RuntimeEventStore:
                 item = json.loads(raw)
             except Exception:
                 continue
-            if isinstance(item, dict):
+            if self._stored_event_is_safe(item):
                 events.append(item)
         return events
 
     def _save_snapshot(self, path, snapshot):
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
-            json.dump(snapshot, tmp, ensure_ascii=False, indent=2)
+            tmp.write(_json_dumps(snapshot, indent=2))
             tmp.write("\n")
             tmp_path = Path(tmp.name)
         tmp_path.replace(path)
@@ -751,7 +1166,7 @@ class RuntimeEventStore:
                         normalized_robot_id,
                         event["event_id"],
                         event["received_at"],
-                        json.dumps(event, ensure_ascii=False, separators=(",", ":")),
+                        _json_dumps(event, separators=(",", ":")),
                     ),
                 )
                 inserted = cursor.rowcount
@@ -760,7 +1175,12 @@ class RuntimeEventStore:
                         "SELECT rowid, payload FROM runtime_events WHERE robot_id = ? AND event_id = ?",
                         (normalized_robot_id, event["event_id"]),
                     ).fetchone()
-                    original = json.loads(row[1]) if row else event
+                    try:
+                        original = json.loads(row[1]) if row else event
+                    except Exception as exc:
+                        raise ValueError("stored duplicate event is invalid") from exc
+                    if not self._stored_event_is_safe(original):
+                        raise ValueError("stored duplicate event is invalid")
                     rowid = int(row[0] or 0) if row else 0
                 else:
                     original = event

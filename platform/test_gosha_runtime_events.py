@@ -4,7 +4,13 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from gosha_runtime_events import EVENT_SCHEMA_VERSION, RuntimeEventStore, _json_digest, normalize_event
+from gosha_runtime_events import (
+    EVENT_SCHEMA_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
+    RuntimeEventStore,
+    _json_digest,
+    normalize_event,
+)
 
 
 def sample_event(event_id="mobile-install-1:1"):
@@ -235,6 +241,7 @@ def build_pruned_legacy_fixture(temp_dir):
     connection = store._connect()
     connection.execute("DROP TABLE runtime_snapshots")
     connection.commit()
+    connection.close()
     store._connection = None
     return store._snapshot_path("robot-01")
 
@@ -295,6 +302,41 @@ def test_pre_upgrade_valid_legacy_snapshot_is_seeded_before_first_new_record():
         assert_db_snapshot_row_is_consistent(temp_dir, expected_total=121)
 
 
+def test_pre_projection_valid_legacy_snapshot_migrates_and_records_once():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        snapshot_path = build_pruned_legacy_fixture(temp_dir)
+        legacy = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        legacy.pop("projection", None)
+        snapshot_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+
+        upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+        snapshot = upgraded.snapshot("robot-01")
+        assert snapshot["statistics"]["events_total"] == 120
+        assert snapshot["components"]["service"][0]["state"]["status"] == "legacy-bootstrapped"
+        assert snapshot["tasks"]["active"][0]["id"] == "legacy-provisioning"
+        assert_db_snapshot_row_is_consistent(temp_dir, expected_total=120)
+
+        next_event = sample_event("legacy-no-projection-120")
+        next_event["event_type"] = "mobile.runtime.heartbeat"
+        next_event["source"]["instance_id"] = "legacy-mobile-process"
+        next_event["state"]["status"] = "legacy-no-projection-new-state"
+        next_event.pop("task")
+        next_event.pop("error")
+        _, snapshot, duplicate = upgraded.record(
+            next_event,
+            robot_id="robot-01",
+            source_kind="mobile",
+            source_id="installation-01",
+        )
+
+        assert not duplicate
+        assert snapshot["statistics"]["events_total"] == 121
+        assert snapshot["components"]["service"][0]["state"]["status"] == "legacy-bootstrapped"
+        assert snapshot["tasks"]["active"][0]["id"] == "legacy-provisioning"
+        assert snapshot["components"]["mobile"][0]["state"]["status"] == "legacy-no-projection-new-state"
+        assert_db_snapshot_row_is_consistent(temp_dir, expected_total=121)
+
+
 def test_stale_corrupt_or_mismatched_legacy_snapshot_is_rejected():
     variants = ("stale-tip", "corrupt-json", "wrong-robot")
     for variant in variants:
@@ -317,6 +359,285 @@ def test_stale_corrupt_or_mismatched_legacy_snapshot_is_rejected():
             assert snapshot["components"]["service"] == []
             assert snapshot["tasks"]["active"] == []
             assert_db_snapshot_row_is_consistent(temp_dir, expected_total=100)
+
+
+def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds():
+    def set_by_type_to_list(snapshot):
+        snapshot["statistics"]["by_type"] = []
+
+    def set_by_source_kind_bad_bool_counter(snapshot):
+        snapshot["statistics"]["by_source_kind"]["mobile"] = True
+
+    def set_by_severity_bad_negative_counter(snapshot):
+        snapshot["statistics"]["by_severity"]["warning"] = -1
+
+    def set_by_type_bad_key(snapshot):
+        snapshot["statistics"]["by_type"]["bad key"] = 1
+
+    def set_events_total_bool(snapshot):
+        snapshot["statistics"]["events_total"] = True
+
+    def set_events_total_huge(snapshot):
+        snapshot["statistics"]["events_total"] = 10**100
+
+    def set_counter_huge(snapshot):
+        snapshot["statistics"]["by_type"]["mobile.runtime.heartbeat"] = 10**100
+
+    def set_projection_rowid_huge(snapshot):
+        snapshot["projection"]["last_event_rowid"] = 10**100
+
+    def set_component_kind_to_non_list(snapshot):
+        snapshot["components"]["mobile"] = {}
+
+    def set_component_item_to_non_dict(snapshot):
+        snapshot["components"]["mobile"][0] = []
+
+    def set_component_state_to_non_dict(snapshot):
+        snapshot["components"]["mobile"][0]["state"] = []
+
+    def set_component_state_to_nan(snapshot):
+        snapshot["components"]["mobile"][0]["state"]["status"] = float("nan")
+
+    def set_component_state_status_to_list(snapshot):
+        snapshot["components"]["mobile"][0]["state"]["status"] = []
+
+    def set_component_sequence_huge(snapshot):
+        snapshot["components"]["mobile"][0]["sequence"] = 10**100
+
+    def set_component_all_item_to_non_dict(snapshot):
+        snapshot["components"]["all"] = [[]]
+
+    def set_link_item_to_non_dict(snapshot):
+        snapshot["links"][0] = []
+
+    def set_link_kind_to_list(snapshot):
+        snapshot["links"][0]["kind"] = []
+
+    def set_task_active_item_to_non_dict(snapshot):
+        snapshot["tasks"]["active"][0] = []
+
+    def set_task_recent_item_to_non_dict(snapshot):
+        snapshot["tasks"]["recent"][0] = []
+
+    def set_task_id_to_list(snapshot):
+        snapshot["tasks"]["recent"][0]["id"] = []
+
+    def set_error_recent_item_to_non_dict(snapshot):
+        snapshot["errors"]["recent"] = [[]]
+
+    def set_error_code_to_dict(snapshot):
+        latest = snapshot["recent_events"][0]
+        snapshot["errors"]["recent"] = [
+            {
+                "event_id": latest["event_id"],
+                "event_type": latest["event_type"],
+                "severity": latest["severity"],
+                "source_kind": latest["source"]["kind"],
+                "source_id": latest["source"]["id"],
+                "occurred_at": latest["occurred_at"],
+                "code": {},
+            }
+        ]
+
+    def set_recent_event_item_to_non_dict(snapshot):
+        snapshot["recent_events"].append([])
+
+    def set_recent_event_source_to_list(snapshot):
+        snapshot["recent_events"][0]["source"] = []
+
+    def set_recent_event_link_kind_to_list(snapshot):
+        snapshot["recent_events"][0]["link"]["kind"] = []
+
+    def add_unknown_top_level_key(snapshot):
+        snapshot["__proto__"] = {"polluted": True}
+
+    def add_unknown_projection_key(snapshot):
+        snapshot["projection"]["__proto__"] = {"polluted": True}
+
+    cases = (
+        ("by-type-list", set_by_type_to_list),
+        ("by-source-kind-bool-counter", set_by_source_kind_bad_bool_counter),
+        ("by-severity-negative-counter", set_by_severity_bad_negative_counter),
+        ("by-type-bad-key", set_by_type_bad_key),
+        ("events-total-bool", set_events_total_bool),
+        ("events-total-huge", set_events_total_huge),
+        ("counter-huge", set_counter_huge),
+        ("projection-rowid-huge", set_projection_rowid_huge),
+        ("component-kind-non-list", set_component_kind_to_non_list),
+        ("component-item-non-dict", set_component_item_to_non_dict),
+        ("component-state-non-dict", set_component_state_to_non_dict),
+        ("component-state-nan", set_component_state_to_nan),
+        ("component-state-status-list", set_component_state_status_to_list),
+        ("component-sequence-huge", set_component_sequence_huge),
+        ("component-all-item-non-dict", set_component_all_item_to_non_dict),
+        ("link-item-non-dict", set_link_item_to_non_dict),
+        ("link-kind-list", set_link_kind_to_list),
+        ("task-active-item-non-dict", set_task_active_item_to_non_dict),
+        ("task-recent-item-non-dict", set_task_recent_item_to_non_dict),
+        ("task-id-list", set_task_id_to_list),
+        ("error-recent-item-non-dict", set_error_recent_item_to_non_dict),
+        ("error-code-dict", set_error_code_to_dict),
+        ("recent-event-item-non-dict", set_recent_event_item_to_non_dict),
+        ("recent-event-source-list", set_recent_event_source_to_list),
+        ("recent-event-link-kind-list", set_recent_event_link_kind_to_list),
+        ("unknown-top-level-key", add_unknown_top_level_key),
+        ("unknown-projection-key", add_unknown_projection_key),
+    )
+    for case_name, mutate in cases:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            snapshot_path = build_pruned_legacy_fixture(temp_dir)
+            legacy = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            mutate(legacy)
+            snapshot_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+
+            upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+            snapshot = upgraded.snapshot("robot-01")
+            assert snapshot["statistics"]["events_total"] == 100, case_name
+            assert snapshot["components"]["service"] == [], case_name
+            assert snapshot["tasks"]["active"] == [], case_name
+
+            next_event = sample_event(f"malformed-legacy-{case_name}-120")
+            next_event["event_type"] = "mobile.runtime.heartbeat"
+            next_event["source"]["instance_id"] = "legacy-mobile-process"
+            next_event["state"]["status"] = f"after-{case_name}"
+            next_event.pop("task")
+            next_event.pop("error")
+            _, snapshot, duplicate = upgraded.record(
+                next_event,
+                robot_id="robot-01",
+                source_kind="mobile",
+                source_id="installation-01",
+            )
+            assert not duplicate, case_name
+            assert snapshot["statistics"]["events_total"] == 101, case_name
+            assert snapshot["components"]["mobile"][0]["state"]["status"] == f"after-{case_name}", case_name
+            assert_db_snapshot_row_is_consistent(temp_dir, expected_total=101)
+
+
+def test_fresh_events_reject_non_finite_and_out_of_range_numbers():
+    invalid_payloads = []
+    for value in (float("nan"), float("inf"), float("-inf")):
+        state_payload = sample_event(f"invalid-state-{len(invalid_payloads)}")
+        state_payload["state"]["status"] = value
+        invalid_payloads.append(state_payload)
+
+        metrics_payload = sample_event(f"invalid-metrics-{len(invalid_payloads)}")
+        metrics_payload["metrics"]["retry_count"] = value
+        invalid_payloads.append(metrics_payload)
+
+    huge_metric = sample_event("invalid-huge-metric")
+    huge_metric["metrics"]["retry_count"] = 10**100
+    invalid_payloads.append(huge_metric)
+
+    huge_sequence = sample_event("invalid-huge-sequence")
+    huge_sequence["sequence"] = 10**100
+    invalid_payloads.append(huge_sequence)
+
+    for payload in invalid_payloads:
+        try:
+            normalize_event(
+                payload,
+                robot_id="robot-01",
+                source_kind="mobile",
+                source_id="installation-01",
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid numeric value was accepted: {payload['event_id']}")
+
+
+def test_invalid_retained_journal_event_is_quarantined_from_projection_and_duplicates():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+        poisoned_payload = sample_event("poisoned-retained-event")
+        store.record(poisoned_payload, **kwargs)
+
+        database = store._connect()
+        poisoned_event = json.loads(
+            database.execute(
+                "SELECT payload FROM runtime_events WHERE robot_id = ? AND event_id = ?",
+                ("robot-01", "poisoned-retained-event"),
+            ).fetchone()[0]
+        )
+        poisoned_event["link"]["kind"] = []
+        poisoned_event["metrics"]["retry_count"] = float("nan")
+        database.execute(
+            "UPDATE runtime_events SET payload = ? WHERE robot_id = ? AND event_id = ?",
+            (json.dumps(poisoned_event, ensure_ascii=False), "robot-01", "poisoned-retained-event"),
+        )
+        database.execute("DROP TABLE runtime_snapshots")
+        database.commit()
+        database.close()
+        store._connection = None
+        store._snapshot_path("robot-01").unlink()
+
+        restarted = RuntimeEventStore(temp_dir)
+        rebuilt = restarted.snapshot("robot-01")
+        assert rebuilt["statistics"]["events_total"] == 0
+        assert restarted.list_events("robot-01") == []
+
+        try:
+            restarted.record(poisoned_payload, **kwargs)
+        except ValueError as exc:
+            assert "stored duplicate event is invalid" in str(exc)
+        else:
+            raise AssertionError("invalid stored duplicate must fail closed")
+
+        healthy_payload = sample_event("healthy-after-poison")
+        _, healthy_snapshot, duplicate = restarted.record(healthy_payload, **kwargs)
+        assert not duplicate
+        assert healthy_snapshot["statistics"]["events_total"] == 1
+        assert healthy_snapshot["recent_events"][0]["event_id"] == "healthy-after-poison"
+
+
+def test_legacy_snapshot_validator_returns_false_for_hostile_shapes():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        hostile_values = (
+            None,
+            True,
+            0,
+            "snapshot",
+            [],
+            {"schema_version": SNAPSHOT_SCHEMA_VERSION, "robot_id": "robot-01", "components": []},
+            {
+                "schema_version": SNAPSHOT_SCHEMA_VERSION,
+                "robot_id": "robot-01",
+                "updated_at": [],
+                "components": {"mobile": []},
+                "links": [],
+                "tasks": {"active": [], "recent": []},
+                "errors": {"recent": []},
+                "statistics": {
+                    "events_total": 0,
+                    "by_type": {},
+                    "by_source_kind": {},
+                    "by_severity": {},
+                },
+                "recent_events": [],
+            },
+            {
+                "schema_version": SNAPSHOT_SCHEMA_VERSION,
+                "robot_id": "robot-01",
+                "updated_at": "",
+                "projection": {"kind": "sqlite-runtime-snapshot.v1", "last_event_rowid": [], "last_event_id": "", "events_total": 0},
+                "components": {"mobile": []},
+                "links": [],
+                "tasks": {"active": [], "recent": []},
+                "errors": {"recent": []},
+                "statistics": {
+                    "events_total": 0,
+                    "by_type": {},
+                    "by_source_kind": {},
+                    "by_severity": {},
+                },
+                "recent_events": [],
+            },
+        )
+        for value in hostile_values:
+            assert store._legacy_snapshot_shape_is_safe(value, "robot-01") is False
 
 
 def test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest():
@@ -552,7 +873,12 @@ def main():
     test_db_snapshot_preserves_lifetime_state_after_journal_pruning_and_cache_loss()
     test_pre_upgrade_valid_legacy_snapshot_seeds_db_projection_after_pruning()
     test_pre_upgrade_valid_legacy_snapshot_is_seeded_before_first_new_record()
+    test_pre_projection_valid_legacy_snapshot_migrates_and_records_once()
     test_stale_corrupt_or_mismatched_legacy_snapshot_is_rejected()
+    test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds()
+    test_legacy_snapshot_validator_returns_false_for_hostile_shapes()
+    test_fresh_events_reject_non_finite_and_out_of_range_numbers()
+    test_invalid_retained_journal_event_is_quarantined_from_projection_and_duplicates()
     test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest()
     test_late_retry_does_not_roll_back_component_or_link_state()
     test_late_retry_does_not_resurrect_completed_task()
