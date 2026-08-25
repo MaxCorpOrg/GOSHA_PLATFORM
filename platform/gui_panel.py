@@ -71,7 +71,7 @@ RUNTIME_EVENT_STORE = runtime_events.RuntimeEventStore(
     RUNTIME_EVENTS_ROOT,
     max_events_per_robot=int(os.environ.get("RUNTIME_EVENTS_MAX_PER_ROBOT", "10000")),
 )
-PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "http://151.241.228.232:18876").rstrip("/")
+PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "").strip().rstrip("/")
 PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "").strip().rstrip("/")
 PANEL_PUBLIC_SCHEME = urlparse(PUBLIC_PANEL_URL).scheme.lower()
 GOSHA_INTERNAL_OPENAI_PROXY_TOKEN = env_or_file_value(
@@ -1778,7 +1778,7 @@ def selfhost_claim_for_onboarding(robot_id, code=None):
         claimed_at = int(claim.get("claimed_at", 0) or 0)
     except Exception:
         claimed_at = 0
-    if claimed_at <= code_created_at:
+    if claimed_at < code_created_at:
         return None
     return claim
 

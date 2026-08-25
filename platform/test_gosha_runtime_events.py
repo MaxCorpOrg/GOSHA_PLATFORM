@@ -22,8 +22,11 @@ def sample_event(event_id="mobile-install-1:1"):
         "attributes": {
             "token": "must-not-survive",
             "panel_client_token": "must-not-survive-either",
+            "api_key": "sk-opaque-value",
+            "accessKey": "ak-opaque-value",
             "diagnostic_url": "http://internal.invalid",
             "credential": "Bearer must-not-survive-in-a-value",
+            "nested": {"private_key": "opaque-private-key", "safe": "nested-yes"},
             "note": "internal endpoint http://internal.invalid/path",
             "network_alias": "ssid=private-network-name",
             "safe": "yes",
@@ -46,8 +49,12 @@ def test_server_context_overrides_untrusted_identity_and_redacts_secrets():
     assert event["source"]["id"] == "installation-01"
     assert "token" not in event["attributes"]
     assert "panel_client_token" not in event["attributes"]
+    assert event["attributes"]["api_key"] == "[redacted]"
+    assert event["attributes"]["accessKey"] == "[redacted]"
     assert "diagnostic_url" not in event["attributes"]
     assert event["attributes"]["credential"] == "[redacted]"
+    assert event["attributes"]["nested"]["private_key"] == "[redacted]"
+    assert event["attributes"]["nested"]["safe"] == "nested-yes"
     assert event["attributes"]["note"] == "[redacted]"
     assert event["attributes"]["network_alias"] == "[redacted]"
     assert event["attributes"]["safe"] == "yes"
@@ -188,6 +195,28 @@ def test_late_retry_does_not_roll_back_component_or_link_state():
         assert snapshot["links"][0]["status"] == "available"
 
 
+def test_late_retry_does_not_resurrect_completed_task():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+        completed = sample_event("task-session:2")
+        completed["source"]["instance_id"] = "app-process-1"
+        completed["sequence"] = 2
+        completed["task"]["status"] = "completed"
+        completed.pop("error")
+        store.record(completed, **kwargs)
+
+        delayed_running = sample_event("task-session:1")
+        delayed_running["source"]["instance_id"] = "app-process-1"
+        delayed_running["sequence"] = 1
+        delayed_running["task"]["status"] = "running"
+        _, snapshot, _ = store.record(delayed_running, **kwargs)
+
+        assert snapshot["tasks"]["active"] == []
+        assert snapshot["tasks"]["recent"][0]["status"] == "completed"
+        assert snapshot["tasks"]["recent"][0]["sequence"] == 2
+
+
 def test_sse_cursor_recovers_after_process_restart():
     with tempfile.TemporaryDirectory() as temp_dir:
         store = RuntimeEventStore(temp_dir)
@@ -213,6 +242,7 @@ def main():
     test_idempotency_survives_recent_event_window()
     test_per_robot_journal_retention_is_bounded()
     test_late_retry_does_not_roll_back_component_or_link_state()
+    test_late_retry_does_not_resurrect_completed_task()
     test_sse_cursor_recovers_after_process_restart()
     print("runtime triangle event tests: OK")
 

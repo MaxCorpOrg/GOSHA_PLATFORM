@@ -159,23 +159,23 @@ def generate_claim_code(length=6):
 def default_backend_config():
     public_http_base = normalize_url(
         os.environ.get("SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE")
-        or os.environ.get("PUBLIC_PANEL_URL")
-        or "http://151.241.228.232:18876",
+        or os.environ.get("PUBLIC_PANEL_URL"),
+        default_scheme="http",
+    )
+    configured_ota_url = normalize_url(
+        os.environ.get("SELFHOST_GOSHA_OTA_URL")
+        or os.environ.get("SELFHOST_XIAOZHI_OTA_URL"),
         default_scheme="http",
     )
     ota_url = ensure_trailing_slash(
-        normalize_url(
-            os.environ.get("SELFHOST_GOSHA_OTA_URL")
-            or os.environ.get("SELFHOST_XIAOZHI_OTA_URL"),
-            default_scheme="http",
-        )
-        or f"{public_http_base}/gosha/ota"
+        configured_ota_url
+        or (f"{public_http_base}/gosha/ota" if public_http_base else "")
     )
     activate_url = normalize_url(
         os.environ.get("SELFHOST_GOSHA_ACTIVATE_URL")
         or os.environ.get("SELFHOST_XIAOZHI_ACTIVATE_URL"),
         default_scheme="http",
-    ) or f"{ota_url}activate"
+    ) or (f"{ota_url}activate" if ota_url else "")
     websocket_url = ensure_trailing_slash(
         normalize_url(
             os.environ.get("SELFHOST_GOSHA_WS_URL")
@@ -487,7 +487,8 @@ def ota_payload_for_device(device_id):
         "url": "",
     }
     if claim["device_id"]:
-        runtime_events_url = str(backend.get("public_http_base", "") or "").rstrip("/") + "/gosha/events"
+        public_http_base = str(backend.get("public_http_base", "") or "").rstrip("/")
+        runtime_events_url = f"{public_http_base}/gosha/events" if public_http_base else ""
         return {
             "activation": {},
             "websocket": {

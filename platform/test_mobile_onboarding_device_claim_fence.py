@@ -79,6 +79,13 @@ fresh_device_id = fresh_bundle.get("selfhost_xiaozhi", {}).get("device_id", "")
 if fresh_device_id != "new-board":
     raise AssertionError(f"fresh post-registration device_id missing: {fresh_device_id!r}")
 
+seed_claim("same-second-board", claimed_at=4000)
+save_code("SAMESEC1", created_at=4000)
+same_second_bundle = gui_panel.onboarding_bundle(robot_id, code="SAMESEC1")
+same_second_device_id = same_second_bundle.get("selfhost_xiaozhi", {}).get("device_id", "")
+if same_second_device_id != "same-second-board":
+    raise AssertionError(f"same-second claim device_id missing: {same_second_device_id!r}")
+
 create_result = gui_panel.create_mobile_onboarding_code(robot_id, robot_name="Гоша Main")
 created_device_id = create_result.get("bundle", {}).get("selfhost_xiaozhi", {}).get("device_id", "")
 if created_device_id:

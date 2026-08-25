@@ -9,6 +9,8 @@ from pathlib import Path
 
 PANEL_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PANEL_DIR.parent
+REMOVED_PUBLIC_ENDPOINT = "151" + ".241" + ".228" + ".232"
+REMOVED_EXAMPLE_PASSWORD = "change" + "-me"
 
 ONBOARDING_PROBE = r"""
 import json
@@ -88,8 +90,31 @@ def test_installer_does_not_seed_voice_mcp_as_edge_hub():
     )
 
 
+def test_public_endpoint_defaults_are_explicit_configuration_only():
+    checked_files = [
+        REPO_ROOT / "platform" / "gui_panel.py",
+        REPO_ROOT / "platform" / "selfhost_xiaozhi_common.py",
+        REPO_ROOT / "platform" / "check_gosha_mobile_contract.py",
+        REPO_ROOT / "ops" / "install_server.sh",
+        REPO_ROOT / "platform" / "panel-auth.env.example",
+    ]
+    for path in checked_files:
+        text = path.read_text(encoding="utf-8")
+        assert REMOVED_PUBLIC_ENDPOINT not in text
+
+
+def test_backend_env_example_requires_runtime_database_password():
+    env_example = (REPO_ROOT / "backend" / "selfhost-backend.env.example").read_text(encoding="utf-8")
+    compose = (REPO_ROOT / "backend" / "selfhost-backend.compose.yml").read_text(encoding="utf-8")
+    assert f"SELFHOST_XIAOZHI_DB_PASSWORD={REMOVED_EXAMPLE_PASSWORD}" not in env_example
+    assert "SELFHOST_XIAOZHI_DB_PASSWORD=" in env_example
+    assert "${SELFHOST_XIAOZHI_DB_PASSWORD:?set SELFHOST_XIAOZHI_DB_PASSWORD in the runtime env file}" in compose
+
+
 if __name__ == "__main__":
     test_public_edge_hub_url_defaults_empty()
     test_public_edge_hub_url_uses_explicit_env_only()
     test_installer_does_not_seed_voice_mcp_as_edge_hub()
+    test_public_endpoint_defaults_are_explicit_configuration_only()
+    test_backend_env_example_requires_runtime_database_password()
     print("mobile onboarding edge hub URL tests: OK")

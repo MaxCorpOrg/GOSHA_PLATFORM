@@ -39,7 +39,9 @@ MAX_RECENT_TASKS = 40
 SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"(?i)\b(?:https?|wss?)://\S+"),
     re.compile(r"(?i)\bbearer\s+\S+"),
-    re.compile(r"(?i)\b(?:authorization|password|passwd|secret|ssid|token)\s*[:=]\s*\S+"),
+    re.compile(
+        r"(?i)\b(?:authorization|password|passwd|secret|ssid|token|api[_-]?key|access[_-]?key|credential|credentials)\s*[:=]\s*\S+"
+    ),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,})?\b"),
 )
 
@@ -79,13 +81,30 @@ def _is_forbidden_key(key):
     )
 
 
+def _is_secret_value_key(key):
+    compact = re.sub(r"[^a-z0-9]", "", str(key or "").lower())
+    return (
+        "apikey" in compact
+        or "accesskey" in compact
+        or "credential" in compact
+        or "clientsecret" in compact
+        or "privatekey" in compact
+        or "secretkey" in compact
+    )
+
+
 def _clean_map(value, *, depth=0):
     if depth > MAX_ATTRIBUTES_DEPTH or not isinstance(value, dict):
         return {}
     clean = {}
     for raw_key, raw_value in value.items():
         key = _clean_text(raw_key, limit=64)
-        if not key or _is_forbidden_key(key):
+        if not key:
+            continue
+        if _is_secret_value_key(key):
+            clean[key] = "[redacted]" if raw_value not in (None, "") else ""
+            continue
+        if _is_forbidden_key(key):
             continue
         if isinstance(raw_value, dict):
             clean[key] = _clean_map(raw_value, depth=depth + 1)
@@ -316,24 +335,35 @@ class RuntimeEventStore:
         tmp_path.replace(path)
 
     @staticmethod
-    def _replace_by_key(items, candidate, key_fields, *, limit):
-        key = tuple(candidate.get(field) for field in key_fields)
-        existing = next(
-            (item for item in items if tuple(item.get(field) for field in key_fields) == key),
-            None,
+    def _item_key(item, key_fields):
+        return tuple(item.get(field) for field in key_fields)
+
+    @staticmethod
+    def _is_stale_candidate(existing, candidate):
+        if not isinstance(existing, dict):
+            return False
+        same_instance = existing.get("source_instance_id", "") == candidate.get("source_instance_id", "")
+        previous_sequence = existing.get("sequence")
+        candidate_sequence = candidate.get("sequence")
+        return (
+            same_instance
+            and isinstance(previous_sequence, int)
+            and isinstance(candidate_sequence, int)
+            and candidate_sequence < previous_sequence
         )
-        if existing:
-            same_instance = existing.get("source_instance_id", "") == candidate.get("source_instance_id", "")
-            previous_sequence = existing.get("sequence")
-            candidate_sequence = candidate.get("sequence")
-            if (
-                same_instance
-                and isinstance(previous_sequence, int)
-                and isinstance(candidate_sequence, int)
-                and candidate_sequence < previous_sequence
-            ):
-                return items[:limit]
-        remaining = [item for item in items if tuple(item.get(field) for field in key_fields) != key]
+
+    @classmethod
+    def _find_by_key(cls, items, candidate, key_fields):
+        candidate_key = cls._item_key(candidate, key_fields)
+        return next((item for item in items if cls._item_key(item, key_fields) == candidate_key), None)
+
+    @classmethod
+    def _replace_by_key(cls, items, candidate, key_fields, *, limit):
+        existing = cls._find_by_key(items, candidate, key_fields)
+        if cls._is_stale_candidate(existing, candidate):
+            return items[:limit]
+        key = cls._item_key(candidate, key_fields)
+        remaining = [item for item in items if cls._item_key(item, key_fields) != key]
         return ([candidate] + remaining)[:limit]
 
     def _apply_event(self, snapshot, event):
@@ -379,12 +409,22 @@ class RuntimeEventStore:
         task = event.get("task")
         if isinstance(task, dict) and task.get("id"):
             task_record = dict(task)
-            task_record.update({"source_kind": source["kind"], "source_id": source["id"], "updated_at": event["received_at"]})
+            task_record.update(
+                {
+                    "source_kind": source["kind"],
+                    "source_id": source["id"],
+                    "source_instance_id": source.get("instance_id", ""),
+                    "sequence": event.get("sequence"),
+                    "updated_at": event["received_at"],
+                }
+            )
             tasks = snapshot.setdefault("tasks", {"active": [], "recent": []})
-            tasks["active"] = [item for item in tasks.get("active", []) if item.get("id") != task.get("id")]
-            if task.get("status") not in TERMINAL_TASK_STATUSES:
-                tasks["active"] = ([task_record] + tasks["active"])[:MAX_RECENT_TASKS]
-            tasks["recent"] = self._replace_by_key(tasks.get("recent", []), task_record, ("id",), limit=MAX_RECENT_TASKS)
+            recent = tasks.get("recent", [])
+            if not self._is_stale_candidate(self._find_by_key(recent, task_record, ("id",)), task_record):
+                tasks["active"] = [item for item in tasks.get("active", []) if item.get("id") != task.get("id")]
+                if task.get("status") not in TERMINAL_TASK_STATUSES:
+                    tasks["active"] = ([task_record] + tasks["active"])[:MAX_RECENT_TASKS]
+                tasks["recent"] = self._replace_by_key(recent, task_record, ("id",), limit=MAX_RECENT_TASKS)
 
         error = event.get("error")
         if isinstance(error, dict) and error:
