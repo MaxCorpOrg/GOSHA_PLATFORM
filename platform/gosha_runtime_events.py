@@ -256,27 +256,43 @@ def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
     return text
 
 
-def _stored_clean_value_is_safe(value, *, depth=0):
+def _stored_clean_value_is_safe(value, *, depth=0, canonical_shape=True):
     """Verify that persisted JSON is already in the canonical secret-safe form."""
     if depth > MAX_JSON_SAFE_DEPTH:
         return False
     if isinstance(value, dict):
         for key, item in value.items():
-            if not isinstance(key, str) or key != _clean_text(key, limit=64):
+            if not isinstance(key, str):
                 return False
-            if _is_forbidden_key(key):
+            inspected_key = key.strip()
+            if not inspected_key:
                 return False
-            if _is_secret_value_key(key):
+            if canonical_shape and key != _clean_text(key, limit=64):
+                return False
+            if _is_forbidden_key(inspected_key):
+                return False
+            if _is_secret_value_key(inspected_key):
                 if item not in ("", "[redacted]"):
                     return False
                 continue
-            if not _stored_clean_value_is_safe(item, depth=depth + 1):
+            if not _stored_clean_value_is_safe(
+                item,
+                depth=depth + 1,
+                canonical_shape=canonical_shape,
+            ):
                 return False
         return True
     if isinstance(value, list):
-        if len(value) > 64:
+        if canonical_shape and len(value) > 64:
             return False
-        return all(_stored_clean_value_is_safe(item, depth=depth + 1) for item in value)
+        return all(
+            _stored_clean_value_is_safe(
+                item,
+                depth=depth + 1,
+                canonical_shape=canonical_shape,
+            )
+            for item in value
+        )
     if isinstance(value, str):
         return len(value) <= MAX_STRING_LENGTH and _clean_sensitive_text(value) == value
     return _json_value_is_safe(value, depth=depth)
@@ -832,6 +848,8 @@ class RuntimeEventStore:
         if not isinstance(snapshot, dict):
             return False
         if not _json_value_is_safe(snapshot):
+            return False
+        if not _stored_clean_value_is_safe(snapshot, canonical_shape=False):
             return False
         if not set(snapshot).issubset(SNAPSHOT_TOP_LEVEL_KEYS):
             return False

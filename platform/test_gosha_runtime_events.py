@@ -380,6 +380,9 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
     def set_events_total_huge(snapshot):
         snapshot["statistics"]["events_total"] = 10**100
 
+    def add_statistics_url(snapshot):
+        snapshot["statistics"]["diagnostic_url"] = "https://internal.example.invalid/diagnostics"
+
     def set_counter_huge(snapshot):
         snapshot["statistics"]["by_type"]["mobile.runtime.heartbeat"] = 10**100
 
@@ -407,6 +410,10 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
     def set_component_all_item_to_non_dict(snapshot):
         snapshot["components"]["all"] = [[]]
 
+    def add_component_secret_fields(snapshot):
+        snapshot["components"]["mobile"][0]["websocket_url"] = "ws://internal.example.invalid/voice"
+        snapshot["components"]["mobile"][0]["api_key"] = "raw-secret"
+
     def set_link_item_to_non_dict(snapshot):
         snapshot["links"][0] = []
 
@@ -415,6 +422,9 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
 
     def set_task_active_item_to_non_dict(snapshot):
         snapshot["tasks"]["active"][0] = []
+
+    def add_task_container_secret(snapshot):
+        snapshot["tasks"][" credential "] = "raw-secret"
 
     def set_task_recent_item_to_non_dict(snapshot):
         snapshot["tasks"]["recent"][0] = []
@@ -467,6 +477,7 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("by-type-bad-key", set_by_type_bad_key),
         ("events-total-bool", set_events_total_bool),
         ("events-total-huge", set_events_total_huge),
+        ("statistics-url", add_statistics_url),
         ("counter-huge", set_counter_huge),
         ("projection-rowid-huge", set_projection_rowid_huge),
         ("component-kind-non-list", set_component_kind_to_non_list),
@@ -476,9 +487,11 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("component-state-status-list", set_component_state_status_to_list),
         ("component-sequence-huge", set_component_sequence_huge),
         ("component-all-item-non-dict", set_component_all_item_to_non_dict),
+        ("component-secret-fields", add_component_secret_fields),
         ("link-item-non-dict", set_link_item_to_non_dict),
         ("link-kind-list", set_link_kind_to_list),
         ("task-active-item-non-dict", set_task_active_item_to_non_dict),
+        ("task-container-secret", add_task_container_secret),
         ("task-recent-item-non-dict", set_task_recent_item_to_non_dict),
         ("task-id-list", set_task_id_to_list),
         ("error-recent-item-non-dict", set_error_recent_item_to_non_dict),
@@ -661,6 +674,48 @@ def test_secret_bearing_or_foreign_retained_events_fail_closed():
                 assert "stored duplicate event is invalid" in str(exc), case_name
             else:
                 raise AssertionError(f"poisoned duplicate must fail closed: {case_name}")
+
+
+def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        payload = sample_event("hostile-db-snapshot-1")
+        payload.pop("error")
+        store.record(
+            payload,
+            robot_id="robot-01",
+            source_kind="mobile",
+            source_id="installation-01",
+        )
+
+        database = store._connect()
+        snapshot = json.loads(
+            database.execute(
+                "SELECT payload FROM runtime_snapshots WHERE robot_id = ?",
+                ("robot-01",),
+            ).fetchone()[0]
+        )
+        component = snapshot["components"]["mobile"][0]
+        component["websocket_url"] = "ws://internal.example.invalid/voice"
+        component["api_key"] = "raw-secret"
+        database.execute(
+            "UPDATE runtime_snapshots SET payload = ?, payload_digest = ? WHERE robot_id = ?",
+            (
+                json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")),
+                _json_digest(snapshot),
+                "robot-01",
+            ),
+        )
+        database.commit()
+        database.close()
+        store._connection = None
+        store._snapshot_path("robot-01").unlink()
+
+        rebuilt = RuntimeEventStore(temp_dir).snapshot("robot-01")
+        rebuilt_component = rebuilt["components"]["mobile"][0]
+        assert rebuilt["statistics"]["events_total"] == 1
+        assert "websocket_url" not in rebuilt_component
+        assert "api_key" not in rebuilt_component
 
 
 def test_legacy_snapshot_validator_returns_false_for_hostile_shapes():
@@ -951,6 +1006,7 @@ def main():
     test_fresh_events_reject_non_finite_and_out_of_range_numbers()
     test_invalid_retained_journal_event_is_quarantined_from_projection_and_duplicates()
     test_secret_bearing_or_foreign_retained_events_fail_closed()
+    test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest()
     test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest()
     test_late_retry_does_not_roll_back_component_or_link_state()
     test_late_retry_does_not_resurrect_completed_task()

@@ -5,7 +5,7 @@
 - Активный этап — закрытие платформенного Draft PR `#46` через AI Office; очередь остаётся `Platform → Android PR #51 → firmware gate`.
 - AI Office уже восстановлен и подтверждён реальным reviewer-запуском на `GPT-5.5 / xhigh`.
 - Reviewer вернул два `P2`: доверие к отравленной SQLite-строке и ошибочный fallback voice/MCP на HTTP-порт `18876`.
-- Исправления подготовлены: persisted events fail closed на секретах и чужом `robot_id`, а fallback/локальный launcher используют `18876` для HTTP и `18080` для voice/MCP. Полный платформенный CI прошёл 10/10.
+- Исправления подготовлены: persisted events fail closed на секретах и чужом `robot_id`, а fallback/локальный launcher используют `18876` для HTTP и `18080` для voice/MCP. Первый re-review нашёл соседний `P2` в hostile DB/legacy snapshot; теперь весь snapshot тоже проходит рекурсивную secret-safe проверку. Повторный полный платформенный CI прошёл 10/10.
 - Немедленный следующий шаг: commit/push платформы и повторный reviewer через AI Office до `PASS`. Android, прошивку и operator-command gateway раньше не начинать.
 - Живой робот не трогать: из-за неисправной левой сервы запрещены flash, motion, trim и servo sequence. Сеть остаётся `TEMP_NL_RELAY → PRIMARY_PLATFORM_SERVER` до переезда на `FUTURE_PRODUCTION_SERVER`; реальные адреса и секреты в git не заносить.
 
