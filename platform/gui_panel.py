@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,7 @@ from urllib.request import Request, urlopen
 import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
+import gosha_runtime_events as runtime_events
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
 try:
@@ -58,14 +60,19 @@ TERMS_OF_USE_SHARE_PATH = Path(
         str(APP_ROOT / "share" / "legal" / "gosha-terms-of-use.html"),
     )
 ).resolve()
-EDGE_HUB_LOCAL_URL = os.environ.get("EDGE_HUB_LOCAL_URL", "http://127.0.0.1:8890").rstrip("/")
+EDGE_HUB_LOCAL_URL = os.environ.get("EDGE_HUB_LOCAL_URL", "").strip().rstrip("/")
 EDGE_AGENT_STALE_SECONDS = int(os.environ.get("EDGE_AGENT_STALE_SECONDS", "45"))
 DIRECT_PROBE_TIMEOUT_SECONDS = float(os.environ.get("DIRECT_PROBE_TIMEOUT_SECONDS", "2.5"))
 EDGE_CONTROL_PROBE_TIMEOUT_SECONDS = float(os.environ.get("EDGE_CONTROL_PROBE_TIMEOUT_SECONDS", "6.0"))
 MOBILE_DIR = APP_ROOT / "mobile"
 MOBILE_CODES_PATH = MOBILE_DIR / "onboarding_codes.json"
-PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "http://151.241.228.232:18876").rstrip("/")
-PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "ws://151.241.228.232:18080/mcp").rstrip("/")
+RUNTIME_EVENTS_ROOT = APP_ROOT / "runtime_events"
+RUNTIME_EVENT_STORE = runtime_events.RuntimeEventStore(
+    RUNTIME_EVENTS_ROOT,
+    max_events_per_robot=int(os.environ.get("RUNTIME_EVENTS_MAX_PER_ROBOT", "10000")),
+)
+PUBLIC_PANEL_URL = os.environ.get("PUBLIC_PANEL_URL", "").strip().rstrip("/")
+PUBLIC_EDGE_HUB_URL = os.environ.get("PUBLIC_EDGE_HUB_URL", "").strip().rstrip("/")
 PANEL_PUBLIC_SCHEME = urlparse(PUBLIC_PANEL_URL).scheme.lower()
 GOSHA_INTERNAL_OPENAI_PROXY_TOKEN = env_or_file_value(
     "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN",
@@ -813,11 +820,41 @@ def update_mobile_presence(robot_id, payload):
         source=source,
         local_host=local_host,
     )
+    source_id = str((payload or {}).get("source_id", "") or "android-client").strip()
+    try:
+        RUNTIME_EVENT_STORE.record(
+            {
+                "event_type": "mobile.presence.updated",
+                "source": {
+                    "instance_id": str((payload or {}).get("instance_id", "") or "").strip(),
+                    "app_version": str((payload or {}).get("app_version", "") or "").strip(),
+                },
+                "occurred_at": snapshot.get("received_at_iso") or ts_to_iso(now_ts()),
+                "state": {"domain": "presence", "name": state, "status": "reported"},
+                "link": {
+                    "kind": "mobile_robot",
+                    "status": "available" if state in {"home_wifi_local", "phone_on_robot_wifi"} else "unavailable",
+                },
+                "attributes": {"discovery_source": source},
+            },
+            robot_id=robot_id,
+            source_kind="mobile",
+            source_id=source_id,
+        )
+    except Exception as exc:
+        # Runtime observability must never break the legacy presence contract.
+        panel_event(
+            "runtime_event_bridge_failed",
+            robot_id=robot_id,
+            event_type="mobile.presence.updated",
+            error_type=type(exc).__name__,
+        )
     return {
         "ok": True,
         "accepted_at": snapshot["received_at"],
         "accepted_at_iso": snapshot["received_at_iso"],
         "data": snapshot,
+        "snapshot": snapshot,
     }
 
 
@@ -1719,6 +1756,33 @@ def generate_onboarding_code(length=8, existing_codes=None):
             return code
 
 
+def mobile_onboarding_code_created_at(code):
+    clean_code = str(code or "").strip().upper()
+    if not clean_code:
+        return 0
+    entry = load_mobile_codes().get(clean_code)
+    if not isinstance(entry, dict):
+        return 0
+    normalized = normalize_mobile_code_entry(entry, fallback_robot_id=str(entry.get("robot_id", "")).strip())
+    return int(normalized.get("created_at", 0) or 0)
+
+
+def selfhost_claim_for_onboarding(robot_id, code=None):
+    claim = selfhost_xiaozhi.find_claim_by_robot(robot_id)
+    if not claim:
+        return None
+    code_created_at = mobile_onboarding_code_created_at(code)
+    if code_created_at <= 0:
+        return None
+    try:
+        claimed_at = int(claim.get("claimed_at", 0) or 0)
+    except Exception:
+        claimed_at = 0
+    if claimed_at < code_created_at:
+        return None
+    return claim
+
+
 def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
     env = load_env(robot_env_path(robot_id))
     cfg = load_json(ROBOTS_DIR / robot_id / "mcp_config.json", {"mcpServers": {}})
@@ -1727,6 +1791,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
     users = load_users(robot_id)
     backend_mode = robot_backend_mode(env)
     selfhost_bundle = selfhost_gateway_state() if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
+    selfhost_claim = selfhost_claim_for_onboarding(robot_id, code=code) if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
     bundle = {
         "code": code,
         "panel_url": PUBLIC_PANEL_URL,
@@ -1755,6 +1820,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
         mcp_endpoint_base = str(backend.get("mcp_endpoint_base", "") or "")
         bundle["selfhost_xiaozhi"] = {
             "provider": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
+            "device_id": str((selfhost_claim or {}).get("device_id", "") or ""),
             "ota_url": str(backend.get("ota_url", "") or ""),
             "activate_url": str(backend.get("activate_url", "") or ""),
             "websocket_url": websocket_url,
@@ -2818,6 +2884,10 @@ def fetch_edge_snapshot():
         "agents": {},
     }
 
+    if not EDGE_HUB_LOCAL_URL:
+        snapshot["hub_error"] = "edge_hub_url_not_configured"
+        return snapshot
+
     health = http_get_json(f"{EDGE_HUB_LOCAL_URL}/healthz", timeout=2.0)
     if health.get("ok"):
         snapshot["hub_state"] = "online"
@@ -3007,6 +3077,7 @@ def build_robot_record(robot_id, edge_snapshot=None):
         "backend_mode": robot_backend_mode(env),
         "detection": detection,
         "mobile_presence": mobile_presence,
+        "triangle": RUNTIME_EVENT_STORE.snapshot(robot_id),
         "tools": tools,
         "control": control_cfg,
         "agent": agent_assignment,
@@ -3231,6 +3302,7 @@ def get_robot_runtime_snapshot(robot_id):
         "activity_presence": activity_presence,
         "mobile_presence": mobile_presence,
         "connectivity": connectivity,
+        "triangle": RUNTIME_EVENT_STORE.snapshot(robot_id),
     }
 
 
@@ -3767,6 +3839,22 @@ def extract_selfhost_device_identity(headers, payload):
     }
 
 
+def authenticate_selfhost_runtime_event(headers, payload):
+    identity = extract_selfhost_device_identity(headers, payload)
+    device_id = str(identity.get("device_id", "") or "").strip()
+    if not device_id:
+        return None
+    claim = selfhost_xiaozhi.find_claim_by_device(device_id)
+    if not claim:
+        return None
+    authorization = str(headers.get("Authorization", "") or "").strip()
+    supplied_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    expected_token = str(claim.get("websocket_token", "") or "").strip()
+    if not supplied_token or not expected_token or not secrets.compare_digest(supplied_token, expected_token):
+        return None
+    return claim
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AIRobotPanel/1.0"
 
@@ -3848,7 +3936,8 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(length)
         try:
-            return json.loads(raw.decode("utf-8"))
+            payload = json.loads(raw.decode("utf-8"))
+            return payload if isinstance(payload, dict) else {}
         except Exception:
             return {}
 
@@ -3905,6 +3994,41 @@ class Handler(BaseHTTPRequestHandler):
             return True
         self._send_json(401, {"ok": False, "error": "mobile access denied"})
         return False
+
+    def _operator_runtime_source_id(self):
+        session_token = self._cookie_map().get(PANEL_SESSION_COOKIE, "")
+        if session_token:
+            digest = hashlib.sha256(session_token.encode("utf-8")).hexdigest()[:24]
+            return f"panel-session-{digest}"
+        return "panel-open-access"
+
+    def _send_runtime_event_stream(self, parsed):
+        query = parse_qs(parsed.query)
+        raw_cursor = query.get("cursor", [self.headers.get("Last-Event-ID", "0")])[0]
+        try:
+            cursor = max(0, int(raw_cursor or 0))
+        except (TypeError, ValueError):
+            cursor = 0
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            self.wfile.write(b"retry: 2000\n\n")
+            self.wfile.flush()
+            current_cursor, events = RUNTIME_EVENT_STORE.wait_for_events(cursor, timeout=15.0)
+            if not events:
+                self.wfile.write(f": heartbeat {current_cursor}\n\n".encode("utf-8"))
+            for event_cursor, event in events:
+                data = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                frame = f"id: {event_cursor}\nevent: runtime-event\ndata: {data}\n\n"
+                self.wfile.write(frame.encode("utf-8"))
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        self.close_connection = True
 
     def do_HEAD(self):
         parsed, _ = self._path_parts()
@@ -4026,8 +4150,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(200, {"ok": True, "data": get_robot_runtime_snapshot(robot_id)})
+            except ValueError as exc:
+                self._send_json(422, {"ok": False, "error": str(exc), "error_type": "validation_error"})
             except Exception as exc:
-                self._send_json(400, {"ok": False, "error": str(exc)})
+                self._send_json(503, {"ok": False, "error": "runtime event storage unavailable", "error_type": "transient_error"})
             return
 
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "mobile" and parts[2] == "robots" and parts[4] == "subscription":
@@ -4089,8 +4215,38 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_operator_auth():
                 return
 
+        if effective_path == "/api/runtime-events/stream":
+            self._send_runtime_event_stream(parsed)
+            return
+
         if effective_path == "/api/robots":
             self._send_json(200, {"ok": True, "robots": list_robots()})
+            return
+
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "runtime-events":
+            robot_id = effective_parts[2]
+            if not safe_robot_id(robot_id):
+                self._send_json(400, {"ok": False, "error": "invalid robot_id"})
+                return
+            try:
+                require_robot_dir(robot_id)
+                raw_limit = parse_qs(parsed.query).get("limit", ["100"])[0]
+                events = RUNTIME_EVENT_STORE.list_events(robot_id, limit=int(raw_limit or 100))
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "data": {
+                            "snapshot": RUNTIME_EVENT_STORE.snapshot(robot_id),
+                            "events": events,
+                        },
+                    },
+                )
+            except ValueError as exc:
+                self._send_json(422, {"ok": False, "error": str(exc), "error_type": "validation_error"})
+            except Exception:
+                self._send_json(503, {"ok": False, "error": "runtime event storage unavailable", "error_type": "transient_error"})
             return
 
         if effective_path == "/api/selfhost-xiaozhi":
@@ -4270,6 +4426,35 @@ class Handler(BaseHTTPRequestHandler):
         parsed, parts = self._path_parts()
         payload = self._body_json()
 
+        if parsed.path.rstrip("/") in ("/xiaozhi/events", "/gosha/events"):
+            claim = authenticate_selfhost_runtime_event(self.headers, payload)
+            if not claim:
+                self._send_json(401, {"ok": False, "error": "device event access denied"})
+                return
+            try:
+                event, snapshot, duplicate = RUNTIME_EVENT_STORE.record(
+                    payload,
+                    robot_id=claim.get("robot_id", ""),
+                    source_kind="robot",
+                    source_id=claim.get("device_id", ""),
+                    client_id=claim.get("client_id", ""),
+                )
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "duplicate": duplicate,
+                        "event_id": event.get("event_id"),
+                        "accepted_at": event.get("received_at"),
+                        "snapshot_updated_at": snapshot.get("updated_at"),
+                    },
+                )
+            except ValueError as exc:
+                self._send_json(422, {"ok": False, "error": str(exc), "error_type": "validation_error"})
+            except Exception:
+                self._send_json(503, {"ok": False, "error": "runtime event storage unavailable", "error_type": "transient_error"})
+            return
+
         if parsed.path.rstrip("/") in ("/xiaozhi/ota", "/gosha/ota"):
             identity = extract_selfhost_device_identity(self.headers, payload)
             if not identity.get("device_id"):
@@ -4408,6 +4593,38 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
+        if len(parts) == 5 and parts[0] == "api" and parts[1] == "mobile" and parts[2] == "robots" and parts[4] == "events":
+            robot_id = parts[3]
+            if not self._require_mobile_access(robot_id):
+                return
+            raw_source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+            source_id = str(raw_source.get("id", "") or "").strip()
+            if not source_id:
+                self._send_json(422, {"ok": False, "error": "source.id is required", "error_type": "validation_error"})
+                return
+            try:
+                event, snapshot, duplicate = RUNTIME_EVENT_STORE.record(
+                    payload,
+                    robot_id=robot_id,
+                    source_kind="mobile",
+                    source_id=source_id,
+                )
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "duplicate": duplicate,
+                        "event_id": event.get("event_id"),
+                        "accepted_at": event.get("received_at"),
+                        "snapshot_updated_at": snapshot.get("updated_at"),
+                    },
+                )
+            except ValueError as exc:
+                self._send_json(422, {"ok": False, "error": str(exc), "error_type": "validation_error"})
+            except Exception:
+                self._send_json(503, {"ok": False, "error": "runtime event storage unavailable", "error_type": "transient_error"})
+            return
+
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "mobile" and parts[2] == "robots" and parts[4] == "users":
             robot_id = parts[3]
             if not self._require_mobile_access(robot_id):
@@ -4442,6 +4659,37 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path.startswith("/api/") and not parsed.path.startswith("/api/mobile/"):
             if not self._require_operator_auth():
                 return
+
+        if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "events":
+            robot_id = effective_parts[2]
+            if not safe_robot_id(robot_id):
+                self._send_json(400, {"ok": False, "error": "invalid robot_id"})
+                return
+            try:
+                require_robot_dir(robot_id)
+                panel_source_id = self._operator_runtime_source_id()
+                event, snapshot, duplicate = RUNTIME_EVENT_STORE.record(
+                    payload,
+                    robot_id=robot_id,
+                    source_kind="panel",
+                    source_id=panel_source_id,
+                    panel_id=panel_source_id,
+                )
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "duplicate": duplicate,
+                        "event_id": event.get("event_id"),
+                        "accepted_at": event.get("received_at"),
+                        "snapshot_updated_at": snapshot.get("updated_at"),
+                    },
+                )
+            except ValueError as exc:
+                self._send_json(422, {"ok": False, "error": str(exc), "error_type": "validation_error"})
+            except Exception:
+                self._send_json(503, {"ok": False, "error": "runtime event storage unavailable", "error_type": "transient_error"})
+            return
 
         if effective_path == "/api/robots/create":
             robot_id = str(payload.get("robot_id", "")).strip()
@@ -4722,7 +4970,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     host = os.environ.get("PANEL_HOST", "0.0.0.0")
-    port = int(os.environ.get("PANEL_PORT", "8876"))
+    port = int(os.environ.get("PANEL_PORT", "18876"))
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"AI Robot GUI panel: http://{host}:{port}")
     print(f"APP_ROOT={APP_ROOT}")

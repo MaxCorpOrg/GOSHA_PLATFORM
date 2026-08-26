@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
-DEFAULT_BASE_URL = os.environ.get("PANEL_URL") or os.environ.get("PUBLIC_PANEL_URL") or "http://151.241.228.232:18876"
+DEFAULT_BASE_URL = os.environ.get("PANEL_URL") or os.environ.get("PUBLIC_PANEL_URL") or ""
 PRIVACY_ROUTE = "/legal/gosha-privacy-policy.html"
 TERMS_ROUTE = "/legal/gosha-terms-of-use.html"
 PRIVACY_ALIAS_ROUTE = "/gosha/privacy"
@@ -158,12 +158,14 @@ def check_resolve_code(base_url, code, timeout, retries, retry_delay):
 
 def main():
     parser = argparse.ArgumentParser(description="Smoke-check public mobile contract for the Android app 'Гоша'.")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=f"Panel base URL, default: {DEFAULT_BASE_URL}")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Panel base URL. Required unless PANEL_URL or PUBLIC_PANEL_URL is set.")
     parser.add_argument("--timeout", type=float, default=8.0, help="HTTP timeout in seconds.")
     parser.add_argument("--retries", type=int, default=3, help="Retries for transient connection failures.")
     parser.add_argument("--retry-delay", type=float, default=0.7, help="Delay between retries in seconds.")
     parser.add_argument("--code", default="", help="Optional onboarding code for non-mutating resolve-code check.")
     args = parser.parse_args()
+    if not str(args.base_url or "").strip():
+        parser.error("set --base-url, PANEL_URL, or PUBLIC_PANEL_URL")
 
     checks = [
         check_head_file(

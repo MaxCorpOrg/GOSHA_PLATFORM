@@ -50,15 +50,46 @@ RUNTIME_ROOT="${INSTALL_ROOT}/runtime"
 APP_ROOT="${RUNTIME_ROOT}/app_root"
 ENV_ROOT="${RUNTIME_ROOT}/env"
 REPORTS_ROOT="${RUNTIME_ROOT}/reports"
-PUBLIC_HOST="${GOSHA_PUBLIC_HOST:-151.241.228.232}"
+PUBLIC_HOST="${GOSHA_PUBLIC_HOST:-}"
 PANEL_PORT="${GOSHA_PANEL_PORT:-18876}"
 WS_PORT="${GOSHA_WS_PORT:-18080}"
 HTTP_PORT="${GOSHA_HTTP_PORT:-18083}"
 WEB_PORT="${GOSHA_WEB_PORT:-18082}"
 AGENT_GATEWAY_PORT="${GOSHA_AGENT_GATEWAY_PORT:-18110}"
-PANEL_URL="http://${PUBLIC_HOST}:${PANEL_PORT}"
-WS_URL="ws://${PUBLIC_HOST}:${WS_PORT}/xiaozhi/v1/"
-MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
+strip_trailing_slash() {
+  local value="$1"
+  printf '%s' "${value%/}"
+}
+ensure_trailing_slash() {
+  local value="$1"
+  if [[ -z "${value}" || "${value}" == */ ]]; then
+    printf '%s' "${value}"
+  else
+    printf '%s/' "${value}"
+  fi
+}
+PANEL_URL="$(strip_trailing_slash "${GOSHA_PUBLIC_PANEL_URL:-${PUBLIC_PANEL_URL:-}}")"
+if [[ -z "${PANEL_URL}" && -n "${PUBLIC_HOST}" ]]; then
+  PANEL_URL="http://${PUBLIC_HOST}:${PANEL_PORT}"
+fi
+SELFHOST_PUBLIC_HTTP_BASE="$(strip_trailing_slash "${SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE:-${PANEL_URL}}")"
+GOSHA_OTA_URL="$(ensure_trailing_slash "${SELFHOST_GOSHA_OTA_URL:-${SELFHOST_XIAOZHI_OTA_URL:-}}")"
+if [[ -z "${GOSHA_OTA_URL}" && -n "${SELFHOST_PUBLIC_HTTP_BASE}" ]]; then
+  GOSHA_OTA_URL="${SELFHOST_PUBLIC_HTTP_BASE}/gosha/ota/"
+fi
+GOSHA_ACTIVATE_URL="$(strip_trailing_slash "${SELFHOST_GOSHA_ACTIVATE_URL:-${SELFHOST_XIAOZHI_ACTIVATE_URL:-}}")"
+if [[ -z "${GOSHA_ACTIVATE_URL}" && -n "${GOSHA_OTA_URL}" ]]; then
+  GOSHA_ACTIVATE_URL="$(strip_trailing_slash "${GOSHA_OTA_URL}")/activate"
+fi
+WS_URL="$(ensure_trailing_slash "${SELFHOST_GOSHA_WS_URL:-${SELFHOST_XIAOZHI_WS_URL:-}}")"
+if [[ -z "${WS_URL}" && -n "${PUBLIC_HOST}" ]]; then
+  WS_URL="ws://${PUBLIC_HOST}:${WS_PORT}/xiaozhi/v1/"
+fi
+MCP_BASE="$(ensure_trailing_slash "${SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE:-}")"
+if [[ -z "${MCP_BASE}" && -n "${PUBLIC_HOST}" ]]; then
+  MCP_BASE="ws://${PUBLIC_HOST}:${WS_PORT}/mcp/"
+fi
+PUBLIC_EDGE_HUB_URL_VALUE="${GOSHA_PUBLIC_EDGE_HUB_URL:-${PUBLIC_EDGE_HUB_URL:-}}"
 PANEL_PASSWORD_FILE="${ENV_ROOT}/panel.password"
 DB_PASSWORD_FILE="${ENV_ROOT}/selfhost-db.password"
 INTERNAL_PROXY_TOKEN_FILE="${ENV_ROOT}/internal-openai-proxy.token"
@@ -199,7 +230,8 @@ APP_ROOT=${APP_ROOT}
 PANEL_HOST=0.0.0.0
 PANEL_PORT=${PANEL_PORT}
 PUBLIC_PANEL_URL=${PANEL_URL}
-PUBLIC_EDGE_HUB_URL=ws://${PUBLIC_HOST}:18080/mcp
+# Optional future operator edge hub. Keep empty during the presence-only triangle stage.
+PUBLIC_EDGE_HUB_URL=${PUBLIC_EDGE_HUB_URL_VALUE}
 PANEL_OPERATOR_USER=operator
 PANEL_OPERATOR_PASSWORD_FILE=${PANEL_PASSWORD_FILE}
 PANEL_SESSION_TTL_SECONDS=43200
@@ -207,11 +239,11 @@ GOSHA_AGENT_GATEWAY_URL=http://127.0.0.1:${AGENT_GATEWAY_PORT}
 GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS=5
 GOSHA_INTERNAL_OPENAI_PROXY_TOKEN_FILE=${INTERNAL_PROXY_TOKEN_FILE}
 GOSHA_BACKEND_PROXY_PROFILE_ID=${DEFAULT_PROVIDER_PROFILE_ID}
-SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE=${PANEL_URL}
-SELFHOST_GOSHA_OTA_URL=${PANEL_URL}/gosha/ota/
-SELFHOST_GOSHA_ACTIVATE_URL=${PANEL_URL}/gosha/ota/activate
-SELFHOST_XIAOZHI_OTA_URL=${PANEL_URL}/gosha/ota/
-SELFHOST_XIAOZHI_ACTIVATE_URL=${PANEL_URL}/gosha/ota/activate
+SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE=${SELFHOST_PUBLIC_HTTP_BASE}
+SELFHOST_GOSHA_OTA_URL=${GOSHA_OTA_URL}
+SELFHOST_GOSHA_ACTIVATE_URL=${GOSHA_ACTIVATE_URL}
+SELFHOST_XIAOZHI_OTA_URL=${GOSHA_OTA_URL}
+SELFHOST_XIAOZHI_ACTIVATE_URL=${GOSHA_ACTIVATE_URL}
 SELFHOST_XIAOZHI_WS_URL=${WS_URL}
 SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE=${MCP_BASE}
 APK_SHARE_PATH=${APP_ROOT}/share/maxcorp-connector-debug.apk
@@ -267,7 +299,7 @@ ensure_env_key "${ENV_ROOT}/panel.env" "APP_ROOT" "${APP_ROOT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_HOST" "0.0.0.0"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_PORT" "${PANEL_PORT}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_PANEL_URL" "${PANEL_URL}"
-ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "ws://${PUBLIC_HOST}:18080/mcp"
+ensure_env_key "${ENV_ROOT}/panel.env" "PUBLIC_EDGE_HUB_URL" "${PUBLIC_EDGE_HUB_URL_VALUE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_USER" "operator"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_OPERATOR_PASSWORD_FILE" "${PANEL_PASSWORD_FILE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "PANEL_SESSION_TTL_SECONDS" "43200"
@@ -275,11 +307,11 @@ ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_URL" "http://127.0.0
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_AGENT_GATEWAY_TIMEOUT_SECONDS" "5"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_INTERNAL_OPENAI_PROXY_TOKEN_FILE" "${INTERNAL_PROXY_TOKEN_FILE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "GOSHA_BACKEND_PROXY_PROFILE_ID" "${DEFAULT_PROVIDER_PROFILE_ID}"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE" "${PANEL_URL}"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_OTA_URL" "${PANEL_URL}/gosha/ota/"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_ACTIVATE_URL" "${PANEL_URL}/gosha/ota/activate"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_OTA_URL" "${PANEL_URL}/gosha/ota/"
-ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_ACTIVATE_URL" "${PANEL_URL}/gosha/ota/activate"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE" "${SELFHOST_PUBLIC_HTTP_BASE}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_OTA_URL" "${GOSHA_OTA_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_GOSHA_ACTIVATE_URL" "${GOSHA_ACTIVATE_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_OTA_URL" "${GOSHA_OTA_URL}"
+ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_ACTIVATE_URL" "${GOSHA_ACTIVATE_URL}"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_WS_URL" "${WS_URL}"
 ensure_env_key "${ENV_ROOT}/panel.env" "SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE" "${MCP_BASE}"
 ensure_env_key "${ENV_ROOT}/panel.env" "APK_SHARE_PATH" "${APP_ROOT}/share/maxcorp-connector-debug.apk"
@@ -598,6 +630,6 @@ else
 fi
 
 echo "GOSHA server install complete. phase=${PHASE}"
-echo "Panel: ${PANEL_URL}"
-echo "WebSocket backend: ${WS_URL}"
+echo "Panel URL: configured in ${ENV_ROOT}/panel.env as PUBLIC_PANEL_URL"
+echo "WebSocket backend URL: configured in ${ENV_ROOT}/panel.env as SELFHOST_XIAOZHI_WS_URL"
 echo "Operator password file: ${PANEL_PASSWORD_FILE}"

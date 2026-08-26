@@ -14,7 +14,7 @@ require_file() {
   [[ -f "$path" ]] || fail "не найден обязательный файл: $path"
 }
 
-echo "[1/5] Проверка ключевых файлов"
+echo "[1/10] Проверка ключевых файлов"
 required_paths=(
   ".github/workflows/repo-validation.yml"
   "bin/ci_validate.sh"
@@ -28,6 +28,11 @@ required_paths=(
   "platform/gui_panel.py"
   "platform/panel_index.html"
   "platform/test_edge_hub_transport_diagnostics.py"
+  "platform/test_gosha_runtime_events.py"
+  "platform/test_runtime_event_http_contract.py"
+  "platform/test_selfhost_runtime_events.py"
+  "platform/test_mobile_onboarding_device_claim_fence.py"
+  "platform/test_mobile_onboarding_edge_hub_url.py"
   "platform/check_gosha_mobile_contract.py"
   "ops/install_server.sh"
 )
@@ -45,7 +50,7 @@ if "<!doctype html>" not in panel_html:
     raise SystemExit(1)
 PY
 
-echo "[2/5] Проверка синтаксиса shell-файлов"
+echo "[2/10] Проверка синтаксиса shell-файлов"
 mapfile -d '' tracked_files < <(git ls-files -z -- bin ops platform | sort -z)
 shell_files=()
 python_files=()
@@ -68,7 +73,7 @@ for path in "${shell_files[@]}"; do
   bash -n "$path"
 done
 
-echo "[3/5] Проверка Python AST для platform/ops"
+echo "[3/10] Проверка Python AST для platform/ops"
 if ((${#python_files[@]} == 0)); then
   fail "не найдены отслеживаемые Python-файлы в platform/ops"
 fi
@@ -94,10 +99,25 @@ if failed:
     raise SystemExit(1)
 PY
 
-echo "[4/5] Проверка диагностики edge-hub"
+echo "[4/10] Проверка диагностики edge-hub"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_edge_hub_transport_diagnostics.py
 
-echo "[5/5] Проверка CLI контракта mobile API"
+echo "[5/10] Проверка runtime-event хранилища"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_runtime_events.py
+
+echo "[6/10] Проверка runtime-event HTTP контракта"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_runtime_event_http_contract.py
+
+echo "[7/10] Проверка self-host runtime-event конфигурации"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_selfhost_runtime_events.py
+
+echo "[8/10] Проверка onboarding edge hub URL"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_mobile_onboarding_edge_hub_url.py
+
+echo "[9/10] Проверка onboarding device claim fence"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_mobile_onboarding_device_claim_fence.py
+
+echo "[10/10] Проверка CLI контракта mobile API"
 python3 platform/check_gosha_mobile_contract.py --help >/dev/null
 
 echo "Проверка репозитория завершена успешно."
