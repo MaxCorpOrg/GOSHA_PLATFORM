@@ -564,6 +564,13 @@ class RuntimeEventStore:
             or payload_events_total != row_events_total
         ):
             return None
+        tip_rowid, tip_event_id, retained_count = self._journal_tip(connection, normalized_robot_id)
+        if (
+            row_last_event_rowid != tip_rowid
+            or row_last_event_id != tip_event_id
+            or row_events_total < retained_count
+        ):
+            return None
         return {
             "payload": payload,
             "updated_at": str(row[1] or ""),

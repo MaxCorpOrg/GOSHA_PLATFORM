@@ -740,6 +740,54 @@ def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
         assert "robot_id" not in rebuilt_component
 
 
+def test_stale_db_snapshot_with_matching_digest_is_rebuilt_from_journal_tip():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(temp_dir)
+        kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+
+        first = sample_event("stale-db-snapshot-1")
+        first["state"]["status"] = "first"
+        first.pop("error")
+        store.record(first, **kwargs)
+
+        database = store._connect()
+        stale_snapshot = json.loads(
+            database.execute(
+                "SELECT payload FROM runtime_snapshots WHERE robot_id = ?",
+                ("robot-01",),
+            ).fetchone()[0]
+        )
+
+        second = sample_event("stale-db-snapshot-2")
+        second["state"]["status"] = "second"
+        second.pop("error")
+        store.record(second, **kwargs)
+
+        stale_projection = stale_snapshot["projection"]
+        database.execute(
+            "UPDATE runtime_snapshots SET payload = ?, payload_digest = ?, updated_at = ?, "
+            "last_event_rowid = ?, last_event_id = ?, events_total = ? WHERE robot_id = ?",
+            (
+                json.dumps(stale_snapshot, ensure_ascii=False, separators=(",", ":")),
+                _json_digest(stale_snapshot),
+                stale_snapshot["updated_at"],
+                stale_projection["last_event_rowid"],
+                stale_projection["last_event_id"],
+                stale_projection["events_total"],
+                "robot-01",
+            ),
+        )
+        database.commit()
+        database.close()
+        store._connection = None
+        store._snapshot_path("robot-01").unlink()
+
+        rebuilt = RuntimeEventStore(temp_dir).snapshot("robot-01")
+        assert rebuilt["statistics"]["events_total"] == 2
+        assert rebuilt["projection"]["last_event_id"] == "stale-db-snapshot-2"
+        assert rebuilt["components"]["mobile"][0]["state"]["status"] == "second"
+
+
 def test_legacy_snapshot_validator_returns_false_for_hostile_shapes():
     with tempfile.TemporaryDirectory() as temp_dir:
         store = RuntimeEventStore(temp_dir)
@@ -1029,6 +1077,7 @@ def main():
     test_invalid_retained_journal_event_is_quarantined_from_projection_and_duplicates()
     test_secret_bearing_or_foreign_retained_events_fail_closed()
     test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest()
+    test_stale_db_snapshot_with_matching_digest_is_rebuilt_from_journal_tip()
     test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest()
     test_late_retry_does_not_roll_back_component_or_link_state()
     test_late_retry_does_not_resurrect_completed_task()

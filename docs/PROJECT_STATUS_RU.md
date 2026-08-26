@@ -10,7 +10,8 @@
 - Первый повторный reviewer подтвердил эти исправления, но нашёл соседний `P2`: агрегированный DB/legacy snapshot с пересчитанным digest мог содержать secret/URL-поля внутри `components` и других вложенных контейнеров.
 - Snapshot теперь целиком проходит рекурсивную secret-safe проверку до принятия. Добавлены регрессии для отравленных строк журнала, чужого `subject.robot_id`, hostile DB/legacy snapshot и конфигурации только с `PUBLIC_PANEL_URL`; повторный `bash bin/ci_validate.sh` прошёл все 10 этапов.
 - Следующий точный re-review нашёл ещё один identity-вариант: дополнительный `robot_id` мог находиться вне канонического `subject` в event/component/task. Теперь `robot_id` разрешён только в корне snapshot и в каноническом `subject`, а во всех forward-compatible секциях удаляется на входе и отклоняется в persisted data. Identity adversarial tests и полный CI снова прошли 10/10.
-- Изменения не развёртывались на живом сервере и не затрагивали физического робота. Следующий шаг — отправить identity-усиленный кандидат в ветку PR `#46` и повторить точный reviewer через AI Office до терминального `PASS`.
+- Следующий re-review нашёл stale DB snapshot с корректным пересчитанным digest: внутренне согласованный snapshot мог отставать от более нового SQLite journal tip. DB snapshot теперь принимается только при точном совпадении `last_event_rowid/last_event_id` с концом журнала и непротиворечивом retained count; новый freshness-probe, retention/legacy/crash regression и полный CI прошли.
+- Изменения не развёртывались на живом сервере и не затрагивали физического робота. Следующий шаг — отправить freshness-усиленный кандидат в ветку PR `#46` и повторить точный reviewer через AI Office до терминального `PASS`.
 - Ограничение левой сервы остаётся: flash, motion, trim и ручные подталкивания под питанием запрещены. Operator-command gateway также не начинать.
 
 ## Контрольная точка нового робота через временный relay 2026-08-25
