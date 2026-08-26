@@ -44,6 +44,8 @@ def test_default_backend_config_does_not_synthesize_public_endpoint():
         "SELFHOST_GOSHA_WS_URL",
         "SELFHOST_XIAOZHI_WS_URL",
         "SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE",
+        "SELFHOST_XIAOZHI_PUBLIC_WS_PORT",
+        "GOSHA_WS_PORT",
     )}
     try:
         for key in saved_env:
@@ -62,7 +64,39 @@ def test_default_backend_config_does_not_synthesize_public_endpoint():
                 os.environ[key] = value
 
 
+def test_default_backend_config_keeps_http_and_voice_ports_separate():
+    saved_env = {key: os.environ.get(key) for key in (
+        "SELFHOST_XIAOZHI_PUBLIC_HTTP_BASE",
+        "PUBLIC_PANEL_URL",
+        "SELFHOST_GOSHA_WS_URL",
+        "SELFHOST_XIAOZHI_WS_URL",
+        "SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE",
+        "SELFHOST_XIAOZHI_PUBLIC_WS_PORT",
+        "GOSHA_WS_PORT",
+    )}
+    try:
+        for key in saved_env:
+            os.environ.pop(key, None)
+        os.environ["PUBLIC_PANEL_URL"] = "http://relay.example.invalid:18876"
+        backend = selfhost.default_backend_config()
+        assert backend["public_http_base"] == "http://relay.example.invalid:18876"
+        assert backend["websocket_url"] == "ws://relay.example.invalid:18080/xiaozhi/v1/"
+        assert backend["mcp_endpoint_base"] == "ws://relay.example.invalid:18080/mcp/"
+
+        os.environ["SELFHOST_XIAOZHI_PUBLIC_WS_PORT"] = "28080"
+        overridden = selfhost.default_backend_config()
+        assert overridden["websocket_url"] == "ws://relay.example.invalid:28080/xiaozhi/v1/"
+        assert overridden["mcp_endpoint_base"] == "ws://relay.example.invalid:28080/mcp/"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 if __name__ == "__main__":
     test_claimed_device_receives_runtime_event_delivery_config()
     test_default_backend_config_does_not_synthesize_public_endpoint()
+    test_default_backend_config_keeps_http_and_voice_ports_separate()
     print("self-hosted runtime event config tests: OK")

@@ -44,6 +44,7 @@ bash bin/run_local_gosha_panel.sh
 
 ```text
 панель: http://127.0.0.1:18876
+голосовой WebSocket и совместимый MCP: ws://127.0.0.1:18080
 шлюз ИИ-агентов: http://127.0.0.1:18110
 ```
 
@@ -79,7 +80,7 @@ bash bin/check_gosha_panel_stack.sh
 - локальный `create-code` для `gosha-main` отдаёт:
   - `edge_hub_url = ""` по умолчанию; заполняется только явно настроенным `PUBLIC_EDGE_HUB_URL`
   - `backend_mode = self_hosted_xiaozhi`
-  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
+  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18080/mcp/`
 
 Важно: до отдельного интеграционного quality-gate этот слой остаётся presence-only. Не подставлять voice WebSocket `/mcp` как `edge_hub_url` и не начинать operator-command gateway из этого runbook.
 

@@ -1,5 +1,16 @@
 # AGENT CHECKPOINT
 
+## Свежая контрольная точка 2026-08-26
+
+- Работу продолжать с Draft PR платформы `#46`; Android PR `#51` и firmware gate не начинать до его терминального `PASS`.
+- AI Office исправлен: фактический распределённый reviewer запускается на точном профиле `GPT-5.5 / xhigh`. Временный worker после задачи снова переведён в `draining`.
+- Последний reviewer платформы дал `NO-GO` с двумя `P2`, которые уже исправлены локально:
+  - SQLite journal/snapshot/list/duplicate paths проверяют secret-safe форму сохранённого события и совпадение `subject.robot_id` с областью строки;
+  - автоматический self-host fallback разделяет `PUBLIC_PANEL_URL` на HTTP `18876` и voice/MCP `18080`; локальный launcher использует те же роли.
+- Новые adversarial и migration-тесты прошли, полный `bash bin/ci_validate.sh` завершил 10/10 этапов.
+- Следующий ход: commit/push платформенной ветки, дождаться GitHub checks и повторить исходную reviewer-задачу в AI Office. Только после `PASS` переходить к Android.
+- Не выполнять живое развёртывание, flash, motion, trim или servo sequence: левая серва неисправна. `TEMP_NL_RELAY` остаётся временной символической ролью до `FUTURE_PRODUCTION_SERVER`.
+
 ## Свежая контрольная точка 2026-08-25
 
 - Новый физический робот живьём подтверждён в треугольнике `робот — Android — панель`. Текущий рабочий сетевой обход — роль `TEMP_NL_RELAY`, ведущая на `PRIMARY_PLATFORM_SERVER`.

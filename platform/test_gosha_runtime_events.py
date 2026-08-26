@@ -448,6 +448,12 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
     def set_recent_event_link_kind_to_list(snapshot):
         snapshot["recent_events"][0]["link"]["kind"] = []
 
+    def set_recent_event_foreign_robot(snapshot):
+        snapshot["recent_events"][0]["subject"]["robot_id"] = "other-robot"
+
+    def set_recent_event_secret_field(snapshot):
+        snapshot["recent_events"][0]["attributes"] = {"token": "must-not-survive"}
+
     def add_unknown_top_level_key(snapshot):
         snapshot["__proto__"] = {"polluted": True}
 
@@ -480,6 +486,8 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("recent-event-item-non-dict", set_recent_event_item_to_non_dict),
         ("recent-event-source-list", set_recent_event_source_to_list),
         ("recent-event-link-kind-list", set_recent_event_link_kind_to_list),
+        ("recent-event-foreign-robot", set_recent_event_foreign_robot),
+        ("recent-event-secret-field", set_recent_event_secret_field),
         ("unknown-top-level-key", add_unknown_top_level_key),
         ("unknown-projection-key", add_unknown_projection_key),
     )
@@ -590,6 +598,69 @@ def test_invalid_retained_journal_event_is_quarantined_from_projection_and_dupli
         assert not duplicate
         assert healthy_snapshot["statistics"]["events_total"] == 1
         assert healthy_snapshot["recent_events"][0]["event_id"] == "healthy-after-poison"
+
+
+def test_secret_bearing_or_foreign_retained_events_fail_closed():
+    def add_forbidden_top_level(event):
+        event["websocket_url"] = "ws://internal.example.invalid/xiaozhi/v1/"
+
+    def add_nested_token(event):
+        event.setdefault("attributes", {})["nested"] = {"token": "must-not-survive"}
+
+    def add_disguised_token(event):
+        event.setdefault("attributes", {})[" token "] = "must-not-survive"
+
+    def add_raw_secret_value(event):
+        event.setdefault("attributes", {})["api_key"] = "raw-secret-value"
+
+    def change_subject_robot(event):
+        event["subject"]["robot_id"] = "other-robot"
+
+    cases = (
+        ("forbidden-top-level", add_forbidden_top_level),
+        ("nested-token", add_nested_token),
+        ("disguised-token", add_disguised_token),
+        ("raw-secret-value", add_raw_secret_value),
+        ("foreign-subject", change_subject_robot),
+    )
+    for case_name, mutate in cases:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = RuntimeEventStore(temp_dir)
+            event_id = f"poison-{case_name}"
+            payload = sample_event(event_id)
+            kwargs = dict(robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+            store.record(payload, **kwargs)
+
+            database = store._connect()
+            retained = json.loads(
+                database.execute(
+                    "SELECT payload FROM runtime_events WHERE robot_id = ? AND event_id = ?",
+                    ("robot-01", event_id),
+                ).fetchone()[0]
+            )
+            mutate(retained)
+            database.execute(
+                "UPDATE runtime_events SET payload = ? WHERE robot_id = ? AND event_id = ?",
+                (json.dumps(retained, ensure_ascii=False), "robot-01", event_id),
+            )
+            database.execute("DROP TABLE runtime_snapshots")
+            database.commit()
+            database.close()
+            store._connection = None
+            store._snapshot_path("robot-01").unlink()
+
+            restarted = RuntimeEventStore(temp_dir)
+            assert restarted.list_events("robot-01") == [], case_name
+            rebuilt = restarted.snapshot("robot-01")
+            assert rebuilt["statistics"]["events_total"] == 0, case_name
+            assert rebuilt["recent_events"] == [], case_name
+
+            try:
+                restarted.record(payload, **kwargs)
+            except ValueError as exc:
+                assert "stored duplicate event is invalid" in str(exc), case_name
+            else:
+                raise AssertionError(f"poisoned duplicate must fail closed: {case_name}")
 
 
 def test_legacy_snapshot_validator_returns_false_for_hostile_shapes():
@@ -879,6 +950,7 @@ def main():
     test_legacy_snapshot_validator_returns_false_for_hostile_shapes()
     test_fresh_events_reject_non_finite_and_out_of_range_numbers()
     test_invalid_retained_journal_event_is_quarantined_from_projection_and_duplicates()
+    test_secret_bearing_or_foreign_retained_events_fail_closed()
     test_corrupt_snapshot_cache_with_matching_tip_is_healed_by_digest()
     test_late_retry_does_not_roll_back_component_or_link_state()
     test_late_retry_does_not_resurrect_completed_task()

@@ -256,6 +256,32 @@ def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
     return text
 
 
+def _stored_clean_value_is_safe(value, *, depth=0):
+    """Verify that persisted JSON is already in the canonical secret-safe form."""
+    if depth > MAX_JSON_SAFE_DEPTH:
+        return False
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str) or key != _clean_text(key, limit=64):
+                return False
+            if _is_forbidden_key(key):
+                return False
+            if _is_secret_value_key(key):
+                if item not in ("", "[redacted]"):
+                    return False
+                continue
+            if not _stored_clean_value_is_safe(item, depth=depth + 1):
+                return False
+        return True
+    if isinstance(value, list):
+        if len(value) > 64:
+            return False
+        return all(_stored_clean_value_is_safe(item, depth=depth + 1) for item in value)
+    if isinstance(value, str):
+        return len(value) <= MAX_STRING_LENGTH and _clean_sensitive_text(value) == value
+    return _json_value_is_safe(value, depth=depth)
+
+
 def _clean_section(payload, name):
     clean = _clean_map(payload.get(name, {}))
     if clean:
@@ -675,7 +701,9 @@ class RuntimeEventStore:
         return True
 
     @staticmethod
-    def _recent_event_record_is_safe(item):
+    def _recent_event_record_is_safe(item, *, expected_robot_id=""):
+        if not isinstance(item, dict) or not _stored_clean_value_is_safe(item):
+            return False
         if item.get("schema_version") != EVENT_SCHEMA_VERSION:
             return False
         if not _identifier_value_is_safe(item.get("event_id"), required=True):
@@ -696,6 +724,10 @@ class RuntimeEventStore:
         subject = item.get("subject")
         if not isinstance(subject, dict) or not isinstance(subject.get("robot_id"), str):
             return False
+        if ROBOT_ID_RE.fullmatch(subject["robot_id"]) is None:
+            return False
+        if expected_robot_id and subject["robot_id"] != expected_robot_id:
+            return False
         for field in ("trace", "state", "link", "task", "error", "metrics"):
             if field in item and not isinstance(item.get(field), dict):
                 return False
@@ -709,8 +741,10 @@ class RuntimeEventStore:
         return sequence is None or _nonnegative_int64_is_safe(sequence)
 
     @staticmethod
-    def _stored_event_is_safe(event):
+    def _stored_event_is_safe(event, *, expected_robot_id=""):
         if not isinstance(event, dict) or not _json_value_is_safe(event):
+            return False
+        if not _stored_clean_value_is_safe(event):
             return False
         if event.get("schema_version") != EVENT_SCHEMA_VERSION:
             return False
@@ -739,6 +773,8 @@ class RuntimeEventStore:
             return False
         subject_robot_id = subject.get("robot_id")
         if not isinstance(subject_robot_id, str) or ROBOT_ID_RE.fullmatch(subject_robot_id) is None:
+            return False
+        if expected_robot_id and subject_robot_id != expected_robot_id:
             return False
         for field in ("client_id", "panel_id"):
             if field in subject and not _identifier_value_is_safe(subject.get(field)):
@@ -851,7 +887,13 @@ class RuntimeEventStore:
             if not self._counter_map_is_safe(stats.get(field)):
                 return False
 
-        if not self._dict_list_is_safe(snapshot.get("recent_events"), item_validator=self._recent_event_record_is_safe):
+        if not self._dict_list_is_safe(
+            snapshot.get("recent_events"),
+            item_validator=lambda item: self._recent_event_record_is_safe(
+                item,
+                expected_robot_id=normalized_robot_id,
+            ),
+        ):
             return False
         return True
 
@@ -869,7 +911,7 @@ class RuntimeEventStore:
                 event = json.loads(raw)
             except Exception:
                 continue
-            if not self._stored_event_is_safe(event):
+            if not self._stored_event_is_safe(event, expected_robot_id=normalized_robot_id):
                 continue
             snapshot = self._apply_event(snapshot, event)
             last_event_rowid = int(rowid or 0)
@@ -1001,7 +1043,7 @@ class RuntimeEventStore:
                 item = json.loads(raw)
             except Exception:
                 continue
-            if self._stored_event_is_safe(item):
+            if self._stored_event_is_safe(item, expected_robot_id=normalized_robot_id):
                 events.append(item)
         return events
 
@@ -1179,7 +1221,7 @@ class RuntimeEventStore:
                         original = json.loads(row[1]) if row else event
                     except Exception as exc:
                         raise ValueError("stored duplicate event is invalid") from exc
-                    if not self._stored_event_is_safe(original):
+                    if not self._stored_event_is_safe(original, expected_robot_id=normalized_robot_id):
                         raise ValueError("stored duplicate event is invalid")
                     rowid = int(row[0] or 0) if row else 0
                 else:

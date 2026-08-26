@@ -132,12 +132,33 @@ def normalize_url(value, default_scheme="http"):
     return urlunparse((parsed.scheme, parsed.netloc, path, "", parsed.query, "")).rstrip("/")
 
 
-def derive_ws_base(http_base, default_path):
+def derive_ws_base(http_base, default_path, *, port=None):
     parsed = urlparse(normalize_url(http_base, default_scheme="http"))
     if not parsed.netloc:
         return ""
     scheme = "wss" if parsed.scheme == "https" else "ws"
-    return urlunparse((scheme, parsed.netloc, ensure_trailing_slash(default_path), "", "", "")).rstrip("/") + "/"
+    netloc = parsed.netloc
+    if port is not None:
+        host = parsed.hostname or ""
+        if not host:
+            return ""
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        netloc = f"{host}:{int(port)}"
+    return urlunparse((scheme, netloc, ensure_trailing_slash(default_path), "", "", "")).rstrip("/") + "/"
+
+
+def public_voice_port():
+    raw = (
+        os.environ.get("SELFHOST_XIAOZHI_PUBLIC_WS_PORT")
+        or os.environ.get("GOSHA_WS_PORT")
+        or "18080"
+    )
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        return 18080
+    return port if 1 <= port <= 65535 else 18080
 
 
 def append_query(url, params):
@@ -176,17 +197,18 @@ def default_backend_config():
         or os.environ.get("SELFHOST_XIAOZHI_ACTIVATE_URL"),
         default_scheme="http",
     ) or (f"{ota_url}activate" if ota_url else "")
+    voice_port = public_voice_port()
     websocket_url = ensure_trailing_slash(
         normalize_url(
             os.environ.get("SELFHOST_GOSHA_WS_URL")
             or os.environ.get("SELFHOST_XIAOZHI_WS_URL"),
             default_scheme="ws",
         )
-        or derive_ws_base(public_http_base, "/xiaozhi/v1/")
+        or derive_ws_base(public_http_base, "/xiaozhi/v1/", port=voice_port)
     )
     mcp_endpoint_base = ensure_trailing_slash(
         normalize_url(os.environ.get("SELFHOST_XIAOZHI_MCP_ENDPOINT_BASE"), default_scheme="ws")
-        or derive_ws_base(public_http_base, "/mcp/")
+        or derive_ws_base(public_http_base, "/mcp/", port=voice_port)
     )
     return {
         "provider": BACKEND_MODE_SELF_HOSTED,
