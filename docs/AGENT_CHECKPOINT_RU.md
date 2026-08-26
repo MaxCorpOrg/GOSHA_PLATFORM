@@ -8,7 +8,8 @@
   - SQLite journal/snapshot/list/duplicate paths проверяют secret-safe форму сохранённого события и совпадение `subject.robot_id` с областью строки;
   - автоматический self-host fallback разделяет `PUBLIC_PANEL_URL` на HTTP `18876` и voice/MCP `18080`; локальный launcher использует те же роли.
 - Первый re-review подтвердил эти пути, но нашёл ещё один `P2` в доверии к агрегированному DB/legacy snapshot с пересчитанным digest. Весь snapshot теперь проходит рекурсивную secret-safe проверку до принятия.
-- Новые adversarial и migration-тесты для journal и snapshot прошли, повторный полный `bash bin/ci_validate.sh` завершил 10/10 этапов.
+- Следующий точный re-review нашёл дополнительный `robot_id` вне канонического `subject`. Теперь identity-ключ разрешён только в корне snapshot и каноническом `subject`; в event/component/task дополнительных полях он fail closed.
+- Новые adversarial и migration-тесты для journal, snapshot и identity прошли, повторный полный `bash bin/ci_validate.sh` завершил 10/10 этапов.
 - Следующий ход: commit/push платформенной ветки, дождаться GitHub checks и повторить исходную reviewer-задачу в AI Office. Только после `PASS` переходить к Android.
 - Не выполнять живое развёртывание, flash, motion, trim или servo sequence: левая серва неисправна. `TEMP_NL_RELAY` остаётся временной символической ролью до `FUTURE_PRODUCTION_SERVER`.
 

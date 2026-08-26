@@ -29,6 +29,7 @@ FORBIDDEN_KEYS = {
     "ssid",
     "token",
     "ota_url",
+    "robot_id",
     "websocket_url",
     "ws_url",
 }
@@ -54,6 +55,11 @@ SNAPSHOT_TOP_LEVEL_KEYS = {
     "projection",
 }
 SNAPSHOT_PROJECTION_KEYS = {"kind", "last_event_rowid", "last_event_id", "events_total"}
+EVENT_ROBOT_ID_PATHS = frozenset({("subject", "robot_id")})
+SNAPSHOT_ROBOT_ID_PATHS = frozenset({
+    ("robot_id",),
+    ("recent_events", "[]", "subject", "robot_id"),
+})
 SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"(?i)\b(?:https?|wss?)://\S+"),
     re.compile(r"(?i)\bbearer\s+\S+"),
@@ -256,7 +262,14 @@ def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
     return text
 
 
-def _stored_clean_value_is_safe(value, *, depth=0, canonical_shape=True):
+def _stored_clean_value_is_safe(
+    value,
+    *,
+    depth=0,
+    canonical_shape=True,
+    path=(),
+    allowed_robot_id_paths=frozenset(),
+):
     """Verify that persisted JSON is already in the canonical secret-safe form."""
     if depth > MAX_JSON_SAFE_DEPTH:
         return False
@@ -269,16 +282,22 @@ def _stored_clean_value_is_safe(value, *, depth=0, canonical_shape=True):
                 return False
             if canonical_shape and key != _clean_text(key, limit=64):
                 return False
-            if _is_forbidden_key(inspected_key):
-                return False
-            if _is_secret_value_key(inspected_key):
+            child_path = path + (inspected_key,)
+            if inspected_key.lower() == "robot_id":
+                if key != "robot_id" or child_path not in allowed_robot_id_paths:
+                    return False
+            elif _is_secret_value_key(inspected_key):
                 if item not in ("", "[redacted]"):
                     return False
                 continue
+            elif _is_forbidden_key(inspected_key):
+                return False
             if not _stored_clean_value_is_safe(
                 item,
                 depth=depth + 1,
                 canonical_shape=canonical_shape,
+                path=child_path,
+                allowed_robot_id_paths=allowed_robot_id_paths,
             ):
                 return False
         return True
@@ -290,6 +309,8 @@ def _stored_clean_value_is_safe(value, *, depth=0, canonical_shape=True):
                 item,
                 depth=depth + 1,
                 canonical_shape=canonical_shape,
+                path=path + ("[]",),
+                allowed_robot_id_paths=allowed_robot_id_paths,
             )
             for item in value
         )
@@ -718,7 +739,10 @@ class RuntimeEventStore:
 
     @staticmethod
     def _recent_event_record_is_safe(item, *, expected_robot_id=""):
-        if not isinstance(item, dict) or not _stored_clean_value_is_safe(item):
+        if not isinstance(item, dict) or not _stored_clean_value_is_safe(
+            item,
+            allowed_robot_id_paths=EVENT_ROBOT_ID_PATHS,
+        ):
             return False
         if item.get("schema_version") != EVENT_SCHEMA_VERSION:
             return False
@@ -760,7 +784,10 @@ class RuntimeEventStore:
     def _stored_event_is_safe(event, *, expected_robot_id=""):
         if not isinstance(event, dict) or not _json_value_is_safe(event):
             return False
-        if not _stored_clean_value_is_safe(event):
+        if not _stored_clean_value_is_safe(
+            event,
+            allowed_robot_id_paths=EVENT_ROBOT_ID_PATHS,
+        ):
             return False
         if event.get("schema_version") != EVENT_SCHEMA_VERSION:
             return False
@@ -849,7 +876,11 @@ class RuntimeEventStore:
             return False
         if not _json_value_is_safe(snapshot):
             return False
-        if not _stored_clean_value_is_safe(snapshot, canonical_shape=False):
+        if not _stored_clean_value_is_safe(
+            snapshot,
+            canonical_shape=False,
+            allowed_robot_id_paths=SNAPSHOT_ROBOT_ID_PATHS,
+        ):
             return False
         if not set(snapshot).issubset(SNAPSHOT_TOP_LEVEL_KEYS):
             return False

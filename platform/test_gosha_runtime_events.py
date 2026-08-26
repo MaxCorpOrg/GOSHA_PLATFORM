@@ -28,10 +28,12 @@ def sample_event(event_id="mobile-install-1:1"):
         "error": {"code": "wifi_lost", "message": "Домашняя сеть временно недоступна", "retryable": True},
         "metrics": {"retry_count": 1},
         "attributes": {
+            "robot_id": "other-robot",
             "token": "must-not-survive",
             "panel_client_token": "must-not-survive-either",
             "api_key": "sk-opaque-value",
             "accessKey": "ak-opaque-value",
+            "client_secret": "opaque-client-secret",
             "diagnostic_url": "http://internal.invalid",
             "credential": "Bearer must-not-survive-in-a-value",
             "nested": {"private_key": "opaque-private-key", "safe": "nested-yes"},
@@ -56,9 +58,11 @@ def test_server_context_overrides_untrusted_identity_and_redacts_secrets():
     assert event["source"]["kind"] == "mobile"
     assert event["source"]["id"] == "installation-01"
     assert "token" not in event["attributes"]
+    assert "robot_id" not in event["attributes"]
     assert "panel_client_token" not in event["attributes"]
     assert event["attributes"]["api_key"] == "[redacted]"
     assert event["attributes"]["accessKey"] == "[redacted]"
+    assert event["attributes"]["client_secret"] == "[redacted]"
     assert "diagnostic_url" not in event["attributes"]
     assert event["attributes"]["credential"] == "[redacted]"
     assert event["attributes"]["nested"]["private_key"] == "[redacted]"
@@ -414,6 +418,9 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         snapshot["components"]["mobile"][0]["websocket_url"] = "ws://internal.example.invalid/voice"
         snapshot["components"]["mobile"][0]["api_key"] = "raw-secret"
 
+    def add_component_foreign_robot(snapshot):
+        snapshot["components"]["mobile"][0]["robot_id"] = "other-robot"
+
     def set_link_item_to_non_dict(snapshot):
         snapshot["links"][0] = []
 
@@ -425,6 +432,9 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
 
     def add_task_container_secret(snapshot):
         snapshot["tasks"][" credential "] = "raw-secret"
+
+    def add_task_foreign_robot(snapshot):
+        snapshot["tasks"]["active"][0]["robot_id"] = "other-robot"
 
     def set_task_recent_item_to_non_dict(snapshot):
         snapshot["tasks"]["recent"][0] = []
@@ -488,10 +498,12 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("component-sequence-huge", set_component_sequence_huge),
         ("component-all-item-non-dict", set_component_all_item_to_non_dict),
         ("component-secret-fields", add_component_secret_fields),
+        ("component-foreign-robot", add_component_foreign_robot),
         ("link-item-non-dict", set_link_item_to_non_dict),
         ("link-kind-list", set_link_kind_to_list),
         ("task-active-item-non-dict", set_task_active_item_to_non_dict),
         ("task-container-secret", add_task_container_secret),
+        ("task-foreign-robot", add_task_foreign_robot),
         ("task-recent-item-non-dict", set_task_recent_item_to_non_dict),
         ("task-id-list", set_task_id_to_list),
         ("error-recent-item-non-dict", set_error_recent_item_to_non_dict),
@@ -626,6 +638,12 @@ def test_secret_bearing_or_foreign_retained_events_fail_closed():
     def add_raw_secret_value(event):
         event.setdefault("attributes", {})["api_key"] = "raw-secret-value"
 
+    def add_foreign_top_level(event):
+        event["robot_id"] = "other-robot"
+
+    def add_foreign_nested_identity(event):
+        event.setdefault("attributes", {})["subject"] = {"robot_id": "other-robot"}
+
     def change_subject_robot(event):
         event["subject"]["robot_id"] = "other-robot"
 
@@ -634,6 +652,8 @@ def test_secret_bearing_or_foreign_retained_events_fail_closed():
         ("nested-token", add_nested_token),
         ("disguised-token", add_disguised_token),
         ("raw-secret-value", add_raw_secret_value),
+        ("foreign-top-level", add_foreign_top_level),
+        ("foreign-nested-identity", add_foreign_nested_identity),
         ("foreign-subject", change_subject_robot),
     )
     for case_name, mutate in cases:
@@ -698,6 +718,7 @@ def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
         component = snapshot["components"]["mobile"][0]
         component["websocket_url"] = "ws://internal.example.invalid/voice"
         component["api_key"] = "raw-secret"
+        component["robot_id"] = "other-robot"
         database.execute(
             "UPDATE runtime_snapshots SET payload = ?, payload_digest = ? WHERE robot_id = ?",
             (
@@ -716,6 +737,7 @@ def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
         assert rebuilt["statistics"]["events_total"] == 1
         assert "websocket_url" not in rebuilt_component
         assert "api_key" not in rebuilt_component
+        assert "robot_id" not in rebuilt_component
 
 
 def test_legacy_snapshot_validator_returns_false_for_hostile_shapes():
