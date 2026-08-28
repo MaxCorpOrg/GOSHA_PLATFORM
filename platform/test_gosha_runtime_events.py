@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -35,10 +36,14 @@ def sample_event(event_id="mobile-install-1:1"):
             "accessKey": "ak-opaque-value",
             "client_secret": "opaque-client-secret",
             "diagnostic_url": "http://internal.invalid",
+            "publicPanelUrl": "https://panel.internal.invalid/operator",
+            "websocketUrl": "wss://voice.internal.invalid/xiaozhi/v1/",
+            "wifi_ssid": "private-home-network",
             "credential": "Bearer must-not-survive-in-a-value",
             "nested": {"private_key": "opaque-private-key", "safe": "nested-yes"},
             "note": "internal endpoint http://internal.invalid/path",
             "network_alias": "ssid=private-network-name",
+            "camel_value_hint": "wifiSsid=private-home-network",
             "safe": "yes",
         },
     }
@@ -64,11 +69,15 @@ def test_server_context_overrides_untrusted_identity_and_redacts_secrets():
     assert event["attributes"]["accessKey"] == "[redacted]"
     assert event["attributes"]["client_secret"] == "[redacted]"
     assert "diagnostic_url" not in event["attributes"]
+    assert "publicPanelUrl" not in event["attributes"]
+    assert "websocketUrl" not in event["attributes"]
+    assert "wifi_ssid" not in event["attributes"]
     assert event["attributes"]["credential"] == "[redacted]"
     assert event["attributes"]["nested"]["private_key"] == "[redacted]"
     assert event["attributes"]["nested"]["safe"] == "nested-yes"
     assert event["attributes"]["note"] == "[redacted]"
     assert event["attributes"]["network_alias"] == "[redacted]"
+    assert event["attributes"]["camel_value_hint"] == "[redacted]"
     assert event["attributes"]["safe"] == "yes"
 
 
@@ -227,6 +236,8 @@ def test_db_snapshot_preserves_lifetime_state_after_journal_pruning_and_cache_lo
 
 def build_pruned_legacy_fixture(temp_dir):
     store = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+    original_export_snapshot_cache = store._export_snapshot_cache
+    store._export_snapshot_cache = lambda path, snapshot: True
     bootstrap = sample_event("legacy-bootstrap-0")
     bootstrap["event_type"] = "service.runtime.started"
     bootstrap["source"]["instance_id"] = "legacy-bootstrap-process"
@@ -242,12 +253,19 @@ def build_pruned_legacy_fixture(temp_dir):
         item.pop("task")
         item.pop("error")
         store.record(item, robot_id="robot-01", source_kind="mobile", source_id="installation-01")
+    store._export_snapshot_cache = original_export_snapshot_cache
+    store.snapshot("robot-01")
     connection = store._connect()
     connection.execute("DROP TABLE runtime_snapshots")
     connection.commit()
     connection.close()
     store._connection = None
     return store._snapshot_path("robot-01")
+
+
+def copy_pruned_legacy_fixture(source_dir, temp_dir):
+    shutil.copytree(source_dir, temp_dir, dirs_exist_ok=True)
+    return Path(temp_dir) / "robot-01" / "snapshot.json"
 
 
 def assert_db_snapshot_row_is_consistent(temp_dir, expected_total):
@@ -418,6 +436,12 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         snapshot["components"]["mobile"][0]["websocket_url"] = "ws://internal.example.invalid/voice"
         snapshot["components"]["mobile"][0]["api_key"] = "raw-secret"
 
+    def add_component_camel_url_fields(snapshot):
+        snapshot["components"]["mobile"][0]["publicPanelUrl"] = "https://panel.internal.invalid/operator"
+
+    def add_component_wifi_ssid(snapshot):
+        snapshot["components"]["mobile"][0]["wifi_ssid"] = "private-home-network"
+
     def add_component_foreign_robot(snapshot):
         snapshot["components"]["mobile"][0]["robot_id"] = "other-robot"
 
@@ -474,6 +498,9 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
     def set_recent_event_secret_field(snapshot):
         snapshot["recent_events"][0]["attributes"] = {"token": "must-not-survive"}
 
+    def set_recent_event_camel_secret_string(snapshot):
+        snapshot["recent_events"][0]["attributes"] = {"diagnostic_hint": "apiToken=must-not-survive"}
+
     def add_unknown_top_level_key(snapshot):
         snapshot["__proto__"] = {"polluted": True}
 
@@ -498,6 +525,8 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("component-sequence-huge", set_component_sequence_huge),
         ("component-all-item-non-dict", set_component_all_item_to_non_dict),
         ("component-secret-fields", add_component_secret_fields),
+        ("component-camel-url-fields", add_component_camel_url_fields),
+        ("component-wifi-ssid", add_component_wifi_ssid),
         ("component-foreign-robot", add_component_foreign_robot),
         ("link-item-non-dict", set_link_item_to_non_dict),
         ("link-kind-list", set_link_kind_to_list),
@@ -513,38 +542,41 @@ def test_malformed_same_tip_legacy_snapshot_is_rejected_and_next_event_succeeds(
         ("recent-event-link-kind-list", set_recent_event_link_kind_to_list),
         ("recent-event-foreign-robot", set_recent_event_foreign_robot),
         ("recent-event-secret-field", set_recent_event_secret_field),
+        ("recent-event-camel-secret-string", set_recent_event_camel_secret_string),
         ("unknown-top-level-key", add_unknown_top_level_key),
         ("unknown-projection-key", add_unknown_projection_key),
     )
-    for case_name, mutate in cases:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            snapshot_path = build_pruned_legacy_fixture(temp_dir)
-            legacy = json.loads(snapshot_path.read_text(encoding="utf-8"))
-            mutate(legacy)
-            snapshot_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+    with tempfile.TemporaryDirectory() as fixture_dir:
+        build_pruned_legacy_fixture(fixture_dir)
+        for case_name, mutate in cases:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                snapshot_path = copy_pruned_legacy_fixture(fixture_dir, temp_dir)
+                legacy = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                mutate(legacy)
+                snapshot_path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
 
-            upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
-            snapshot = upgraded.snapshot("robot-01")
-            assert snapshot["statistics"]["events_total"] == 100, case_name
-            assert snapshot["components"]["service"] == [], case_name
-            assert snapshot["tasks"]["active"] == [], case_name
+                upgraded = RuntimeEventStore(temp_dir, max_events_per_robot=100)
+                snapshot = upgraded.snapshot("robot-01")
+                assert snapshot["statistics"]["events_total"] == 100, case_name
+                assert snapshot["components"]["service"] == [], case_name
+                assert snapshot["tasks"]["active"] == [], case_name
 
-            next_event = sample_event(f"malformed-legacy-{case_name}-120")
-            next_event["event_type"] = "mobile.runtime.heartbeat"
-            next_event["source"]["instance_id"] = "legacy-mobile-process"
-            next_event["state"]["status"] = f"after-{case_name}"
-            next_event.pop("task")
-            next_event.pop("error")
-            _, snapshot, duplicate = upgraded.record(
-                next_event,
-                robot_id="robot-01",
-                source_kind="mobile",
-                source_id="installation-01",
-            )
-            assert not duplicate, case_name
-            assert snapshot["statistics"]["events_total"] == 101, case_name
-            assert snapshot["components"]["mobile"][0]["state"]["status"] == f"after-{case_name}", case_name
-            assert_db_snapshot_row_is_consistent(temp_dir, expected_total=101)
+                next_event = sample_event(f"malformed-legacy-{case_name}-120")
+                next_event["event_type"] = "mobile.runtime.heartbeat"
+                next_event["source"]["instance_id"] = "legacy-mobile-process"
+                next_event["state"]["status"] = f"after-{case_name}"
+                next_event.pop("task")
+                next_event.pop("error")
+                _, snapshot, duplicate = upgraded.record(
+                    next_event,
+                    robot_id="robot-01",
+                    source_kind="mobile",
+                    source_id="installation-01",
+                )
+                assert not duplicate, case_name
+                assert snapshot["statistics"]["events_total"] == 101, case_name
+                assert snapshot["components"]["mobile"][0]["state"]["status"] == f"after-{case_name}", case_name
+                assert_db_snapshot_row_is_consistent(temp_dir, expected_total=101)
 
 
 def test_fresh_events_reject_non_finite_and_out_of_range_numbers():
@@ -638,6 +670,15 @@ def test_secret_bearing_or_foreign_retained_events_fail_closed():
     def add_raw_secret_value(event):
         event.setdefault("attributes", {})["api_key"] = "raw-secret-value"
 
+    def add_wifi_ssid_key(event):
+        event.setdefault("attributes", {})["wifi_ssid"] = "private-home-network"
+
+    def add_camel_url_key(event):
+        event.setdefault("attributes", {})["publicPanelUrl"] = "https://panel.internal.invalid/operator"
+
+    def add_camel_secret_value(event):
+        event.setdefault("attributes", {})["diagnostic_hint"] = "apiToken=must-not-survive"
+
     def add_foreign_top_level(event):
         event["robot_id"] = "other-robot"
 
@@ -652,6 +693,9 @@ def test_secret_bearing_or_foreign_retained_events_fail_closed():
         ("nested-token", add_nested_token),
         ("disguised-token", add_disguised_token),
         ("raw-secret-value", add_raw_secret_value),
+        ("wifi-ssid-key", add_wifi_ssid_key),
+        ("camel-url-key", add_camel_url_key),
+        ("camel-secret-value", add_camel_secret_value),
         ("foreign-top-level", add_foreign_top_level),
         ("foreign-nested-identity", add_foreign_nested_identity),
         ("foreign-subject", change_subject_robot),
@@ -718,6 +762,9 @@ def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
         component = snapshot["components"]["mobile"][0]
         component["websocket_url"] = "ws://internal.example.invalid/voice"
         component["api_key"] = "raw-secret"
+        component["publicPanelUrl"] = "https://panel.internal.invalid/operator"
+        component["wifi_ssid"] = "private-home-network"
+        component["state"]["hint"] = "panelUrl=https://panel.internal.invalid/operator"
         component["robot_id"] = "other-robot"
         database.execute(
             "UPDATE runtime_snapshots SET payload = ?, payload_digest = ? WHERE robot_id = ?",
@@ -737,6 +784,9 @@ def test_secret_bearing_db_snapshot_is_rejected_even_with_matching_digest():
         assert rebuilt["statistics"]["events_total"] == 1
         assert "websocket_url" not in rebuilt_component
         assert "api_key" not in rebuilt_component
+        assert "publicPanelUrl" not in rebuilt_component
+        assert "wifi_ssid" not in rebuilt_component
+        assert "hint" not in rebuilt_component["state"]
         assert "robot_id" not in rebuilt_component
 
 

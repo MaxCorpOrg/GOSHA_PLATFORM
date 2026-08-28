@@ -1896,6 +1896,7 @@
               <button class="btn" onclick="showPanelCard('assistantControlPanel')">Каталог ассистента</button>
               <button class="btn" onclick="showPanelCard('agentProfilesPanel')">Поставщики ИИ</button>
               <button class="btn" onclick="checkMobileContract()">Проверить контур Гоши</button>
+              <button class="btn warn" onclick="autoDetectLiveRobots({ operatorOptIn: true })">Обнаружить активных</button>
               <button class="btn warn" onclick="applyRobotQuickFilter('wifi-risk')">Нужна проверка Wi-Fi</button>
               <button class="btn" onclick="applyRobotQuickFilter('no-endpoint')">Без MCP-адреса</button>
               <button class="btn" onclick="applyRobotQuickFilter('active')">Только активные</button>
@@ -2599,7 +2600,7 @@
           <button class="btn primary" onclick="reloadWifi()">Обновить Wi-Fi</button>
           <button class="btn warn" onclick="disconnectWifi()">Отключить</button>
         </div>
-        <div id="wifiStatus" style="margin-bottom:8px;color:#27466f;"></div>
+        <div id="wifiStatus" style="margin-bottom:8px;color:#27466f;">Wi-Fi сервера не проверялся автоматически. Нажмите «Обновить Wi-Fi».</div>
         <div class="mini" style="max-width:none;margin-bottom:8px;">Это сеть сервера, а не телефона клиента. Для статуса робота смотри карту Wi-Fi роботов и карточку робота.</div>
         <div style="max-height:250px; overflow:auto;">
           <table>
@@ -2611,7 +2612,9 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="wifiBody"></tbody>
+            <tbody id="wifiBody">
+              <tr><td colspan="4">Список сетей не загружался автоматически.</td></tr>
+            </tbody>
           </table>
         </div>
       </div>
@@ -9034,18 +9037,22 @@
       return detectRobotState(robotId, buttonEl);
     }
 
-    async function autoDetectLiveRobots() {
-      if (autoDetectInFlight || !operatorAuthenticated) return;
+    async function autoDetectLiveRobots(options = {}) {
+      const { operatorOptIn = false } = options || {};
+      if (!operatorOptIn || autoDetectInFlight || !operatorAuthenticated) return;
       const queue = currentRobots
         .filter((robot) => robotNeedsAutoDetect(robot))
         .slice(0, AUTO_DETECT_LIMIT);
       if (!queue.length) return;
       autoDetectInFlight = true;
       setStatus(`Автообнаружение: проверяю ${queue.length} активных роботов...`);
-      for (const robot of queue) {
-        await detectRobotState(robot.robot_id, null, { silent: true, expand: false });
+      try {
+        for (const robot of queue) {
+          await detectRobotState(robot.robot_id, null, { silent: true, expand: false });
+        }
+      } finally {
+        autoDetectInFlight = false;
       }
-      autoDetectInFlight = false;
       renderRobots();
       setStatus(`Автообнаружение завершено: проверено ${queue.length} активных роботов.`);
     }
@@ -9073,7 +9080,6 @@
       } else {
         await applyRobotWorkspaceRoute({ replace: true, scroll: false });
       }
-      await autoDetectLiveRobots();
     }
 
     async function refreshRuntimeRobots() {
@@ -9944,7 +9950,6 @@
       await loadPlans();
       await reloadRobots();
       connectRuntimeEventStream();
-      await reloadWifi();
       await applyRobotWorkspaceRoute({ replace: true, scroll: false });
     }
 
