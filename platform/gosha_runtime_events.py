@@ -68,6 +68,26 @@ SENSITIVE_VALUE_PATTERNS = (
     ),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,})?\b"),
 )
+SENSITIVE_ASSIGNMENT_RE = re.compile(r"(?i)[\"']?([a-z][a-z0-9_.-]{0,80})[\"']?\s*[:=]\s*[\"']?\S+")
+SENSITIVE_TEXT_MARKERS = (
+    "://",
+    "bearer",
+    "authorization",
+    "password",
+    "passwd",
+    "secret",
+    "ssid",
+    "token",
+    "api",
+    "access",
+    "credential",
+    "credentials",
+    "url",
+    "eyj",
+)
+SENSITIVE_ASSIGNMENT_MARKERS = tuple(
+    marker for marker in SENSITIVE_TEXT_MARKERS if marker not in {"://", "bearer", "eyj"}
+)
 
 
 def _json_dumps(value, **kwargs):
@@ -193,19 +213,28 @@ def _robot_id(value):
     return text
 
 
+def _compact_sensitive_key(key):
+    return re.sub(r"[^a-z0-9]", "", str(key or "").lower())
+
+
 def _is_forbidden_key(key):
-    lowered = key.lower()
+    lowered = str(key or "").strip().lower()
+    compact = _compact_sensitive_key(key)
     return (
         lowered in FORBIDDEN_KEYS
-        or "token" in lowered
-        or "password" in lowered
-        or "secret" in lowered
+        or "authorization" in compact
+        or "token" in compact
+        or "password" in compact
+        or "passwd" in compact
+        or "secret" in compact
+        or "ssid" in compact
+        or "url" in compact
         or lowered.endswith("_url")
     )
 
 
 def _is_secret_value_key(key):
-    compact = re.sub(r"[^a-z0-9]", "", str(key or "").lower())
+    compact = _compact_sensitive_key(key)
     return (
         "apikey" in compact
         or "accesskey" in compact
@@ -255,9 +284,25 @@ def _clean_scalar(value):
     return _clean_sensitive_text(value)
 
 
+def _contains_sensitive_assignment(text):
+    if "=" not in text and ":" not in text:
+        return False
+    lowered = str(text or "").lower()
+    if not any(marker in lowered for marker in SENSITIVE_ASSIGNMENT_MARKERS):
+        return False
+    for match in SENSITIVE_ASSIGNMENT_RE.finditer(str(text or "")):
+        key = match.group(1)
+        if _is_forbidden_key(key) or _is_secret_value_key(key):
+            return True
+    return False
+
+
 def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
     text = _clean_text(value, limit=limit)
-    if any(pattern.search(text) for pattern in SENSITIVE_VALUE_PATTERNS):
+    lowered = text.lower()
+    if not any(marker in lowered for marker in SENSITIVE_TEXT_MARKERS):
+        return text
+    if any(pattern.search(text) for pattern in SENSITIVE_VALUE_PATTERNS) or _contains_sensitive_assignment(text):
         return "[redacted]"
     return text
 
