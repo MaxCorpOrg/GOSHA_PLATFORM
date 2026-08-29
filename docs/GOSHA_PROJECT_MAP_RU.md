@@ -12,24 +12,24 @@
 ## 1. С чего начинать новый чат
 
 1. Открыть:
-   - `/home/max/GOSHA_PLATFORM/AGENTS.md`
-   - `/home/max/GOSHA_PLATFORM/START_HERE_FOR_NEW_CHAT.md`
-   - `/home/max/GOSHA_PLATFORM/docs/NEW_CHAT_CHECKPOINT_RU.md`
-   - `/home/max/GOSHA_PLATFORM/docs/AGENT_CHECKPOINT_RU.md`
-   - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
+   - `<LOCAL_WORKSPACE>/AGENTS.md`
+   - `<LOCAL_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
+   - `<LOCAL_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
+   - `<LOCAL_WORKSPACE>/docs/AGENT_CHECKPOINT_RU.md`
+   - `<LOCAL_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 2. Затем открыть этот файл:
-   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
+   - `<LOCAL_WORKSPACE>/docs/GOSHA_PROJECT_MAP_RU.md`
 3. Если задача уже уходит в прошивку, дальше переходить в:
-   - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
+   - `<FIRMWARE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 4. Если задача уходит в Android-клиент, дальше переходить в:
-   - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
+   - `<MOBILE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 
 ## 2. Основные репозитории и их назначение
 
 ### `GOSHA_PLATFORM`
 
 - Путь:
-  - `/home/max/GOSHA_PLATFORM`
+  - `<LOCAL_WORKSPACE>`
 - Назначение:
   - панель оператора;
   - операторские и мобильные маршруты;
@@ -58,7 +58,7 @@
 ### `GOSHA_FIRMWARE`
 
 - Путь:
-  - `/home/max/GOSHA_FIRMWARE`
+  - `<FIRMWARE_WORKSPACE>`
 - Назначение:
   - собственная прошивка робота;
   - профиль платы `gosha-v1`;
@@ -67,7 +67,7 @@
 ### `GOSHA_MOBILE`
 
 - Путь:
-  - `/home/max/GOSHA_MOBILE`
+  - `<MOBILE_WORKSPACE>`
 - Git remote:
   - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
 - GitHub URL:
@@ -82,7 +82,7 @@
 ### `AI_ROBOT`
 
 - Путь:
-  - `/home/max/MAX_CORP_CORE/AI_ROBOT`
+  - `<LEGACY_AI_ROBOT_WORKSPACE>`
 - Статус:
   - легаси-контур;
   - источник одноразового импорта и справки;
@@ -93,7 +93,7 @@
 ### Исходники платформы
 
 - Репозиторий:
-  - `/home/max/GOSHA_PLATFORM`
+  - `<LOCAL_WORKSPACE>`
 - Ключевые папки:
   - `platform/`
   - `backend/`
@@ -103,9 +103,9 @@
 ### Рабочая копия на сервере
 
 - Код:
-  - `/opt/gosha_platform/app`
+  - `<SERVER_APP_ROOT>`
 - Рабочее состояние:
-  - `/opt/gosha_platform/runtime`
+  - `<SERVER_RUNTIME_ROOT>`
 - Службы:
   - `gosha-panel.service`
   - `gosha-agent-gateway.service`
@@ -115,17 +115,17 @@
 ### Как поднять локально на этой машине
 
 - Шлюз:
-  - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_gateway.sh`
 - Панель:
-  - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_panel.sh`
   - скрипт сам проверяет Python-модуль `websockets`
-- Если запуск идёт прямо из `/home/max`, на этой машине также работают совместимые wrapper-скрипты:
-  - `bash /home/max/bin/run_local_gosha_gateway.sh`
-  - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Если запуск идёт прямо из `<HOME_WORKSPACE_ROOT>`, на этой машине также работают совместимые wrapper-скрипты:
+  - `bash <LOCAL_BIN>/run_local_gosha_gateway.sh`
+  - `bash <LOCAL_BIN>/run_local_gosha_panel.sh`
 - Локальный smoke-check всей цепочки:
-  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/check_local_gosha_stack.sh`
   - alias:
-    - `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
+    - `bash <LOCAL_WORKSPACE>/bin/check_gosha_panel_stack.sh`
 - После этого локально открывается:
   - `http://127.0.0.1:18876`
 - Важно:
@@ -138,11 +138,11 @@
 ### Где лежат серверные секреты
 
 - Локальный секретный каталог разработчика:
-  - `/home/max/GOSHA_PLATFORM/GOSHA_API`
+  - `<LOCAL_WORKSPACE>/GOSHA_API`
 - Текущий локальный файл ключа `DeepSeek`:
-  - `/home/max/GOSHA_PLATFORM/GOSHA_API/GOHA_API_DEEPSEEK.txt`
+  - `<LOCAL_WORKSPACE>/GOSHA_API/GOHA_API_DEEPSEEK.txt`
 - Серверный рабочий файл ключей:
-  - `/opt/gosha_platform/runtime/env/providers.env`
+  - `<SERVER_PROVIDER_ENV>`
 
 Важно:
 - `GOSHA_API/` не должен попадать в git;
@@ -154,44 +154,44 @@
 ### Логика профилей в исходниках
 
 - Составные профили ассистента:
-  - `/home/max/GOSHA_PLATFORM/platform/gosha_assistant_store.py`
+  - `<LOCAL_WORKSPACE>/platform/gosha_assistant_store.py`
 - Профили поставщиков ИИ и привязки:
-  - `/home/max/GOSHA_PLATFORM/platform/gosha_agent_store.py`
+  - `<LOCAL_WORKSPACE>/platform/gosha_agent_store.py`
 - Внутренний шлюз ИИ-агентов:
-  - `/home/max/GOSHA_PLATFORM/platform/gosha_agent_gateway.py`
+  - `<LOCAL_WORKSPACE>/platform/gosha_agent_gateway.py`
 - Панель:
-  - `/home/max/GOSHA_PLATFORM/platform/gui_panel.py`
-  - `/home/max/GOSHA_PLATFORM/platform/panel_index.html`
+  - `<LOCAL_WORKSPACE>/platform/gui_panel.py`
+  - `<LOCAL_WORKSPACE>/platform/panel_index.html`
 
 ### Где лежат рабочие профили на сервере
 
 - Папка профилей:
-  - `/opt/gosha_platform/runtime/app_root/agents`
+  - `<SERVER_AGENT_PROFILES_ROOT>`
 - Подпапки:
-  - `/opt/gosha_platform/runtime/app_root/agents/providers`
-  - `/opt/gosha_platform/runtime/app_root/agents/assistants`
-  - `/opt/gosha_platform/runtime/app_root/agents/tts_engines`
-  - `/opt/gosha_platform/runtime/app_root/agents/voices`
-  - `/opt/gosha_platform/runtime/app_root/agents/memory`
-  - `/opt/gosha_platform/runtime/app_root/agents/mcp_bundles`
-  - `/opt/gosha_platform/runtime/app_root/agents/knowledge`
-  - `/opt/gosha_platform/runtime/app_root/agents/screens`
-  - `/opt/gosha_platform/runtime/app_root/agents/wake`
-  - `/opt/gosha_platform/runtime/app_root/agents/bindings`
+  - `<SERVER_AGENT_PROFILES_ROOT>/providers`
+  - `<SERVER_AGENT_PROFILES_ROOT>/assistants`
+  - `<SERVER_AGENT_PROFILES_ROOT>/tts_engines`
+  - `<SERVER_AGENT_PROFILES_ROOT>/voices`
+  - `<SERVER_AGENT_PROFILES_ROOT>/memory`
+  - `<SERVER_AGENT_PROFILES_ROOT>/mcp_bundles`
+  - `<SERVER_AGENT_PROFILES_ROOT>/knowledge`
+  - `<SERVER_AGENT_PROFILES_ROOT>/screens`
+  - `<SERVER_AGENT_PROFILES_ROOT>/wake`
+  - `<SERVER_AGENT_PROFILES_ROOT>/bindings`
 
 ### Где смотреть, какой голос реально активен
 
 - Эффективная конфигурация совместимого `backend`:
-  - `/opt/gosha_platform/runtime/app_root/selfhost_xiaozhi/backend/data/.config.yaml`
+  - `<SERVER_BACKEND_CONFIG>`
 
 ### Где смотреть, какой движок синтеза речи реально выбран
 
 - Каталог профилей движков:
-  - `/opt/gosha_platform/runtime/app_root/agents/tts_engines`
+  - `<SERVER_AGENT_PROFILES_ROOT>/tts_engines`
 - Живой server-side рендер:
-  - `/home/max/GOSHA_PLATFORM/ops/render_backend_config.py`
+  - `<LOCAL_WORKSPACE>/ops/render_backend_config.py`
 - Серверный вызов рендера и этап установки:
-  - `/home/max/GOSHA_PLATFORM/ops/install_server.sh`
+  - `<LOCAL_WORKSPACE>/ops/install_server.sh`
 - В итоговой конфигурации ищи строки:
   - `requested-tts-engine-profile`
   - `effective-tts-kind`
@@ -231,19 +231,19 @@
 ### Где лежит переопределение синтеза речи
 
 - Репозиторный слой:
-  - `/home/max/GOSHA_PLATFORM/backend/overrides/edge.py`
-  - `/home/max/GOSHA_PLATFORM/backend/overrides/silero_local.py`
+  - `<LOCAL_WORKSPACE>/backend/overrides/edge.py`
+  - `<LOCAL_WORKSPACE>/backend/overrides/silero_local.py`
 - Папка с переопределениями:
-  - `/home/max/GOSHA_PLATFORM/backend/overrides`
+  - `<LOCAL_WORKSPACE>/backend/overrides`
 
 ### Где лежит логика разделения движка и голоса
 
 - слой составных профилей:
-  - `/home/max/GOSHA_PLATFORM/platform/gosha_assistant_store.py`
+  - `<LOCAL_WORKSPACE>/platform/gosha_assistant_store.py`
 - операторские маршруты:
-  - `/home/max/GOSHA_PLATFORM/platform/gui_panel.py`
+  - `<LOCAL_WORKSPACE>/platform/gui_panel.py`
 - интерфейс панели:
-  - `/home/max/GOSHA_PLATFORM/platform/panel_index.html`
+  - `<LOCAL_WORKSPACE>/platform/panel_index.html`
 
 ### Какие голоса сейчас реально доступны
 
@@ -264,9 +264,9 @@
 ### Где была старая музыкальная привязка и что с ней теперь
 
 - Логика подписок и пользовательских сервисов:
-  - `/home/max/GOSHA_PLATFORM/platform/gui_panel.py`
+  - `<LOCAL_WORKSPACE>/platform/gui_panel.py`
 - Интерфейс подписок и подписи слотов:
-  - `/home/max/GOSHA_PLATFORM/platform/panel_index.html`
+  - `<LOCAL_WORKSPACE>/platform/panel_index.html`
 - Что было:
   - переходный слот `music-tools`
   - старый пользовательский сервис `music`
@@ -283,29 +283,29 @@
 ### Репозиторий
 
 - Путь:
-  - `/home/max/GOSHA_FIRMWARE`
+  - `<FIRMWARE_WORKSPACE>`
 
 ### Главные точки входа
 
-- `/home/max/GOSHA_FIRMWARE/AGENTS.md`
-- `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
-- `/home/max/GOSHA_FIRMWARE/docs/NEW_CHAT_CHECKPOINT_RU.md`
-- `/home/max/GOSHA_FIRMWARE/docs/FIRMWARE_IMPORT_CHECKPOINT_RU.md`
-- `/home/max/GOSHA_FIRMWARE/docs/HARDWARE_MANIFEST_RU.md`
-- `/home/max/GOSHA_FIRMWARE/docs/PIN_MAP_RU.md`
+- `<FIRMWARE_WORKSPACE>/AGENTS.md`
+- `<FIRMWARE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
+- `<FIRMWARE_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- `<FIRMWARE_WORKSPACE>/docs/FIRMWARE_IMPORT_CHECKPOINT_RU.md`
+- `<FIRMWARE_WORKSPACE>/docs/HARDWARE_MANIFEST_RU.md`
+- `<FIRMWARE_WORKSPACE>/docs/PIN_MAP_RU.md`
 
 ### Где исходники платы `Гоша`
 
 - Сборочный корень:
-  - `/home/max/GOSHA_FIRMWARE/firmware`
+  - `<FIRMWARE_WORKSPACE>/firmware`
 - Профиль платы:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/gosha-v1`
 - Где проходила очистка пользовательских китайских строк:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_controller.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_robot.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/otto_emoji_display.cc`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/gosha-v1/power_manager.h`
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/boards/common/press_to_talk_mcp_tool.cc`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/gosha-v1/otto_controller.cc`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/gosha-v1/otto_robot.cc`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/gosha-v1/otto_emoji_display.cc`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/gosha-v1/power_manager.h`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/boards/common/press_to_talk_mcp_tool.cc`
 - Важно:
   - после этого китайские символы в активном пользовательском слое больше не должны доходить до экрана, подсказок и `MCP`-описаний;
   - оставшиеся CJK-символы в репозитории сейчас относятся в основном к комментариям, неактивным платам и `zh-*` ресурсам.
@@ -313,42 +313,42 @@
 ### Где русский пользовательский слой прошивки
 
 - Русская локализация:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/assets/locales/ru-RU`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/assets/locales/ru-RU`
 
 ### Где слово пробуждения и аудиоконтур
 
 - Аудио:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/audio`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/audio`
 - Слово пробуждения:
-  - `/home/max/GOSHA_FIRMWARE/firmware/main/audio/wake_words`
+  - `<FIRMWARE_WORKSPACE>/firmware/main/audio/wake_words`
 
 ### Где лежит собранная прошивка
 
 - Основной merged-образ:
-  - `/home/max/GOSHA_FIRMWARE/firmware/build/merged-binary.bin`
+  - `<FIRMWARE_WORKSPACE>/firmware/build/merged-binary.bin`
 - Выпускной архив:
-  - `/home/max/GOSHA_FIRMWARE/firmware/releases/v2.2.2_gosha-v1.zip`
+  - `<FIRMWARE_WORKSPACE>/firmware/releases/v2.2.2_gosha-v1.zip`
 
 ## 6. Где живёт Android-клиент
 
 ### Репозиторий
 
 - Путь:
-  - `/home/max/GOSHA_MOBILE`
+  - `<MOBILE_WORKSPACE>`
 
 ### Главные точки входа
 
-- `/home/max/GOSHA_MOBILE/AGENTS.md`
-- `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
-- `/home/max/GOSHA_MOBILE/docs/NEW_CHAT_CHECKPOINT_RU.md`
-- `/home/max/GOSHA_MOBILE/docs/PROJECT_STATUS_RU.md`
+- `<MOBILE_WORKSPACE>/AGENTS.md`
+- `<MOBILE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
+- `<MOBILE_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
+- `<MOBILE_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 
 ### Где лежит код приложения
 
 - Android-код:
-  - `/home/max/GOSHA_MOBILE/app/src/main`
+  - `<MOBILE_WORKSPACE>/app/src/main`
 - Текущий исходный пакет в дереве файлов пока ещё лежит в старом пути:
-  - `/home/max/GOSHA_MOBILE/app/src/main/java/com/maxcorp/edgeconnector`
+  - `<MOBILE_WORKSPACE>/app/src/main/java/com/maxcorp/edgeconnector`
 
 Важно:
 - это не старое приложение как продукт;
@@ -358,40 +358,40 @@
 
 ### Где лежит готовый отладочный `APK`
 
-- `/home/max/GOSHA_MOBILE/app/build/outputs/apk/client/debug/app-client-debug.apk`
+- `<MOBILE_WORKSPACE>/app/build/outputs/apk/client/debug/app-client-debug.apk`
 
 ## 7. Какие документы считать каноническими
 
 ### Для платформы
 
 - Общая карта:
-  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
+  - `<LOCAL_WORKSPACE>/docs/GOSHA_PROJECT_MAP_RU.md`
 - Канонический контракт общего состояния робота, мобильного приложения и панели:
-  - `/home/max/GOSHA_PLATFORM/docs/GOSHA_RUNTIME_TRIANGLE_CONTRACT_RU.md`
+  - `<LOCAL_WORKSPACE>/docs/GOSHA_RUNTIME_TRIANGLE_CONTRACT_RU.md`
 - Короткая точка входа:
-  - `/home/max/GOSHA_PLATFORM/docs/NEW_CHAT_CHECKPOINT_RU.md`
+  - `<LOCAL_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
 - Подробная рабочая точка:
-  - `/home/max/GOSHA_PLATFORM/docs/AGENT_CHECKPOINT_RU.md`
+  - `<LOCAL_WORKSPACE>/docs/AGENT_CHECKPOINT_RU.md`
 - Живое состояние:
-  - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
+  - `<LOCAL_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 
 ### Для прошивки
 
 - Короткая точка входа:
-  - `/home/max/GOSHA_FIRMWARE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+  - `<FIRMWARE_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
 - Подробная рабочая точка:
-  - `/home/max/GOSHA_FIRMWARE/docs/AGENT_CHECKPOINT_RU.md`
+  - `<FIRMWARE_WORKSPACE>/docs/AGENT_CHECKPOINT_RU.md`
 - Живое состояние:
-  - `/home/max/GOSHA_FIRMWARE/docs/PROJECT_STATUS_RU.md`
+  - `<FIRMWARE_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 
 ### Для мобильного клиента
 
 - Короткая точка входа:
-  - `/home/max/GOSHA_MOBILE/docs/NEW_CHAT_CHECKPOINT_RU.md`
+  - `<MOBILE_WORKSPACE>/docs/NEW_CHAT_CHECKPOINT_RU.md`
 - Подробная рабочая точка:
-  - `/home/max/GOSHA_MOBILE/docs/AGENT_CHECKPOINT_RU.md`
+  - `<MOBILE_WORKSPACE>/docs/AGENT_CHECKPOINT_RU.md`
 - Живое состояние:
-  - `/home/max/GOSHA_MOBILE/docs/PROJECT_STATUS_RU.md`
+  - `<MOBILE_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 
 ## 8. Текущее состояние на 2026-05-15
 
@@ -423,7 +423,7 @@
    - ложные срабатывания;
    - дальнее распознавание;
    - влияние динамика и микрофона;
-   - локальный портал `192.168.4.1`.
+   - локальный портал `<LOCAL_DEVICE_PORTAL_HOST>`.
 4. Для мобильного клиента дополировать:
    - сценарий возврата из режима точки доступа;
    - устойчивое открытие локального портала;
