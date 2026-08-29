@@ -49,7 +49,7 @@
 
 ## Контрольная точка интеграции 2026-07-30
 
-- Актуальная продуктовая рабочая копия: `/home/max/worktrees/gosha/platform-triangle-runtime`.
+- Актуальная продуктовая рабочая копия: `<PLATFORM_TRIANGLE_WORKTREE>`.
 - Ветка платформы `feature/triangle-runtime-events` чистая и совпадает с `origin/feature/triangle-runtime-events`; последний отправленный коммит перед этой документной фиксацией — `f2276f7`.
 - Соседние ветки также чистые и совпадают с GitHub:
   - Android: `feature/mobile-triangle-runtime`, `d0ab7c2`;
@@ -105,7 +105,7 @@
 - План отправлен в `origin/feature/triangle-runtime-events` коммитом `30d1c2d`. Он отдельно фиксирует безопасный автомат `stop/safety_stopped`, короткий срок жизни аварийной команды, защиту от повторного выполнения и поэтапное отключение старого `cloud-mcp`.
 - Финальный read-only review ИИ-офиса `task-20260723T124225Z-read-only-review-30d1c2d-home-max-worktrees` проверил уже опубликованный коммит и завершился с `P0/P1/P2 — нет`, `Go`.
 - До явного старта реализации этот этап остаётся документным: код платформы, прошивки и мобильного клиента после сквозной приёмки не менялся.
-- Обезличенное доказательство приёмки: `/home/max/AI_OFFICE/local_only/ai-office/logs/task-20260723T111058Z-read-only/live-validation/acceptance-evidence.json`, SHA-256 `600c3d526dddf95a39c38c1cf126a952d02a2e6b7b506f8a591b6f94d7690f0e`.
+- Обезличенное доказательство приёмки: `<OWNER_ONLY_ACCEPTANCE_EVIDENCE>`, SHA-256 `600c3d526dddf95a39c38c1cf126a952d02a2e6b7b506f8a591b6f94d7690f0e`.
 - Ветки не слиты в `main`.
 
 ## Сделано
@@ -129,7 +129,7 @@
 - Добавлены собственные продуктовые OTA-маршруты:
   - `/gosha/ota/`
   - `/gosha/ota/activate`
-- Поднят отдельный серверный контур под `/opt/gosha_platform`.
+- Поднят отдельный серверный контур под `<SERVER_PLATFORM_ROOT>`.
 - На сервере активны:
   - `gosha-agent-gateway.service`
   - `gosha-panel.service`
@@ -254,21 +254,21 @@
 - В открытой панели больше не показываются прямые OTA-URL и детали нашей прошивки.
   OTA и прошивка остаются внутренним сервисным контуром платформы.
 - Для локального smoke-пути подтверждён штатный запуск панели без `systemd`:
-  - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
-  - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_gateway.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_panel.sh`
   - только после этого локально открывается:
     - `http://127.0.0.1:18876`
-- Для запуска прямо из `/home/max` на этой машине добавлены совместимые wrapper-скрипты:
-  - `bash /home/max/bin/run_local_gosha_gateway.sh`
-  - `bash /home/max/bin/run_local_gosha_panel.sh`
+- Для запуска прямо из `<HOME_WORKSPACE_ROOT>` на этой машине добавлены совместимые wrapper-скрипты:
+  - `bash <LOCAL_BIN>/run_local_gosha_gateway.sh`
+  - `bash <LOCAL_BIN>/run_local_gosha_panel.sh`
 - Для panel runtime добавлена воспроизводимая проверка зависимости `websockets`:
   - `platform/requirements.txt`
   - `bin/ensure_panel_python_deps.sh`
   - локальный запуск панели и `ops/install_server.sh --phase panel` теперь сами проверяют этот модуль
 - Для честной проверки всей локальной цепочки добавлен отдельный smoke-check:
-  - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
+  - `bash <LOCAL_WORKSPACE>/bin/check_local_gosha_stack.sh`
   - совместимый alias:
-    - `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
+    - `bash <LOCAL_WORKSPACE>/bin/check_gosha_panel_stack.sh`
   - он проверяет не только наличие порта, а живые ответы:
     - `GET /healthz` у gateway
     - `GET /api/operator/robots` у панели
@@ -412,7 +412,7 @@
   - `GET http://127.0.0.1:18876/api/internal/openai/v1/models` -> `200` при внутреннем токене
   - `POST http://127.0.0.1:18876/api/internal/openai/v1/chat/completions` -> живой ответ через `DeepSeek`
   - сценарий `pending -> claim -> activate`
-- На сервере в `/opt/gosha_platform/runtime/env/providers.env` уже подключён рабочий `DeepSeek`-ключ.
+- На сервере в `<SERVER_PROVIDER_ENV>` уже подключён рабочий `DeepSeek`-ключ.
 - Локальный каталог `GOSHA_API/` исключён из git и используется только как локальное секретное хранилище.
 - Исправлен живой серверный голосовой контур для русского языка:
   - совместимый `backend` больше не использует фиктивную модель `gosha-assistant`
@@ -429,7 +429,7 @@
   - было привязано как реальный `device_id` `dc:b4:d9:35:1b:e0`
   - `/gosha/ota/` и `/xiaozhi/ota/` после привязки уже отдают рабочий блок `websocket`
   - слово пробуждения `Гоша` сработало на устройстве
-  - устройство открыло сеанс `WebSocket` с `ws://151.241.228.232:18080/xiaozhi/v1/`
+  - устройство открыло сеанс `WebSocket` с `ws://<PRIMARY_PLATFORM_SERVER>:18080/xiaozhi/v1/`
   - русская фраза `Привет` распознана по смыслу
   - устройство ответило голосом: `Я Гоша, ваш голосовой помощник. Слушаю вас, чем могу помочь?`
 - Для голосового контура добавлен и посеян отдельный каталог движков синтеза речи:
@@ -509,7 +509,7 @@
     - `effective-tts-module: SileroTTS`
     - `speaker: kseniya`
 - Артефакт сравнения сохранён на сервере:
-  - `/opt/gosha_platform/runtime/reports/silero_vs_edge_eval_2026-05-16.json`
+  - `<SERVER_TTS_EVAL_REPORT>`
 - Текущий итог сравнения:
   - `SileroTTS` успешно поднят как живой тестовый `ready`-профиль
   - сравнение с `EdgeTTS` по задержке и устойчивости выполнено
@@ -565,7 +565,7 @@
   - заполняется только явно заданным `PUBLIC_EDGE_HUB_URL`
   - адрес voice WebSocket `/mcp` не является operator edge hub
 - Создан отдельный мобильный проект:
-  - `/home/max/GOSHA_MOBILE`
+  - `<MOBILE_WORKSPACE>`
 - Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
   - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
 - Выполнен первый `push` мобильного проекта:
@@ -579,17 +579,17 @@
   - установка `app-client-debug.apk`
   - прохождение шага регистрации по коду `MJ6SG97A`
   - сохранение в `shared_prefs` нового серверного контура:
-    - `panel_url = http://151.241.228.232:18876`
+    - `panel_url = http://<PRIMARY_PLATFORM_SERVER>:18876`
     - исторически приложение сохраняло `hub_url` на voice WebSocket `/mcp/`; это больше не считается корректным default для `edge_hub_url`
-    - `cloud_endpoint = ws://151.241.228.232:18080/mcp/?token=...&robot_id=gosha-main`
-    - `mobile_websocket_url = ws://151.241.228.232:18080/xiaozhi/v1/`
+    - `cloud_endpoint сохранён как voice WebSocket `/mcp/` с параметром токена; исходный живой URL остаётся в owner-only evidence вне git`
+    - `mobile_websocket_url = ws://<PRIMARY_PLATFORM_SERVER>:18080/xiaozhi/v1/`
     - `robot_id = gosha-main`
     - `mobile_brand = GOSHA`
   - выдача разрешений на местоположение и устройства поблизости
   - обнаружение сети робота `GOSHA-A-1BE1`
   - автоматический перевод телефона в сеть робота:
     - `SSID = GOSHA-A-1BE1`
-    - `IP = 192.168.4.3`
+    - `IP = <LOCAL_DEVICE_CLIENT_IP>`
     - пакет-запросчик сети: `com.maxcorp.gosha.mobile`
   - открытие внутреннего экрана подключения `HotspotPortalActivity` с локальным порталом робота
 - Зафиксировано текущее ограничение голосового контура:
@@ -700,7 +700,7 @@
    - не включать внешний чужой музыкальный сервис;
    - использовать `gosha.media.stub` как точку будущего расширения.
 7. После любого изменения серверного секрета или профиля поставщика перезапускать лёгкий контур:
-   - `cd /opt/gosha_platform/app`
+   - `cd <SERVER_APP_ROOT>`
    - `bash ops/install_server.sh --phase panel`
 8. Затем продолжить вторую очередь панели:
    - полноценный выбор движка синтеза речи в UI;

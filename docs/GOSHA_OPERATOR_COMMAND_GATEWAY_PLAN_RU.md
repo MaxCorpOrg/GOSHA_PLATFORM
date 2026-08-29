@@ -121,8 +121,8 @@
 2. Предпочтительный путь — сначала принять их в основные ветки.
 3. Если слияние откладывается, создать отдельные составные ветки команд поверх текущих runtime-веток и явно зафиксировать эту зависимость.
 4. Использовать отдельные рабочие деревья:
-   - `/home/max/worktrees/gosha/platform-operator-command-gateway`;
-   - `/home/max/worktrees/gosha/firmware-operator-command-gateway`.
+   - `<HOME_WORKSPACE_ROOT>/worktrees/gosha/platform-operator-command-gateway`;
+   - `<HOME_WORKSPACE_ROOT>/worktrees/gosha/firmware-operator-command-gateway`.
 5. Не создавать Android-ветку, пока контракт команд не потребует изменения мобильного клиента.
 
 Критерий выхода: у каждой затрагиваемой области есть отдельная чистая ветка и понятная база без смешивания с голосом, интерфейсной косметикой или reviewer/executor.

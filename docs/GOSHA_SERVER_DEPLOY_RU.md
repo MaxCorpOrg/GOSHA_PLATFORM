@@ -2,15 +2,15 @@
 
 ## Цель
 
-Поднять отдельный подготовительный контур `GOSHA_PLATFORM` на сервере в `/opt/gosha_platform`, не ломая живой `AI_ROBOT`.
+Поднять отдельный подготовительный контур `GOSHA_PLATFORM` на сервере в `<SERVER_PLATFORM_ROOT>`, не ломая живой `AI_ROBOT`.
 Совместимые технические маршруты `/xiaozhi/*` при этом сохраняются как внутренний слой совместимости.
 
 ## Целевые пути
 
-- рабочая копия: `/opt/gosha_platform/app`
-- рабочий каталог приложения: `/opt/gosha_platform/runtime/app_root`
-- каталог `env`: `/opt/gosha_platform/runtime/env`
-- каталог отчётов: `/opt/gosha_platform/runtime/reports`
+- рабочая копия: `<SERVER_APP_ROOT>`
+- рабочий каталог приложения: `<SERVER_RUNTIME_APP_ROOT>`
+- каталог `env`: `<SERVER_ENV_DIR>`
+- каталог отчётов: `<SERVER_RUNTIME_ROOT>/reports`
 
 ## Целевые порты
 
@@ -27,7 +27,7 @@
   - копирует unit-файлы `systemd`;
   - создаёт и дополняет `panel.env`, `selfhost-backend.env` и `agent-gateway.env`;
   - генерирует локальный пароль оператора и пароль базы данных, если они ещё не заданы;
-  - по возможности одноразово импортирует данные `robots/mobile/share` из `/opt/ai_robot` только в новый рабочий контур;
+  - по возможности одноразово импортирует данные `robots/mobile/share` из `<LEGACY_AI_ROBOT_RUNTIME>` только в новый рабочий контур;
   - включает:
     - `gosha-agent-gateway.service`
     - `gosha-panel.service`
@@ -43,7 +43,7 @@
 
 ## Текущее подтверждённое состояние
 
-- Серверная рабочая копия находится в `/opt/gosha_platform/app`.
+- Серверная рабочая копия находится в `<SERVER_APP_ROOT>`.
 - Коммит, на котором был подтверждён живой лёгкий контур:
   - `579c1ae`
 - Лёгкая фаза уже поднята и проверена:
@@ -68,7 +68,7 @@
 - `curl http://127.0.0.1:18876/api/operator/selfhost-xiaozhi`
 - `curl http://127.0.0.1:18876/api/operator/agent-profiles`
 - `curl http://127.0.0.1:18876/api/mobile/plans`
-- наличие `/opt/gosha_platform/runtime/reports/LAST_REPORT_RU.md`
+- наличие `<SERVER_RUNTIME_ROOT>/reports/LAST_REPORT_RU.md`
 
 ## Что проверять после `--phase backend`
 
@@ -94,6 +94,6 @@
 - После паузы тяжёлая часть продолжается отдельно:
 
 ```bash
-cd /opt/gosha_platform/app
+cd <SERVER_APP_ROOT>
 bash ops/install_server.sh --phase backend
 ```

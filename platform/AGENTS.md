@@ -44,7 +44,7 @@
 - Если проблема касается реального голосового ответа робота, проверь не только панель, но и:
   - `gosha-backend.service`
   - внутренний прокси `/api/internal/openai/v1/*`
-  - наличие ключей в `/opt/gosha_platform/runtime/env/providers.env`
+  - наличие ключей в `<SERVER_PROVIDER_ENV>`
 
 ## Язык и формат
 
