@@ -12,7 +12,10 @@
 - Последующий re-review нашёл stale DB snapshot с корректным digest, но старым journal tip. `_db_snapshot_row()` теперь сверяет `last_event_rowid/last_event_id` с реальным концом SQLite-журнала и не принимает lifetime total меньше retained count.
 - Новые adversarial и migration-тесты для journal, snapshot и identity прошли, повторный полный `bash bin/ci_validate.sh` завершил 10/10 этапов.
 - Следующий ход: commit/push платформенной ветки, дождаться GitHub checks и повторить исходную reviewer-задачу в AI Office. Только после `PASS` переходить к Android.
-- Не выполнять живое развёртывание, flash, motion, trim или servo sequence: левая серва неисправна. `TEMP_NL_RELAY` остаётся временной символической ролью до `FUTURE_PRODUCTION_SERVER`.
+- Production deployment по-прежнему согласуется отдельно. Неисправная левая
+  серва физически отключена; flash, motion, trim и servo sequence разрешены по
+  `docs/HARDWARE_DEVELOPMENT_POLICY_RU.md`. `TEMP_NL_RELAY` остаётся временной
+  символической ролью до `FUTURE_PRODUCTION_SERVER`.
 
 ## Свежая контрольная точка 2026-08-25
 

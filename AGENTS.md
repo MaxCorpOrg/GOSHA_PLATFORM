@@ -10,6 +10,7 @@
    - `docs/NEW_CHAT_CHECKPOINT_RU.md`
    - `docs/AGENT_CHECKPOINT_RU.md`
    - `docs/PROJECT_STATUS_RU.md`
+   - `docs/HARDWARE_DEVELOPMENT_POLICY_RU.md`
 3. Если работа идёт по конкретной папке, открой и её локальный `AGENTS.md`.
 
 ## Правила общения с оператором

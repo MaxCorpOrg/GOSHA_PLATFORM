@@ -7,7 +7,10 @@
 - Reviewer вернул два `P2`: доверие к отравленной SQLite-строке и ошибочный fallback voice/MCP на HTTP-порт `18876`.
 - Исправления подготовлены: persisted events fail closed на секретах и чужом identity, а fallback/локальный launcher используют `18876` для HTTP и `18080` для voice/MCP. Re-review закрыл hostile DB/legacy snapshot и дополнительный `robot_id` вне канонического `subject`, затем выявил stale DB snapshot с корректным digest; теперь он дополнительно сверяется с реальным journal tip. Повторный полный платформенный CI прошёл 10/10.
 - Немедленный следующий шаг: commit/push платформы и повторный reviewer через AI Office до `PASS`. Android, прошивку и operator-command gateway раньше не начинать.
-- Живой робот не трогать: из-за неисправной левой сервы запрещены flash, motion, trim и servo sequence. Сеть остаётся `TEMP_NL_RELAY → PRIMARY_PLATFORM_SERVER` до переезда на `FUTURE_PRODUCTION_SERVER`; реальные адреса и секреты в git не заносить.
+- Неисправная левая серва физически отключена. Живые flash, motion, trim и
+  servo sequence разрешены по `docs/HARDWARE_DEVELOPMENT_POLICY_RU.md`. Сеть
+  остаётся `TEMP_NL_RELAY → PRIMARY_PLATFORM_SERVER` до переезда на
+  `FUTURE_PRODUCTION_SERVER`; реальные адреса и секреты в git не заносить.
 
 ## Самая свежая точка 2026-08-25
 
