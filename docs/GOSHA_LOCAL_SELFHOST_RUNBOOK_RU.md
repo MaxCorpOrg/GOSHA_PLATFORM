@@ -19,7 +19,7 @@
 Из корня репозитория:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/run_local_gosha_gateway.sh
 ```
 
@@ -31,7 +31,7 @@ bash bin/run_local_gosha_panel.sh
 
 `run_local_gosha_panel.sh` теперь сам проверяет и при необходимости ставит Python-библиотеку `websockets`, без которой live-probe панели не может честно дойти до робота.
 
-Из `/home/max` на этой машине доступны совместимые wrapper-скрипты:
+Из `<HOME_WORKSPACE_ROOT>` на этой машине доступны совместимые wrapper-скрипты:
 
 ```bash
 bash bin/run_local_gosha_gateway.sh
@@ -44,13 +44,14 @@ bash bin/run_local_gosha_panel.sh
 
 ```text
 панель: http://127.0.0.1:18876
+голосовой WebSocket и совместимый MCP: ws://127.0.0.1:18080
 шлюз ИИ-агентов: http://127.0.0.1:18110
 ```
 
 Проверка, что вся локальная цепочка реально жива:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/check_local_gosha_stack.sh
 ```
 
@@ -77,9 +78,11 @@ bash bin/check_gosha_panel_stack.sh
 
 - `gosha-main` после `init_local_lab.sh` теперь тоже переводится в `self_hosted_xiaozhi`;
 - локальный `create-code` для `gosha-main` отдаёт:
-  - `edge_hub_url = ws://127.0.0.1:18876/mcp`
+  - `edge_hub_url = ""` по умолчанию; заполняется только явно настроенным `PUBLIC_EDGE_HUB_URL`
   - `backend_mode = self_hosted_xiaozhi`
-  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18876/mcp/`
+  - `mobile_profile.mcp_endpoint_base = ws://127.0.0.1:18080/mcp/`
+
+Важно: до отдельного интеграционного quality-gate этот слой остаётся presence-only. Не подставлять voice WebSocket `/mcp` как `edge_hub_url` и не начинать operator-command gateway из этого runbook.
 
 ## Что проверять первым
 
@@ -113,6 +116,6 @@ bash bin/check_gosha_panel_stack.sh
 Если потребуется откатить именно сохранённый набор интеграционных файлов в `AI_ROBOT`, можно использовать:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash local_only/bin/restore_ai_robot_snapshot.sh
 ```

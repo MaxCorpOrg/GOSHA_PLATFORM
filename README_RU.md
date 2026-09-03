@@ -8,7 +8,7 @@
 - `platform/`
   - панель, маршруты `mobile/operator API`, отдельный внутренний шлюз ИИ-агентов и слой хранения профилей агентов
 - отдельный мобильный контур:
-  - `/home/max/GOSHA_MOBILE`
+  - `<MOBILE_WORKSPACE>`
   - это самостоятельный Android-клиент платформы `Гоша`, который использует `mobile API` этой платформы
 - `backend/`
   - `docker compose` и шаблон `env` для совместимого серверного узла на базе `xinnan-tech/xiaozhi-esp32-server`
@@ -70,7 +70,7 @@
 Из корня репозитория:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/init_local_lab.sh
 bash bin/run_local_gosha_gateway.sh
 ```
@@ -83,7 +83,7 @@ bash bin/run_local_gosha_panel.sh
 
 Оба скрипта теперь сами проверяют Python-зависимость `websockets`, без которой панель не может выполнять честный live-probe робота.
 
-Из `/home/max` на этой машине тоже можно запускать, потому что добавлены локальные wrapper-скрипты:
+Из `<HOME_WORKSPACE_ROOT>` на этой машине тоже можно запускать, потому что добавлены локальные wrapper-скрипты:
 
 ```bash
 bash bin/run_local_gosha_gateway.sh
@@ -102,7 +102,7 @@ bash bin/run_local_gosha_panel.sh
 Быстрая честная smoke-проверка всей локальной цепочки:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/check_local_gosha_stack.sh
 ```
 
@@ -124,8 +124,8 @@ WebSocket: пока /xiaozhi/v1/
 
 ```text
 bundle.mobile_profile.brand = GOSHA
-bundle.mobile_profile.panel_url = http://151.241.228.232:18876
-bundle.mobile_profile.portal_url = http://192.168.4.1
+bundle.mobile_profile.panel_url = http://<PRIMARY_PLATFORM_SERVER>:18876
+bundle.mobile_profile.portal_url = http://<LOCAL_DEVICE_PORTAL_HOST>
 bundle.mobile_profile.robot_wifi_prefixes = [GOSHA-, Xiaozhi-]
 ```
 
@@ -140,10 +140,10 @@ bundle.mobile_profile.robot_wifi_prefixes = [GOSHA-, Xiaozhi-]
 
 ```text
 логика профилей: platform/gosha_assistant_store.py
-рабочие профили на сервере: /opt/gosha_platform/runtime/app_root/agents
-эффективный TTS/ASR/LLM: /opt/gosha_platform/runtime/app_root/selfhost_xiaozhi/backend/data/.config.yaml
-секреты поставщиков: /opt/gosha_platform/runtime/env/providers.env
-локальные секреты разработчика: /home/max/GOSHA_PLATFORM/GOSHA_API
+рабочие профили на сервере: <SERVER_AGENT_PROFILES_ROOT>
+эффективный TTS/ASR/LLM: <SERVER_BACKEND_CONFIG>
+секреты поставщиков: <SERVER_PROVIDER_ENV>
+локальные секреты разработчика: <LOCAL_WORKSPACE>/GOSHA_API
 ```
 
 ## Что проверять локально
@@ -159,13 +159,13 @@ curl http://127.0.0.1:18876/api/operator/robots
 1. Клонировать репозиторий в:
 
 ```text
-/opt/gosha_platform/app
+<SERVER_APP_ROOT>
 ```
 
 2. Выполнить:
 
 ```bash
-cd /opt/gosha_platform/app
+cd <SERVER_APP_ROOT>
 bash ops/install_server.sh
 ```
 

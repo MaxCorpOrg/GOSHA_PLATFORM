@@ -42,7 +42,7 @@ services:
       - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
       - SPRING_DATASOURCE_DRUID_URL=jdbc:mysql://xiaozhi-esp32-server-db:3306/xiaozhi_esp32_server?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Europe/Moscow&nullCatalogMeansCurrent=true&connectTimeout=30000&socketTimeout=30000&autoReconnect=true&failOverReadOnly=false&maxReconnects=10
       - SPRING_DATASOURCE_DRUID_USERNAME=${SELFHOST_XIAOZHI_DB_USER:-root}
-      - SPRING_DATASOURCE_DRUID_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:-change-me}
+      - SPRING_DATASOURCE_DRUID_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:?set SELFHOST_XIAOZHI_DB_PASSWORD in the runtime env file}
       - SPRING_DATA_REDIS_HOST=xiaozhi-esp32-server-redis
       - SPRING_DATA_REDIS_PASSWORD=${SELFHOST_XIAOZHI_REDIS_PASSWORD:-}
       - SPRING_DATA_REDIS_PORT=6379
@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${SELFHOST_XIAOZHI_TZ:-Europe/Moscow}
-      - MYSQL_ROOT_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:-change-me}
+      - MYSQL_ROOT_PASSWORD=${SELFHOST_XIAOZHI_DB_PASSWORD:?set SELFHOST_XIAOZHI_DB_PASSWORD in the runtime env file}
       - MYSQL_DATABASE=xiaozhi_esp32_server
       - MYSQL_INITDB_ARGS=--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:

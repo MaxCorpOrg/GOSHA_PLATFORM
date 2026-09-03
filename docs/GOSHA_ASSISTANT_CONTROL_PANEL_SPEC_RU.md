@@ -70,7 +70,7 @@
 - официальный серверный репозиторий:
   - `https://github.com/xinnan-tech/xiaozhi-esp32-server`
 - локальный проектный контекст:
-  - `/root/robot-oto-compliance-agent`
+  - `<COMPLIANCE_AGENT_WORKSPACE>`
 
 ## Что уже есть у внешней панели
 
