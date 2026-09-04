@@ -4436,7 +4436,7 @@ class Handler(BaseHTTPRequestHandler):
                     payload,
                     robot_id=claim.get("robot_id", ""),
                     source_kind="robot",
-                    source_id=claim.get("device_id", ""),
+                    source_id=runtime_events.robot_claim_source_id(claim),
                     client_id=claim.get("client_id", ""),
                 )
                 self._send_json(
