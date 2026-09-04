@@ -9,8 +9,11 @@ from gosha_runtime_events import (
     EVENT_SCHEMA_VERSION,
     SNAPSHOT_SCHEMA_VERSION,
     RuntimeEventStore,
+    VOICE_TURN_EVENT_TYPE,
+    VOICE_TURN_LATENCY_THRESHOLDS,
     _json_digest,
     normalize_event,
+    robot_claim_source_id,
 )
 
 
@@ -49,6 +52,51 @@ def sample_event(event_id="mobile-install-1:1"):
     }
 
 
+def iso_ms(offset_ms):
+    seconds = offset_ms // 1000
+    milliseconds = offset_ms % 1000
+    return f"2026-09-04T12:00:{seconds:02d}.{milliseconds:03d}Z"
+
+
+def robot_voice_source_id(robot_id="robot-01"):
+    return robot_claim_source_id(
+        {
+            "robot_id": robot_id,
+            "device_id": "dc:b4:d9:35:1b:e0",
+            "claimed_at": 1798891200,
+            "activation_challenge": "stable-claim-salt",
+        }
+    )
+
+
+def voice_phase_event(event_id, phase, *, offset_ms, warm_state="warm", correlation_id="voice-correlation-1", task_id="voice-task-1"):
+    return {
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "event_id": event_id,
+        "event_type": VOICE_TURN_EVENT_TYPE,
+        "source": {"instance_id": "voice-session-1", "app_version": "1.0.0"},
+        "trace": {"session_id": "voice-session-1", "correlation_id": correlation_id},
+        "occurred_at": iso_ms(offset_ms),
+        "severity": "info",
+        "state": {"domain": "voice_turn", "name": "phase", "status": phase},
+        "task": {"id": task_id, "kind": "voice_turn", "status": "running"},
+        "voice": {"phase": phase, "warm_state": warm_state},
+    }
+
+
+def store_voice_phase(store, payload, *, source_kind=None, source_id=None):
+    kind = source_kind or ("robot" if payload["voice"]["phase"] in {"user_speech_end", "robot_first_audio_out"} else "service")
+    identifier = source_id or (robot_voice_source_id() if kind == "robot" else "voice-service")
+    return store.record(payload, robot_id="robot-01", source_kind=kind, source_id=identifier)
+
+
+def voice_turn_by_task(snapshot, task_id):
+    for turn in snapshot["voice_turns"]["recent"]:
+        if turn["task_id"] == task_id:
+            return turn
+    raise AssertionError(f"voice turn not found: {task_id}")
+
+
 def test_server_context_overrides_untrusted_identity_and_redacts_secrets():
     event = normalize_event(
         sample_event(),
@@ -79,6 +127,210 @@ def test_server_context_overrides_untrusted_identity_and_redacts_secrets():
     assert event["attributes"]["network_alias"] == "[redacted]"
     assert event["attributes"]["camel_value_hint"] == "[redacted]"
     assert event["attributes"]["safe"] == "yes"
+
+
+def test_voice_turn_full_turn_aggregates_perceived_latency_after_robot_audio():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(Path(temp_dir))
+        for event_id, phase, offset_ms, source_kind in (
+            ("voice-full-1", "user_speech_end", 100, "robot"),
+            ("voice-full-2", "llm_request", 200, "service"),
+            ("voice-full-3", "llm_first_token", 650, "service"),
+            ("voice-full-4", "tts_first_audio", 900, "service"),
+            ("voice-full-5", "robot_first_audio_out", 1300, "robot"),
+            ("voice-full-6", "turn_complete", 1500, "service"),
+        ):
+            payload = voice_phase_event(event_id, phase, offset_ms=offset_ms, warm_state="warm")
+            if phase == "turn_complete":
+                payload["task"]["status"] = "completed"
+            _, snapshot, duplicate = store_voice_phase(store, payload, source_kind=source_kind)
+            assert not duplicate
+
+        turn = voice_turn_by_task(snapshot, "voice-task-1")
+        assert turn["trace_correlation_id"] == "voice-correlation-1"
+        assert turn["task_id"] == "voice-task-1"
+        assert turn["status"] == "completed"
+        assert turn["warm_state"] == "warm"
+        assert turn["phase_count"] == 6
+        assert turn["perceived_latency"]["available"] is True
+        assert turn["perceived_latency"]["ms"] == 1200
+        assert turn["perceived_latency"]["status"] == "within_p50"
+        assert turn["perceived_latency"]["threshold_p50_ms"] == 1800
+        assert turn["perceived_latency"]["threshold_p95_ms"] == 2500
+        assert turn["llm_response_start"]["available"] is True
+        assert turn["llm_response_start"]["ms"] == 450
+
+
+def test_voice_turn_missing_firmware_phase_keeps_perceived_latency_unavailable():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(Path(temp_dir))
+        for event_id, phase, offset_ms in (
+            ("voice-missing-1", "user_speech_end", 100),
+            ("voice-missing-2", "llm_request", 200),
+            ("voice-missing-3", "llm_first_token_unavailable", 650),
+            ("voice-missing-4", "tts_first_audio", 900),
+        ):
+            payload = voice_phase_event(
+                event_id,
+                phase,
+                offset_ms=offset_ms,
+                warm_state="unknown",
+                correlation_id="voice-correlation-missing",
+                task_id="voice-task-missing",
+            )
+            _, snapshot, duplicate = store_voice_phase(store, payload)
+            assert not duplicate
+
+        turn = voice_turn_by_task(snapshot, "voice-task-missing")
+        assert turn["status"] == "waiting_robot_first_audio_out"
+        assert turn["perceived_latency"]["available"] is False
+        assert turn["perceived_latency"]["ms"] is None
+        assert "robot_first_audio_out" in turn["missing_phases"]
+        assert turn["llm_response_start"]["available"] is False
+        assert turn["llm_response_start"]["status"] == "unavailable"
+
+
+def test_voice_turn_duplicate_and_out_of_order_events_keep_first_robot_audio_latency():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(Path(temp_dir))
+        robot_audio = voice_phase_event(
+            "voice-out-of-order-2",
+            "robot_first_audio_out",
+            offset_ms=1300,
+            correlation_id="voice-correlation-out-of-order",
+            task_id="voice-task-out-of-order",
+        )
+        _, snapshot, duplicate = store_voice_phase(store, robot_audio, source_kind="robot")
+        assert not duplicate
+        assert voice_turn_by_task(snapshot, "voice-task-out-of-order")["perceived_latency"]["available"] is False
+
+        user_end = voice_phase_event(
+            "voice-out-of-order-1",
+            "user_speech_end",
+            offset_ms=100,
+            correlation_id="voice-correlation-out-of-order",
+            task_id="voice-task-out-of-order",
+        )
+        _, snapshot, duplicate = store_voice_phase(store, user_end, source_kind="robot")
+        assert not duplicate
+
+        _, snapshot, duplicate = store_voice_phase(store, robot_audio, source_kind="robot")
+        assert duplicate
+        turn = voice_turn_by_task(snapshot, "voice-task-out-of-order")
+        assert turn["phase_count"] == 2
+        assert turn["perceived_latency"]["available"] is True
+        assert turn["perceived_latency"]["ms"] == 1200
+        assert snapshot["statistics"]["events_total"] == 2
+
+
+def test_voice_turn_rejects_hostile_nested_fields_and_values():
+    cases = []
+
+    def with_attributes(payload):
+        payload.setdefault("attributes", {})
+        return payload["attributes"]
+
+    cases.append(("transcript-key", lambda payload: with_attributes(payload).update({"transcript": "Привет"})))
+    cases.append(("prompt-key", lambda payload: payload.setdefault("state", {}).update({"prompt": "system prompt"})))
+    cases.append(("url-value", lambda payload: with_attributes(payload).update({"reason": "https://internal.invalid"})))
+    cases.append(("token-key", lambda payload: with_attributes(payload).update({"token": "fixture"})))
+    cases.append(("ssid-value", lambda payload: with_attributes(payload).update({"reason": "SSID=private-network"})))
+    cases.append(("device-id-key", lambda payload: with_attributes(payload).update({"device_id": "dc:b4:d9:35:1b:e0"})))
+    cases.append(("mac-value", lambda payload: with_attributes(payload).update({"reason": "dc:b4:d9:35:1b:e0"})))
+    cases.append(("ip-value", lambda payload: with_attributes(payload).update({"reason": "192.168.4.3"})))
+    cases.append(("raw-audio-key", lambda payload: payload["voice"].update({"raw_audio": "AAAA"})))
+    cases.append(("nested-attributes", lambda payload: with_attributes(payload).update({"reason": {"safe": "no"}})))
+    cases.append(("unknown-metric", lambda payload: payload.setdefault("metrics", {}).update({"audio_bytes": 10})))
+
+    for case_name, mutate in cases:
+        payload = voice_phase_event(
+            f"voice-hostile-{case_name}",
+            "user_speech_end",
+            offset_ms=100,
+            correlation_id=f"voice-hostile-{case_name}",
+            task_id=f"voice-hostile-task-{case_name}",
+        )
+        mutate(payload)
+        try:
+            normalize_event(
+                payload,
+                robot_id="robot-01",
+                source_kind="robot",
+                source_id=robot_voice_source_id(),
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"hostile voice field was accepted: {case_name}")
+
+
+def test_robot_claim_source_pseudonym_is_stable_separated_and_not_raw_device_id():
+    base_claim = {
+        "robot_id": "robot-01",
+        "device_id": "dc:b4:d9:35:1b:e0",
+        "claimed_at": 1798891200,
+        "activation_challenge": "stable-claim-salt",
+    }
+    same_claim_different_device = dict(base_claim, device_id="aa:bb:cc:dd:ee:ff")
+    different_robot = dict(base_claim, robot_id="robot-02")
+    different_claim = dict(base_claim, activation_challenge="other-claim-salt")
+
+    pseudonym = robot_claim_source_id(base_claim)
+    assert pseudonym == robot_claim_source_id(same_claim_different_device)
+    assert pseudonym != robot_claim_source_id(different_robot)
+    assert pseudonym != robot_claim_source_id(different_claim)
+    assert pseudonym.startswith("robot-claim-")
+    assert "dc:b4:d9:35:1b:e0" not in pseudonym
+    assert "aa:bb:cc:dd:ee:ff" not in pseudonym
+
+
+def test_voice_turn_latency_thresholds_cover_warm_cold_and_unknown():
+    assert VOICE_TURN_LATENCY_THRESHOLDS["warm"] == {"p50_ms": 1800, "p95_ms": 2500}
+    assert VOICE_TURN_LATENCY_THRESHOLDS["cold"] == {"p50_ms": 4500, "p95_ms": 6000}
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = RuntimeEventStore(Path(temp_dir))
+        for task_id, warm_state, latency_ms in (
+            ("voice-task-warm-p95", "warm", 2200),
+            ("voice-task-cold-p95", "cold", 5000),
+            ("voice-task-unknown", "unknown", 2200),
+        ):
+            correlation_id = task_id.replace("task", "correlation")
+            store_voice_phase(
+                store,
+                voice_phase_event(
+                    f"{task_id}-start",
+                    "user_speech_end",
+                    offset_ms=100,
+                    warm_state=warm_state,
+                    correlation_id=correlation_id,
+                    task_id=task_id,
+                ),
+                source_kind="robot",
+            )
+            _, snapshot, _ = store_voice_phase(
+                store,
+                voice_phase_event(
+                    f"{task_id}-robot-audio",
+                    "robot_first_audio_out",
+                    offset_ms=100 + latency_ms,
+                    warm_state=warm_state,
+                    correlation_id=correlation_id,
+                    task_id=task_id,
+                ),
+                source_kind="robot",
+            )
+
+        warm_turn = voice_turn_by_task(snapshot, "voice-task-warm-p95")
+        cold_turn = voice_turn_by_task(snapshot, "voice-task-cold-p95")
+        unknown_turn = voice_turn_by_task(snapshot, "voice-task-unknown")
+        assert warm_turn["perceived_latency"]["status"] == "within_p95"
+        assert warm_turn["perceived_latency"]["threshold_p95_ms"] == 2500
+        assert cold_turn["perceived_latency"]["status"] == "within_p95"
+        assert cold_turn["perceived_latency"]["threshold_p95_ms"] == 6000
+        assert unknown_turn["perceived_latency"]["status"] == "unscored"
+        assert unknown_turn["perceived_latency"]["threshold_p50_ms"] is None
+        assert unknown_turn["perceived_latency"]["threshold_p95_ms"] is None
 
 
 def test_sensitive_values_are_redacted_outside_attribute_maps():
@@ -1108,6 +1360,12 @@ def test_sse_cursor_recovers_after_process_restart():
 
 def main():
     test_server_context_overrides_untrusted_identity_and_redacts_secrets()
+    test_voice_turn_full_turn_aggregates_perceived_latency_after_robot_audio()
+    test_voice_turn_missing_firmware_phase_keeps_perceived_latency_unavailable()
+    test_voice_turn_duplicate_and_out_of_order_events_keep_first_robot_audio_latency()
+    test_voice_turn_rejects_hostile_nested_fields_and_values()
+    test_robot_claim_source_pseudonym_is_stable_separated_and_not_raw_device_id()
+    test_voice_turn_latency_thresholds_cover_warm_cold_and_unknown()
     test_sensitive_values_are_redacted_outside_attribute_maps()
     test_store_aggregates_components_links_tasks_errors_and_statistics()
     test_duplicate_event_is_idempotent()

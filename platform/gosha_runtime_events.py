@@ -11,23 +11,137 @@ import threading
 import time
 import uuid
 from collections import deque
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 
 EVENT_SCHEMA_VERSION = "gosha.runtime.event.v1"
 SNAPSHOT_SCHEMA_VERSION = "gosha.runtime.snapshot.v1"
+VOICE_TURN_EVENT_TYPE = "voice.turn.phase"
 SOURCE_KINDS = {"robot", "mobile", "panel", "service"}
 SEVERITIES = {"debug", "info", "warning", "error", "critical"}
 TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled", "timed_out"}
 IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9._:@/-]{1,128}$")
 ROBOT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+){1,7}$")
+VOICE_TURN_PHASES = frozenset({
+    "wake_detected",
+    "user_speech_start",
+    "user_speech_end",
+    "asr_final",
+    "llm_request",
+    "llm_first_token",
+    "llm_first_token_unavailable",
+    "tts_request",
+    "tts_first_audio",
+    "robot_first_audio_out",
+    "turn_complete",
+    "turn_failed",
+})
+VOICE_TURN_WARM_STATES = frozenset({"warm", "cold", "unknown"})
+VOICE_TURN_LATENCY_THRESHOLDS = {
+    "warm": {"p50_ms": 1800, "p95_ms": 2500},
+    "cold": {"p50_ms": 4500, "p95_ms": 6000},
+}
+VOICE_TURN_START_PHASE = "user_speech_end"
+VOICE_TURN_ROBOT_AUDIO_PHASE = "robot_first_audio_out"
+VOICE_TURN_LLM_REQUEST_PHASE = "llm_request"
+VOICE_TURN_LLM_TOKEN_PHASE = "llm_first_token"
+VOICE_TURN_LLM_UNAVAILABLE_PHASE = "llm_first_token_unavailable"
+MAX_RECENT_VOICE_TURNS = 40
+VOICE_TURN_TOP_LEVEL_KEYS = frozenset({
+    "schema_version",
+    "event_id",
+    "event_type",
+    "source",
+    "subject",
+    "trace",
+    "occurred_at",
+    "sequence",
+    "severity",
+    "state",
+    "link",
+    "task",
+    "error",
+    "metrics",
+    "attributes",
+    "voice",
+})
+VOICE_TURN_SOURCE_KEYS = frozenset({"kind", "id", "instance_id", "app_version", "firmware_version"})
+VOICE_TURN_SUBJECT_KEYS = frozenset({"robot_id", "client_id", "panel_id"})
+VOICE_TURN_TRACE_KEYS = frozenset({"session_id", "correlation_id", "causation_id"})
+VOICE_TURN_STATE_KEYS = frozenset({"domain", "name", "status"})
+VOICE_TURN_LINK_KEYS = frozenset({"kind", "status"})
+VOICE_TURN_TASK_KEYS = frozenset({"id", "kind", "status"})
+VOICE_TURN_ERROR_KEYS = frozenset({"code", "message", "retryable"})
+VOICE_TURN_METRIC_KEYS = frozenset({"latency_ms", "duration_ms", "queue_depth", "confidence"})
+VOICE_TURN_ATTRIBUTE_KEYS = frozenset({
+    "provider",
+    "model",
+    "tts_engine",
+    "voice_profile",
+    "language",
+    "mode",
+    "reason",
+})
+VOICE_TURN_VOICE_KEYS = frozenset({"phase", "warm_state"})
+VOICE_TURN_SNAPSHOT_KEYS = frozenset({"recent", "thresholds"})
+VOICE_TURN_RECORD_KEYS = frozenset({
+    "key",
+    "trace_correlation_id",
+    "task_id",
+    "warm_state",
+    "status",
+    "updated_at",
+    "started_at",
+    "completed_at",
+    "missing_phases",
+    "phase_count",
+    "phases",
+    "perceived_latency",
+    "llm_response_start",
+})
+VOICE_TURN_PHASE_RECORD_KEYS = frozenset({
+    "phase",
+    "event_id",
+    "source_kind",
+    "source_id",
+    "source_instance_id",
+    "occurred_at",
+    "received_at",
+    "sequence",
+})
+VOICE_TURN_LATENCY_KEYS = frozenset({
+    "available",
+    "ms",
+    "basis",
+    "threshold_state",
+    "threshold_p50_ms",
+    "threshold_p95_ms",
+    "status",
+})
+VOICE_TURN_LLM_RESPONSE_KEYS = frozenset({"available", "ms", "basis", "status"})
 FORBIDDEN_KEYS = {
     "authorization",
+    "audio_base64",
+    "audio_b64",
+    "audio_bytes",
+    "audio_payload",
+    "audio_pcm",
+    "device_id",
+    "ip",
+    "ip_address",
+    "mac",
+    "mac_address",
     "password",
+    "prompt",
+    "raw_audio",
+    "remote_addr",
     "secret",
     "ssid",
     "token",
+    "transcript",
     "ota_url",
     "robot_id",
     "websocket_url",
@@ -53,6 +167,7 @@ SNAPSHOT_TOP_LEVEL_KEYS = {
     "statistics",
     "recent_events",
     "projection",
+    "voice_turns",
 }
 SNAPSHOT_PROJECTION_KEYS = {"kind", "last_event_rowid", "last_event_id", "events_total"}
 EVENT_ROBOT_ID_PATHS = frozenset({("subject", "robot_id")})
@@ -67,14 +182,29 @@ SENSITIVE_VALUE_PATTERNS = (
         r"(?i)\b(?:authorization|password|passwd|secret|ssid|token|api[_-]?key|access[_-]?key|credential|credentials)\s*[:=]\s*\S+"
     ),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,})?\b"),
+    re.compile(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])"),
+    re.compile(
+        r"(?<![0-9])(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])"
+        r"(?:\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}(?![0-9])"
+    ),
 )
 SENSITIVE_ASSIGNMENT_RE = re.compile(r"(?i)[\"']?([a-z][a-z0-9_.-]{0,80})[\"']?\s*[:=]\s*[\"']?\S+")
+SENSITIVE_NETWORK_VALUE_PATTERNS = SENSITIVE_VALUE_PATTERNS[-2:]
 SENSITIVE_TEXT_MARKERS = (
     "://",
     "bearer",
+    "device",
+    "mac",
+    "ip",
     "authorization",
     "password",
     "passwd",
+    "prompt",
+    "transcript",
+    "raw_audio",
+    "rawaudio",
+    "audio_pcm",
+    "audio_bytes",
     "secret",
     "ssid",
     "token",
@@ -213,8 +343,13 @@ def _robot_id(value):
     return text
 
 
+@lru_cache(maxsize=4096)
+def _compact_sensitive_key_cached(value):
+    return re.sub(r"[^a-z0-9]", "", value)
+
+
 def _compact_sensitive_key(key):
-    return re.sub(r"[^a-z0-9]", "", str(key or "").lower())
+    return _compact_sensitive_key_cached(str(key or "").lower())
 
 
 def _is_forbidden_key(key):
@@ -228,6 +363,12 @@ def _is_forbidden_key(key):
         or "passwd" in compact
         or "secret" in compact
         or "ssid" in compact
+        or "transcript" in compact
+        or "prompt" in compact
+        or "deviceid" in compact
+        or compact in {"mac", "macaddress", "ip", "ipaddress", "remoteaddr", "remoteaddress", "boardip"}
+        or "rawaudio" in compact
+        or compact in {"audiopcm", "audiobytes", "audiobase64", "audiob64", "audiopayload"}
         or "url" in compact
         or lowered.endswith("_url")
     )
@@ -297,14 +438,206 @@ def _contains_sensitive_assignment(text):
     return False
 
 
-def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
-    text = _clean_text(value, limit=limit)
+@lru_cache(maxsize=8192)
+def _clean_sensitive_text_cached(text):
     lowered = text.lower()
+    looks_like_network_value = text.count(".") >= 3 or (text.count(":") + text.count("-")) >= 5
+    if looks_like_network_value and any(pattern.search(text) for pattern in SENSITIVE_NETWORK_VALUE_PATTERNS):
+        return "[redacted]"
     if not any(marker in lowered for marker in SENSITIVE_TEXT_MARKERS):
         return text
     if any(pattern.search(text) for pattern in SENSITIVE_VALUE_PATTERNS) or _contains_sensitive_assignment(text):
         return "[redacted]"
     return text
+
+
+def _clean_sensitive_text(value, *, limit=MAX_STRING_LENGTH):
+    return _clean_sensitive_text_cached(_clean_text(value, limit=limit))
+
+
+def _voice_turn_thresholds_snapshot():
+    return {key: dict(value) for key, value in VOICE_TURN_LATENCY_THRESHOLDS.items()}
+
+
+def robot_claim_source_id(claim):
+    item = claim if isinstance(claim, dict) else {}
+    robot_key = _robot_id(item.get("robot_id", ""))
+    try:
+        claimed_at = int(item.get("claimed_at", 0) or 0)
+    except (TypeError, ValueError):
+        claimed_at = 0
+    if claimed_at < 0 or claimed_at > SQLITE_INT64_MAX:
+        claimed_at = 0
+    salt = ""
+    for field in ("activation_challenge", "claim_code", "claimed_at_iso"):
+        candidate = _clean_sensitive_text(item.get(field), limit=128)
+        if candidate and candidate != "[redacted]":
+            salt = candidate
+            break
+    raw = "\n".join(("gosha.robot.claim.source.v1", robot_key, str(claimed_at), salt))
+    return "robot-claim-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _timestamp_ms(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _contains_forbidden_input(value, *, depth=0, path=(), allowed_robot_id_paths=frozenset()):
+    if depth > MAX_JSON_SAFE_DEPTH:
+        return True
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return True
+            inspected_key = key.strip()
+            if not inspected_key or inspected_key != _clean_text(key, limit=64):
+                return True
+            child_path = path + (inspected_key,)
+            if inspected_key.lower() == "robot_id" and child_path in allowed_robot_id_paths:
+                if _contains_forbidden_input(
+                    item,
+                    depth=depth + 1,
+                    path=child_path,
+                    allowed_robot_id_paths=allowed_robot_id_paths,
+                ):
+                    return True
+                continue
+            if _is_secret_value_key(inspected_key) or _is_forbidden_key(inspected_key):
+                return True
+            if _contains_forbidden_input(
+                item,
+                depth=depth + 1,
+                path=child_path,
+                allowed_robot_id_paths=allowed_robot_id_paths,
+            ):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(
+            _contains_forbidden_input(
+                item,
+                depth=depth + 1,
+                path=path + ("[]",),
+                allowed_robot_id_paths=allowed_robot_id_paths,
+            )
+            for item in value
+        )
+    if isinstance(value, str):
+        return _clean_sensitive_text(value) != _clean_text(value)
+    return not _json_value_is_safe(value, depth=depth)
+
+
+def _require_allowed_keys(value, name, allowed_keys, *, required=False):
+    if value is None:
+        if required:
+            raise ValueError(f"{name} is required")
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid {name}")
+    for key in value:
+        if not isinstance(key, str) or key not in allowed_keys:
+            raise ValueError(f"invalid {name} field")
+    return value
+
+
+def _voice_attribute_value_is_safe(value):
+    return value is None or isinstance(value, (str, bool, int, float)) and _json_value_is_safe(value)
+
+
+def _validate_voice_turn_payload(payload, *, source_kind):
+    if _contains_forbidden_input(payload, allowed_robot_id_paths=EVENT_ROBOT_ID_PATHS):
+        raise ValueError("voice turn event contains forbidden field or value")
+    _require_allowed_keys(payload, "voice turn event", VOICE_TURN_TOP_LEVEL_KEYS)
+    _require_allowed_keys(payload.get("source"), "source", VOICE_TURN_SOURCE_KEYS)
+    _require_allowed_keys(payload.get("subject"), "subject", VOICE_TURN_SUBJECT_KEYS)
+    raw_trace = _require_allowed_keys(payload.get("trace"), "trace", VOICE_TURN_TRACE_KEYS, required=True)
+    raw_task = _require_allowed_keys(payload.get("task"), "task", VOICE_TURN_TASK_KEYS, required=True)
+    _require_allowed_keys(payload.get("state"), "state", VOICE_TURN_STATE_KEYS)
+    _require_allowed_keys(payload.get("link"), "link", VOICE_TURN_LINK_KEYS)
+    _require_allowed_keys(payload.get("error"), "error", VOICE_TURN_ERROR_KEYS)
+    raw_metrics = _require_allowed_keys(payload.get("metrics"), "metrics", VOICE_TURN_METRIC_KEYS)
+    raw_attributes = _require_allowed_keys(payload.get("attributes"), "attributes", VOICE_TURN_ATTRIBUTE_KEYS)
+    raw_voice = _require_allowed_keys(payload.get("voice"), "voice", VOICE_TURN_VOICE_KEYS, required=True)
+
+    _identifier(raw_trace.get("correlation_id"), "trace.correlation_id", required=True)
+    _identifier(raw_task.get("id"), "task.id", required=True)
+    for value in raw_metrics.values():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not _json_value_is_safe(value):
+            raise ValueError("invalid voice metrics value")
+    for value in raw_attributes.values():
+        if not _voice_attribute_value_is_safe(value):
+            raise ValueError("invalid voice attributes value")
+    phase = _clean_text(raw_voice.get("phase"), limit=64)
+    if phase not in VOICE_TURN_PHASES:
+        raise ValueError("invalid voice.phase")
+    warm_state = _clean_text(raw_voice.get("warm_state") or "unknown", limit=16).lower()
+    if warm_state not in VOICE_TURN_WARM_STATES:
+        raise ValueError("invalid voice.warm_state")
+    if phase == VOICE_TURN_ROBOT_AUDIO_PHASE and source_kind != "robot":
+        raise ValueError("robot_first_audio_out must come from robot source")
+
+
+def _clean_voice_turn(payload):
+    raw_voice = payload.get("voice") if isinstance(payload.get("voice"), dict) else {}
+    phase = _clean_text(raw_voice.get("phase"), limit=64)
+    if phase not in VOICE_TURN_PHASES:
+        raise ValueError("invalid voice.phase")
+    warm_state = _clean_text(raw_voice.get("warm_state") or "unknown", limit=16).lower()
+    if warm_state not in VOICE_TURN_WARM_STATES:
+        raise ValueError("invalid voice.warm_state")
+    return {"phase": phase, "warm_state": warm_state}
+
+
+def _stored_voice_turn_event_is_safe(event):
+    if event.get("event_type") != VOICE_TURN_EVENT_TYPE:
+        return "voice" not in event
+    voice = event.get("voice")
+    if not isinstance(voice, dict) or set(voice) != VOICE_TURN_VOICE_KEYS:
+        return False
+    if voice.get("phase") not in VOICE_TURN_PHASES:
+        return False
+    if voice.get("warm_state") not in VOICE_TURN_WARM_STATES:
+        return False
+    if voice.get("phase") == VOICE_TURN_ROBOT_AUDIO_PHASE and event.get("source", {}).get("kind") != "robot":
+        return False
+    trace = event.get("trace")
+    if not isinstance(trace, dict) or not _identifier_value_is_safe(trace.get("correlation_id"), required=True):
+        return False
+    task = event.get("task")
+    if not isinstance(task, dict) or not _identifier_value_is_safe(task.get("id"), required=True):
+        return False
+    for name, allowed_keys in (
+        ("state", VOICE_TURN_STATE_KEYS),
+        ("link", VOICE_TURN_LINK_KEYS),
+        ("task", VOICE_TURN_TASK_KEYS),
+        ("error", VOICE_TURN_ERROR_KEYS),
+        ("metrics", VOICE_TURN_METRIC_KEYS),
+        ("attributes", VOICE_TURN_ATTRIBUTE_KEYS),
+    ):
+        section = event.get(name)
+        if section is not None and set(section) - allowed_keys:
+            return False
+    metrics = event.get("metrics")
+    if isinstance(metrics, dict):
+        for value in metrics.values():
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not _json_value_is_safe(value):
+                return False
+    attributes = event.get("attributes")
+    if isinstance(attributes, dict):
+        for value in attributes.values():
+            if not _voice_attribute_value_is_safe(value):
+                return False
+    return True
 
 
 def _stored_clean_value_is_safe(
@@ -390,6 +723,7 @@ def _summary(event):
             "task",
             "error",
             "metrics",
+            "voice",
         )
         if key in event
     }
@@ -413,6 +747,8 @@ def normalize_event(payload, *, robot_id, source_kind, source_id, client_id="", 
     normalized_source_kind = _clean_text(source_kind, limit=16).lower()
     if normalized_source_kind not in SOURCE_KINDS:
         raise ValueError("invalid source kind")
+    if event_type == VOICE_TURN_EVENT_TYPE:
+        _validate_voice_turn_payload(payload, source_kind=normalized_source_kind)
     normalized_robot_id = _robot_id(robot_id)
     normalized_source_id = _identifier(source_id, "source.id", required=True)
     event_id = _identifier(payload.get("event_id") or str(uuid.uuid4()), "event_id", required=True)
@@ -476,6 +812,8 @@ def normalize_event(payload, *, robot_id, source_kind, source_id, client_id="", 
         clean = _clean_section(payload, section)
         if clean:
             event[section] = clean
+    if event_type == VOICE_TURN_EVENT_TYPE:
+        event["voice"] = _clean_voice_turn(payload)
     return event
 
 
@@ -552,6 +890,7 @@ class RuntimeEventStore:
                 "by_severity": {},
             },
             "recent_events": [],
+            "voice_turns": {"recent": [], "thresholds": _voice_turn_thresholds_snapshot()},
         }
 
     def snapshot(self, robot_id):
@@ -790,8 +1129,129 @@ class RuntimeEventStore:
         return True
 
     @staticmethod
-    def _recent_event_record_is_safe(item, *, expected_robot_id=""):
-        if not isinstance(item, dict) or not _stored_clean_value_is_safe(
+    def _optional_nonnegative_int(value):
+        return value is None or _nonnegative_int64_is_safe(value)
+
+    @classmethod
+    def _voice_thresholds_are_safe(cls, thresholds):
+        if not isinstance(thresholds, dict) or set(thresholds) != set(VOICE_TURN_LATENCY_THRESHOLDS):
+            return False
+        for warm_state, limits in thresholds.items():
+            if warm_state not in VOICE_TURN_WARM_STATES or warm_state == "unknown":
+                return False
+            expected = VOICE_TURN_LATENCY_THRESHOLDS[warm_state]
+            if not isinstance(limits, dict) or set(limits) != {"p50_ms", "p95_ms"}:
+                return False
+            if limits.get("p50_ms") != expected["p50_ms"] or limits.get("p95_ms") != expected["p95_ms"]:
+                return False
+        return True
+
+    @classmethod
+    def _voice_latency_record_is_safe(cls, item):
+        if not isinstance(item, dict) or set(item) != VOICE_TURN_LATENCY_KEYS:
+            return False
+        if not isinstance(item.get("available"), bool):
+            return False
+        if not cls._optional_nonnegative_int(item.get("ms")):
+            return False
+        if not _string_value_is_safe(item.get("basis"), required=True):
+            return False
+        if item.get("threshold_state") not in VOICE_TURN_WARM_STATES:
+            return False
+        if not cls._optional_nonnegative_int(item.get("threshold_p50_ms")):
+            return False
+        if not cls._optional_nonnegative_int(item.get("threshold_p95_ms")):
+            return False
+        return item.get("status") in {"unavailable", "invalid_order", "unscored", "within_p50", "within_p95", "over_p95"}
+
+    @classmethod
+    def _voice_llm_response_record_is_safe(cls, item):
+        if not isinstance(item, dict) or set(item) != VOICE_TURN_LLM_RESPONSE_KEYS:
+            return False
+        if not isinstance(item.get("available"), bool):
+            return False
+        if not cls._optional_nonnegative_int(item.get("ms")):
+            return False
+        if not _string_value_is_safe(item.get("basis"), required=True):
+            return False
+        return item.get("status") in {"missing", "unavailable", "invalid_order", "available"}
+
+    @classmethod
+    def _voice_phase_record_is_safe(cls, item):
+        if not isinstance(item, dict) or not set(item).issubset(VOICE_TURN_PHASE_RECORD_KEYS):
+            return False
+        if item.get("phase") not in VOICE_TURN_PHASES:
+            return False
+        if not _identifier_value_is_safe(item.get("event_id"), required=True):
+            return False
+        if item.get("source_kind") not in SOURCE_KINDS:
+            return False
+        if not _identifier_value_is_safe(item.get("source_id"), required=True):
+            return False
+        if "source_instance_id" in item and not _identifier_value_is_safe(item.get("source_instance_id")):
+            return False
+        if not _string_value_is_safe(item.get("occurred_at"), required=True):
+            return False
+        if not _string_value_is_safe(item.get("received_at"), required=True):
+            return False
+        if "sequence" in item and not _nonnegative_int64_is_safe(item.get("sequence")):
+            return False
+        return True
+
+    @classmethod
+    def _voice_turn_record_is_safe(cls, item):
+        if not isinstance(item, dict) or set(item) != VOICE_TURN_RECORD_KEYS:
+            return False
+        if not _identifier_value_is_safe(item.get("key"), required=True):
+            return False
+        if not _identifier_value_is_safe(item.get("trace_correlation_id"), required=True):
+            return False
+        if not _identifier_value_is_safe(item.get("task_id"), required=True):
+            return False
+        if item.get("warm_state") not in VOICE_TURN_WARM_STATES:
+            return False
+        if item.get("status") not in {
+            "collecting",
+            "waiting_user_speech_end",
+            "waiting_robot_first_audio_out",
+            "first_audio_observed",
+            "completed",
+            "failed",
+        }:
+            return False
+        for field in ("updated_at", "started_at", "completed_at"):
+            if not _string_value_is_safe(item.get(field)):
+                return False
+        missing = item.get("missing_phases")
+        if not isinstance(missing, list) or any(phase not in VOICE_TURN_PHASES for phase in missing):
+            return False
+        phases = item.get("phases")
+        if not isinstance(phases, list) or len(phases) > len(VOICE_TURN_PHASES):
+            return False
+        if any(not cls._voice_phase_record_is_safe(phase) for phase in phases):
+            return False
+        if item.get("phase_count") != len(phases):
+            return False
+        if not cls._voice_latency_record_is_safe(item.get("perceived_latency")):
+            return False
+        return cls._voice_llm_response_record_is_safe(item.get("llm_response_start"))
+
+    @classmethod
+    def _voice_turns_snapshot_is_safe(cls, value):
+        if not isinstance(value, dict) or set(value) != VOICE_TURN_SNAPSHOT_KEYS:
+            return False
+        if not cls._voice_thresholds_are_safe(value.get("thresholds")):
+            return False
+        recent = value.get("recent")
+        if not isinstance(recent, list) or len(recent) > MAX_RECENT_VOICE_TURNS:
+            return False
+        return all(cls._voice_turn_record_is_safe(item) for item in recent)
+
+    @staticmethod
+    def _recent_event_record_is_safe(item, *, expected_robot_id="", check_stored_clean=True):
+        if not isinstance(item, dict):
+            return False
+        if check_stored_clean and not _stored_clean_value_is_safe(
             item,
             allowed_robot_id_paths=EVENT_ROBOT_ID_PATHS,
         ):
@@ -828,6 +1288,8 @@ class RuntimeEventStore:
                 if section in item:
                     _validate_clean_section(section, item[section])
         except (TypeError, ValueError):
+            return False
+        if not _stored_voice_turn_event_is_safe(item):
             return False
         sequence = item.get("sequence")
         return sequence is None or _nonnegative_int64_is_safe(sequence)
@@ -893,6 +1355,8 @@ class RuntimeEventStore:
                     return False
                 _validate_clean_section(section, value)
         except (TypeError, ValueError):
+            return False
+        if not _stored_voice_turn_event_is_safe(event):
             return False
         return True
 
@@ -978,6 +1442,8 @@ class RuntimeEventStore:
             return False
         if not self._dict_list_is_safe(errors.get("recent"), item_validator=self._error_record_is_safe):
             return False
+        if "voice_turns" in snapshot and not self._voice_turns_snapshot_is_safe(snapshot.get("voice_turns")):
+            return False
 
         stats = snapshot.get("statistics")
         if not isinstance(stats, dict):
@@ -993,6 +1459,7 @@ class RuntimeEventStore:
             item_validator=lambda item: self._recent_event_record_is_safe(
                 item,
                 expected_robot_id=normalized_robot_id,
+                check_stored_clean=False,
             ),
         ):
             return False
@@ -1197,6 +1664,209 @@ class RuntimeEventStore:
         remaining = [item for item in items if cls._item_key(item, key_fields) != key]
         return ([candidate] + remaining)[:limit]
 
+    @staticmethod
+    def _voice_turn_key(correlation_id, task_id):
+        digest = hashlib.sha256(f"{correlation_id}\n{task_id}".encode("utf-8")).hexdigest()[:24]
+        return f"voice-turn-{digest}"
+
+    @staticmethod
+    def _phase_record_timestamp_ms(record):
+        return _timestamp_ms(record.get("occurred_at")) or _timestamp_ms(record.get("received_at")) or 0
+
+    @classmethod
+    def _voice_turn_phase_record(cls, turn, phase, *, source_kind=""):
+        candidates = [
+            item
+            for item in turn.get("phases", [])
+            if item.get("phase") == phase and (not source_kind or item.get("source_kind") == source_kind)
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=cls._phase_record_timestamp_ms)
+
+    @staticmethod
+    def _voice_latency_status(latency_ms, warm_state):
+        thresholds = VOICE_TURN_LATENCY_THRESHOLDS.get(warm_state)
+        if not thresholds:
+            return "unscored", None, None
+        p50_ms = thresholds["p50_ms"]
+        p95_ms = thresholds["p95_ms"]
+        if latency_ms <= p50_ms:
+            return "within_p50", p50_ms, p95_ms
+        if latency_ms <= p95_ms:
+            return "within_p95", p50_ms, p95_ms
+        return "over_p95", p50_ms, p95_ms
+
+    @classmethod
+    def _recompute_voice_turn(cls, turn):
+        phases = sorted(turn.get("phases", []), key=cls._phase_record_timestamp_ms)
+        turn["phases"] = phases
+        turn["phase_count"] = len(phases)
+        turn["started_at"] = phases[0]["occurred_at"] if phases else ""
+        turn["completed_at"] = ""
+
+        user_end = cls._voice_turn_phase_record(turn, VOICE_TURN_START_PHASE)
+        robot_audio = cls._voice_turn_phase_record(turn, VOICE_TURN_ROBOT_AUDIO_PHASE, source_kind="robot")
+        missing = []
+        if user_end is None:
+            missing.append(VOICE_TURN_START_PHASE)
+        if robot_audio is None:
+            missing.append(VOICE_TURN_ROBOT_AUDIO_PHASE)
+
+        warm_state = turn.get("warm_state", "unknown")
+        threshold_status = "unavailable"
+        p50_ms = None
+        p95_ms = None
+        latency_ms = None
+        latency_available = False
+        if user_end is not None and robot_audio is not None:
+            delta = cls._phase_record_timestamp_ms(robot_audio) - cls._phase_record_timestamp_ms(user_end)
+            if delta >= 0:
+                latency_ms = delta
+                latency_available = True
+                threshold_status, p50_ms, p95_ms = cls._voice_latency_status(delta, warm_state)
+                turn["completed_at"] = robot_audio["occurred_at"]
+            else:
+                threshold_status = "invalid_order"
+
+        turn["missing_phases"] = missing
+        turn["perceived_latency"] = {
+            "available": latency_available,
+            "ms": latency_ms,
+            "basis": "user_speech_end_to_robot_first_audio_out",
+            "threshold_state": warm_state,
+            "threshold_p50_ms": p50_ms,
+            "threshold_p95_ms": p95_ms,
+            "status": threshold_status,
+        }
+
+        llm_request = cls._voice_turn_phase_record(turn, VOICE_TURN_LLM_REQUEST_PHASE)
+        llm_response = cls._voice_turn_phase_record(turn, VOICE_TURN_LLM_TOKEN_PHASE)
+        llm_unavailable = cls._voice_turn_phase_record(turn, VOICE_TURN_LLM_UNAVAILABLE_PHASE)
+        llm_status = "missing"
+        llm_latency_ms = None
+        llm_available = False
+        if llm_unavailable is not None:
+            llm_status = "unavailable"
+        elif llm_response is not None:
+            llm_available = True
+            llm_status = "available"
+            if llm_request is not None:
+                delta = cls._phase_record_timestamp_ms(llm_response) - cls._phase_record_timestamp_ms(llm_request)
+                if delta >= 0:
+                    llm_latency_ms = delta
+                else:
+                    llm_available = False
+                    llm_status = "invalid_order"
+        turn["llm_response_start"] = {
+            "available": llm_available,
+            "ms": llm_latency_ms,
+            "basis": "llm_request_to_first_response",
+            "status": llm_status,
+        }
+
+        if cls._voice_turn_phase_record(turn, "turn_failed") is not None:
+            turn["status"] = "failed"
+        elif latency_available and cls._voice_turn_phase_record(turn, "turn_complete") is not None:
+            turn["status"] = "completed"
+        elif latency_available:
+            turn["status"] = "first_audio_observed"
+        elif user_end is None:
+            turn["status"] = "waiting_user_speech_end"
+        elif robot_audio is None:
+            turn["status"] = "waiting_robot_first_audio_out"
+        else:
+            turn["status"] = "collecting"
+        return turn
+
+    @classmethod
+    def _merge_voice_phase(cls, phases, candidate):
+        same_phase = [item for item in phases if item.get("phase") == candidate.get("phase")]
+        if not same_phase:
+            return (phases + [candidate])[: len(VOICE_TURN_PHASES)]
+        existing = min(same_phase, key=cls._phase_record_timestamp_ms)
+        if cls._phase_record_timestamp_ms(candidate) < cls._phase_record_timestamp_ms(existing):
+            return [
+                candidate if item is existing else item
+                for item in phases
+            ][: len(VOICE_TURN_PHASES)]
+        return phases[: len(VOICE_TURN_PHASES)]
+
+    def _apply_voice_turn_phase(self, snapshot, event):
+        voice = event.get("voice") if isinstance(event.get("voice"), dict) else {}
+        phase = voice.get("phase", "")
+        trace = event.get("trace") if isinstance(event.get("trace"), dict) else {}
+        task = event.get("task") if isinstance(event.get("task"), dict) else {}
+        correlation_id = trace.get("correlation_id", "")
+        task_id = task.get("id", "")
+        if phase not in VOICE_TURN_PHASES or not correlation_id or not task_id:
+            return
+
+        voice_turns = snapshot.setdefault(
+            "voice_turns",
+            {"recent": [], "thresholds": _voice_turn_thresholds_snapshot()},
+        )
+        voice_turns["thresholds"] = _voice_turn_thresholds_snapshot()
+        turn_key = self._voice_turn_key(correlation_id, task_id)
+        recent = voice_turns.get("recent", [])
+        turn = next((item for item in recent if item.get("key") == turn_key), None)
+        if not isinstance(turn, dict):
+            turn = {
+                "key": turn_key,
+                "trace_correlation_id": correlation_id,
+                "task_id": task_id,
+                "warm_state": "unknown",
+                "status": "collecting",
+                "updated_at": "",
+                "started_at": "",
+                "completed_at": "",
+                "missing_phases": [],
+                "phase_count": 0,
+                "phases": [],
+                "perceived_latency": {
+                    "available": False,
+                    "ms": None,
+                    "basis": "user_speech_end_to_robot_first_audio_out",
+                    "threshold_state": "unknown",
+                    "threshold_p50_ms": None,
+                    "threshold_p95_ms": None,
+                    "status": "unavailable",
+                },
+                "llm_response_start": {
+                    "available": False,
+                    "ms": None,
+                    "basis": "llm_request_to_first_response",
+                    "status": "missing",
+                },
+            }
+
+        warm_state = voice.get("warm_state", "unknown")
+        if warm_state == "cold":
+            turn["warm_state"] = "cold"
+        elif warm_state == "warm" and turn.get("warm_state") != "cold":
+            turn["warm_state"] = "warm"
+        elif turn.get("warm_state") not in VOICE_TURN_WARM_STATES:
+            turn["warm_state"] = "unknown"
+
+        source = event["source"]
+        phase_record = {
+            "phase": phase,
+            "event_id": event["event_id"],
+            "source_kind": source["kind"],
+            "source_id": source["id"],
+            "source_instance_id": source.get("instance_id", ""),
+            "occurred_at": event["occurred_at"],
+            "received_at": event["received_at"],
+        }
+        if "sequence" in event:
+            phase_record["sequence"] = event["sequence"]
+        turn["phases"] = self._merge_voice_phase(turn.get("phases", []), phase_record)
+        turn["updated_at"] = event["received_at"]
+        turn = self._recompute_voice_turn(turn)
+
+        remaining = [item for item in recent if item.get("key") != turn_key]
+        voice_turns["recent"] = ([turn] + remaining)[:MAX_RECENT_VOICE_TURNS]
+
     def _apply_event(self, snapshot, event):
         source = event["source"]
         component = {
@@ -1272,6 +1942,9 @@ class RuntimeEventStore:
             )
             errors = snapshot.setdefault("errors", {"recent": []})
             errors["recent"] = ([error_record] + errors.get("recent", []))[:MAX_RECENT_ERRORS]
+
+        if event["event_type"] == VOICE_TURN_EVENT_TYPE:
+            self._apply_voice_turn_phase(snapshot, event)
 
         stats = snapshot.setdefault("statistics", {})
         stats["events_total"] = int(stats.get("events_total", 0) or 0) + 1

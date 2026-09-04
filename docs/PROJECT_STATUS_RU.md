@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+## Контракт задержки голосового оборота 2026-09-04
+
+- Для задачи `task-20260904-gosha-platform-voice-turn-latency-contract` подготовлено платформенное расширение `gosha.runtime.event.v1` без развёртывания и без обращения к живому роботу.
+- Добавлен тип события `voice.turn.phase` для фаз голосового оборота. Он требует `trace.correlation_id`, `task.id`, поле `voice.phase` из белого списка и `voice.warm_state` со значениями `warm`, `cold` или `unknown`.
+- Снимок runtime теперь содержит агрегат `voice_turns`: обороты группируются по паре `trace.correlation_id` и `task.id`, воспринимаемая задержка считается только после фазы `robot_first_audio_out` от источника `robot`.
+- Если прошивка не прислала `robot_first_audio_out`, задержка остаётся недоступной. Если первый ответ LLM недоступен, фиксируется фаза `llm_first_token_unavailable`.
+- Пороги задержки закреплены так: `warm p50 = 1800 ms`, `warm p95 = 2500 ms`, `cold p50 = 4500 ms`, `cold p95 = 6000 ms`; для `unknown` порог не применяется.
+- Вложенные поля `voice.turn.phase` проходят строгий белый список. Transcript, prompt, URL, token, SSID, аппаратный `device_id`, MAC, IP и raw audio не принимаются и не должны попадать в сохранённый журнал или снимок.
+- Для прошивочных runtime-событий маршрут `/gosha/events` / `/xiaozhi/events` больше не пишет raw `device_id` в `source.id`: используется стабильный псевдоним привязки `robot-claim-*`, не построенный из аппаратного идентификатора.
+
 ## Платформенный аудиоконтракт и задержка 2026-09-04
 
 - Разобран серверный голосовой путь `ASR -> LLM -> TTS` для задачи `task-20260904-gosha-platform-voice-samplerate-latency`.

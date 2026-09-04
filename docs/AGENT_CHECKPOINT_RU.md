@@ -2,6 +2,18 @@
 
 ## Свежая контрольная точка 2026-09-04
 
+- Для задачи `task-20260904-gosha-platform-voice-turn-latency-contract` реализован только платформенный контракт задержки голосового оборота.
+- `gosha.runtime.event.v1` расширен типом `voice.turn.phase`. Для него обязательны `trace.correlation_id`, `task.id`, `voice.phase` и безопасный `voice.warm_state`.
+- Агрегация в runtime-снимке идёт в блок `voice_turns` по паре `trace.correlation_id` и `task.id`.
+- Воспринимаемая задержка считается только по фазам `user_speech_end -> robot_first_audio_out`, причём `robot_first_audio_out` принимается только от источника `robot`. Серверная `tts_first_audio` без прошивочного подтверждения не закрывает измерение.
+- Поддержаны состояния прогрева `warm`, `cold`, `unknown`; пороги: `warm 1800/2500 ms`, `cold 4500/6000 ms`. Для `unknown` измерение сохраняется без оценки порога.
+- Недоступный первый ответ LLM фиксируется фазой `llm_first_token_unavailable` и не ломает расчёт воспринимаемой задержки.
+- Вход `voice.turn.phase` и сохранённый вывод защищены от transcript, prompt, URL, token, SSID, raw `device_id`, MAC, IP и raw audio.
+- Прошивочные события через `/gosha/events` и `/xiaozhi/events` теперь получают `source.id = robot-claim-*` из доверенной привязки, без раскрытия аппаратного `device_id`.
+- Живые сервисы, робот, serial, развёртывание, секреты, Android и прошивка не трогались.
+
+## Свежая контрольная точка 2026-09-04
+
 - В задаче `task-20260904-gosha-platform-voice-samplerate-latency` серверный голосовой путь разобран как `ASR -> LLM -> TTS`.
 - Причина предупреждения `16000/24000` находится в платформенном рендере совместимого backend: значение по умолчанию внешнего backend `xiaozhi.audio_params.sample_rate = 24000` расходилось с фактическим контрактом `gosha-v1`, входным Opus-декодером backend и `VoskASR`, которые работают на `16000`.
 - Минимальное исправление подготовлено в git-слое платформы:

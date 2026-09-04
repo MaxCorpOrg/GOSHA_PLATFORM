@@ -2,6 +2,16 @@
 
 ## Самая свежая точка 2026-09-04
 
+- Для задачи `task-20260904-gosha-platform-voice-turn-latency-contract` подготовлен платформенный контракт измерения задержки голосового оборота без живого развёртывания и без обращения к роботу.
+- Новый тип runtime-события: `voice.turn.phase`.
+- Голосовой оборот агрегируется в `voice_turns` по `trace.correlation_id` и `task.id`.
+- Воспринимаемая задержка считается только после `robot_first_audio_out` от источника `robot`; если этой прошивочной фазы нет, измерение остаётся недоступным.
+- Поддержаны `warm`, `cold`, `unknown`, недоступный первый ответ LLM через `llm_first_token_unavailable`, а также пороги `warm 1800/2500 ms` и `cold 4500/6000 ms`.
+- Transcript, prompt, URL, token, SSID, raw `device_id`, MAC, IP и raw audio запрещены во входе `voice.turn.phase` и в сохранённом runtime-выводе.
+- `/gosha/events` и `/xiaozhi/events` больше не сохраняют аппаратный `device_id` как `source.id`; вместо него используется псевдоним `robot-claim-*`.
+
+## Самая свежая точка 2026-09-04
+
 - Для задачи `task-20260904-gosha-platform-voice-samplerate-latency` доказано платформенное рассогласование аудиочастоты: совместимый backend по умолчанию отдавал `xiaozhi.audio_params.sample_rate = 24000`, тогда как входящий Opus, `VoskASR` и контракт `gosha-v1` работают как моно `Opus/PCM 16000` с кадром `60 ms`.
 - Исправление в кандидате: `ops/render_backend_config.py` теперь явно рендерит `xiaozhi.audio_params` с `sample_rate = 16000` по умолчанию и принимает переопределение через `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE`. Порты остаются прежними: HTTP `18876`, voice/MCP `18080`.
 - Внутренний `SileroTTS` на `v5_5_ru` не переведён на `16000`: официально этот модельный контур поддерживает `8000/24000/48000`, поэтому `SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE` остаётся `24000`. Это отдельная частота генерации модели, не частота WebSocket-контракта устройства.
