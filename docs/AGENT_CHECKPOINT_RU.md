@@ -1,5 +1,21 @@
 # AGENT CHECKPOINT
 
+## Свежая контрольная точка 2026-09-04
+
+- В задаче `task-20260904-gosha-platform-voice-samplerate-latency` серверный голосовой путь разобран как `ASR -> LLM -> TTS`.
+- Причина предупреждения `16000/24000` находится в платформенном рендере совместимого backend: значение по умолчанию внешнего backend `xiaozhi.audio_params.sample_rate = 24000` расходилось с фактическим контрактом `gosha-v1`, входным Opus-декодером backend и `VoskASR`, которые работают на `16000`.
+- Минимальное исправление подготовлено в git-слое платформы:
+  - `ops/render_backend_config.py` явно пишет `xiaozhi.audio_params.format = opus`, `sample_rate = 16000`, `channels = 1`, `frame_duration = 60`;
+  - частота берётся из настройки `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE`, значение по умолчанию `16000`;
+  - `ops/install_server.sh` добавляет эту настройку в `selfhost-backend.env` и передаёт её в рендер;
+  - `backend/selfhost-backend.env.example` показывает отдельный ключ `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE=16000`.
+- Важно не смешивать две частоты:
+  - `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE=16000` — частота Opus-контракта устройства и приветственного `xiaozhi.audio_params`;
+  - `SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE=24000` — внутренняя частота генерации `SileroTTS v5_5_ru`, потому что официальный `Silero` для `v5_5_ru` поддерживает `8000/24000/48000`, но не `16000`.
+- Задержка первого ответа после прогрева сейчас в основном формируется интервалом `ASR -> первый ответ LLM -> первый TTS-синтез`. Холодный оборот диалога дополнительно платит за загрузку и прогрев `SileroTTS`. Текущая правка выравнивает сетевой контракт и убирает предупреждение о частоте, но для отдельного сокращения холодного старта нужен следующий измерительный срез без обращения к живому роботу из этой задачи.
+- Добавлен тест `ops/test_render_backend_audio_contract.py`; `bin/ci_validate.sh` теперь запускает его отдельным шагом.
+- Не выполнялись: развёртывание, правка `/opt/gosha_platform/runtime/env/providers.env`, обращения к роботу, проверка raw `8080`, изменения Android, прошивки или AI Office.
+
 ## Свежая контрольная точка 2026-08-26
 
 - Работу продолжать с Draft PR платформы `#46`; Android PR `#51` и firmware gate не начинать до его терминального `PASS`.

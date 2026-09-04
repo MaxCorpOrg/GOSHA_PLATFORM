@@ -13,6 +13,11 @@ DEFAULT_TTS_KIND = "edge_tts"
 DEFAULT_TTS_MODULE = "EdgeTTS"
 DEFAULT_TTS_TYPE = "edge"
 DEFAULT_TTS_VOICE = "ru-RU-SvetlanaNeural"
+DEFAULT_XIAOZHI_AUDIO_FORMAT = "opus"
+DEFAULT_XIAOZHI_AUDIO_SAMPLE_RATE = 16000
+DEFAULT_XIAOZHI_AUDIO_CHANNELS = 1
+DEFAULT_XIAOZHI_AUDIO_FRAME_DURATION_MS = 60
+SUPPORTED_OPUS_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000}
 DEFAULT_PROMPT_LINES = [
     "Ты — голосовой ассистент по имени Гоша.",
     "Всегда отвечай только по-русски, если оператор прямо не попросил другой язык.",
@@ -39,6 +44,16 @@ def clamp_float(value, default, min_value, max_value):
     if result > max_value:
         return max_value
     return result
+
+
+def normalize_opus_sample_rate(value) -> int:
+    try:
+        sample_rate = int(value)
+    except Exception:
+        sample_rate = DEFAULT_XIAOZHI_AUDIO_SAMPLE_RATE
+    if sample_rate not in SUPPORTED_OPUS_SAMPLE_RATES:
+        return DEFAULT_XIAOZHI_AUDIO_SAMPLE_RATE
+    return sample_rate
 
 
 def rate_to_edge(rate_multiplier):
@@ -223,6 +238,17 @@ def build_asr_lines(asr_provider_key: str, tts_module: str, vosk_model_path: str
     ]
 
 
+def build_xiaozhi_audio_lines(audio_sample_rate) -> list[str]:
+    return [
+        "xiaozhi:",
+        "  audio_params:",
+        f"    format: {DEFAULT_XIAOZHI_AUDIO_FORMAT}",
+        f"    sample_rate: {normalize_opus_sample_rate(audio_sample_rate)}",
+        f"    channels: {DEFAULT_XIAOZHI_AUDIO_CHANNELS}",
+        f"    frame_duration: {DEFAULT_XIAOZHI_AUDIO_FRAME_DURATION_MS}",
+    ]
+
+
 def update_profile_model(profile_path: Path | None, profile_payload: dict, model_name: str) -> None:
     if not profile_path or not profile_payload:
         return
@@ -232,7 +258,16 @@ def update_profile_model(profile_path: Path | None, profile_payload: dict, model
     profile_path.write_text(json.dumps(profile_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: str, app_root: Path, asr_provider_key: str, vosk_model_path: str) -> None:
+def render_config(
+    config_path: Path,
+    ws_url: str,
+    panel_port: str,
+    proxy_token: str,
+    app_root: Path,
+    asr_provider_key: str,
+    vosk_model_path: str,
+    audio_sample_rate=DEFAULT_XIAOZHI_AUDIO_SAMPLE_RATE,
+) -> None:
     if should_skip_existing(config_path):
         return
 
@@ -248,6 +283,7 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
     requested_tts_kind = str(requested_tts_engine_payload.get("engine_kind", "") or "").strip() or DEFAULT_TTS_KIND
 
     prompt_lines = resolve_prompt_lines(default_assistant_payload)
+    xiaozhi_audio_lines = build_xiaozhi_audio_lines(audio_sample_rate)
     asr_lines = build_asr_lines(asr_provider_key, effective_tts_module, vosk_model_path)
     tts_lines = build_tts_lines(effective_tts_kind, effective_tts_module, voice_payload, requested_tts_engine_payload, requested_tts_kind)
 
@@ -261,6 +297,7 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
                 f"# effective-tts-runtime: {effective_tts_runtime}",
                 "server:",
                 f"  websocket: {ws_url}",
+                *xiaozhi_audio_lines,
                 "prompt: |",
                 *[f"  {line}" for line in prompt_lines],
                 *asr_lines,
@@ -278,9 +315,9 @@ def render_config(config_path: Path, ws_url: str, panel_port: str, proxy_token: 
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 8:
+    if len(argv) not in {8, 9}:
         print(
-            "usage: render_backend_config.py <config_path> <ws_url> <panel_port> <proxy_token> <app_root> <asr_provider_key> <vosk_model_path>",
+            "usage: render_backend_config.py <config_path> <ws_url> <panel_port> <proxy_token> <app_root> <asr_provider_key> <vosk_model_path> [audio_sample_rate]",
             file=sys.stderr,
         )
         return 2
@@ -292,7 +329,8 @@ def main(argv: list[str]) -> int:
     app_root = Path(argv[5])
     asr_provider_key = argv[6]
     vosk_model_path = argv[7]
-    render_config(config_path, ws_url, panel_port, proxy_token, app_root, asr_provider_key, vosk_model_path)
+    audio_sample_rate = argv[8] if len(argv) == 9 else DEFAULT_XIAOZHI_AUDIO_SAMPLE_RATE
+    render_config(config_path, ws_url, panel_port, proxy_token, app_root, asr_provider_key, vosk_model_path, audio_sample_rate)
     return 0
 
 

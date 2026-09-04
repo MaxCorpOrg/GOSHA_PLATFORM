@@ -1,5 +1,18 @@
 # PROJECT STATUS
 
+## Платформенный аудиоконтракт и задержка 2026-09-04
+
+- Разобран серверный голосовой путь `ASR -> LLM -> TTS` для задачи `task-20260904-gosha-platform-voice-samplerate-latency`.
+- Доказанное рассогласование: совместимый backend наследовал значение по умолчанию внешнего backend `xiaozhi.audio_params.sample_rate = 24000`, а контракт текущего `gosha-v1`, входной Opus-декодер backend и `VoskASR` работают на `16000`. Это объясняет предупреждение про `16000` и `24000`.
+- Исправление подготовлено без развёртывания:
+  - `ops/render_backend_config.py` теперь явно рендерит `xiaozhi.audio_params` для WebSocket-контракта: `format = opus`, `sample_rate = 16000`, `channels = 1`, `frame_duration = 60`;
+  - `ops/install_server.sh` хранит частоту устройства в `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE` и передаёт её в рендер;
+  - `backend/selfhost-backend.env.example` показывает `SELFHOST_XIAOZHI_AUDIO_SAMPLE_RATE=16000`.
+- Внутренняя частота `SileroTTS` не менялась на `16000`: для `v5_5_ru` официально поддержаны `8000/24000/48000`, поэтому `SELFHOST_XIAOZHI_SILERO_SAMPLE_RATE=24000` остаётся отдельной настройкой генерации модели.
+- По задержке: тёплые значения `ASR -> first TTS` из evidence относятся к времени получения LLM-ответа и первому TTS-синтезу. Холодный оборот диалога дополнительно включает загрузку и прогрев `SileroTTS`; этот слой не объявлен закрытым без отдельного повторного измерения.
+- Добавлен точечный тест `ops/test_render_backend_audio_contract.py`, а общий `bin/ci_validate.sh` расширен отдельным шагом проверки рендера аудиоконтракта.
+- Не трогались живой сервер, секретные env-файлы, Android, прошивка, AI Office, робот и raw порт `8080`. Порты платформы сохранены: HTTP `18876`, voice/MCP `18080`.
+
 ## Платформенный quality-gate 2026-08-26
 
 - AI Office восстановлен и повторно проверен на фактическом запуске reviewer с моделью `GPT-5.5` и уровнем рассуждения `xhigh`.
