@@ -64,13 +64,13 @@
 ## Источники для проектирования
 
 - живая страница настройки агента:
-  - `https://xiaozhi.me/console/agents/1662279/config`
+  - `<REFERENCE_AGENT_SETTINGS_URL>` — адрес личной страницы хранится только у владельца
 - живая wiki-документация:
-  - `https://my.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb`
+  - `<REFERENCE_WIKI_URL>` — ссылка на исходный workspace хранится только у владельца
 - официальный серверный репозиторий:
   - `https://github.com/xinnan-tech/xiaozhi-esp32-server`
 - локальный проектный контекст:
-  - `/root/robot-oto-compliance-agent`
+  - `<LEGACY_AGENT_WORKSPACE>`
 
 ## Что уже есть у внешней панели
 
