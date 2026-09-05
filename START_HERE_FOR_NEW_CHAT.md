@@ -17,9 +17,9 @@
    - `platform/AGENTS.md`
    - `docs/GOSHA_ASSISTANT_CONTROL_PANEL_SPEC_RU.md`
 8. Если задача уже перешла к собственной прошивке:
-   - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
+   - `<FIRMWARE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 9. Если задача относится к новому мобильному клиенту:
-   - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
+   - `<MOBILE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 
 ## Как писать новые записи
 
@@ -42,7 +42,7 @@
   - собственная настройка имени пробуждения `Гоша`
 - Общая карта всех связанных контуров зафиксирована в:
   - `docs/GOSHA_PROJECT_MAP_RU.md`
-- Полный серверный контур уже подтверждён на `151.241.228.232`:
+- Полный серверный контур уже подтверждён на `<PRIMARY_PLATFORM_SERVER>`:
   - `gosha-agent-gateway.service`
   - `gosha-panel.service`
   - `gosha-backend.service`
@@ -52,9 +52,9 @@
   - распознавание русской речи
   - русский голосовой ответ
 - Для следующего прошивочного этапа создан отдельный соседний репозиторий:
-  - `/home/max/GOSHA_FIRMWARE`
+  - `<FIRMWARE_WORKSPACE>`
 - Для следующего мобильного этапа создан отдельный соседний репозиторий:
-  - `/home/max/GOSHA_MOBILE`
+  - `<MOBILE_WORKSPACE>`
 - GitHub-репозиторий отдельный: `MaxCorpOrg/GOSHA_PLATFORM`.
 - `AI_ROBOT` остаётся отдельным старым проектом и источником для восстановления и справки, но не рабочим корнем этого репозитория.
 - Локальные рабочие данные и снимки состояния лежат только в `local_only/`.
@@ -84,9 +84,9 @@
 
 - Основа общего контура `робот — приложение — панель` реализована, проверена на живом устройстве и отправлена в три профильные ветки.
 - Актуальная рабочая копия платформы:
-  - `/home/max/worktrees/gosha/platform-triangle-runtime`;
+  - `<PLATFORM_TRIANGLE_WORKTREE>`;
   - ветка `feature/triangle-runtime-events`.
-- Основной каталог `/home/max/GOSHA_PLATFORM` сейчас находится на старой ветке reviewer/executor и не должен использоваться для продолжения продуктового этапа.
+- Основной каталог `<LOCAL_WORKSPACE>` сейчас находится на старой ветке reviewer/executor и не должен использоваться для продолжения продуктового этапа.
 - Профильные ветки платформы, Android и прошивки чистые и совпадают с удалёнными ветками, но на `2026-07-30`:
   - не слиты в `main`;
   - для них ещё не открыты Pull Request.

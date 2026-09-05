@@ -19,7 +19,7 @@
 Из корня репозитория:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/run_local_gosha_gateway.sh
 ```
 
@@ -31,7 +31,7 @@ bash bin/run_local_gosha_panel.sh
 
 `run_local_gosha_panel.sh` теперь сам проверяет и при необходимости ставит Python-библиотеку `websockets`, без которой live-probe панели не может честно дойти до робота.
 
-Из `/home/max` на этой машине доступны совместимые wrapper-скрипты:
+Из `<HOME_WORKSPACE_ROOT>` на этой машине доступны совместимые wrapper-скрипты:
 
 ```bash
 bash bin/run_local_gosha_gateway.sh
@@ -51,7 +51,7 @@ bash bin/run_local_gosha_panel.sh
 Проверка, что вся локальная цепочка реально жива:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash bin/check_local_gosha_stack.sh
 ```
 
@@ -116,6 +116,6 @@ bash bin/check_gosha_panel_stack.sh
 Если потребуется откатить именно сохранённый набор интеграционных файлов в `AI_ROBOT`, можно использовать:
 
 ```bash
-cd /home/max/GOSHA_PLATFORM
+cd <LOCAL_WORKSPACE>
 bash local_only/bin/restore_ai_robot_snapshot.sh
 ```

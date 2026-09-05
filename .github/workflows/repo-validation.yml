@@ -2,12 +2,12 @@ name: repo-validation
 
 on:
   pull_request:
-    branches:
-      - main
     types:
       - opened
       - reopened
       - synchronize
+      - edited
+      - converted_to_draft
       - ready_for_review
   push:
     branches:
@@ -24,6 +24,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Run repository validation
         env:
