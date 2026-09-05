@@ -2,6 +2,8 @@
 
 ## CI и приёмка stacked Draft PR 2026-09-05
 
+- По независимому review PR #69 исправлено противоречие в списке приёмки: диагностический след устройства в операторской сессии сохранён как существующий продуктовый контракт, а запрет raw identity в runtime-events и Git остаётся отдельным обязательным условием. Продуктовый код не менялся.
+
 - Для задачи `task-20260905-gosha-platform-ci-candidate` подготовлен платформенный кандидат поверх точной базы PR66 `4375a6d0415c07f9b09c3a1b4e0135857ed5d9e1`.
 - `.github/workflows/repo-validation.yml` теперь запускает `repo-validation` для `pull_request` без ограничения base-веткой `main`, поэтому промежуточные stacked Draft PR тоже получают CI.
 - Workflow остаётся безопасным для недоверенного PR: используется обычный `pull_request`, минимальные права `contents: read`, `actions/checkout` с `persist-credentials: false`, без production secrets.
