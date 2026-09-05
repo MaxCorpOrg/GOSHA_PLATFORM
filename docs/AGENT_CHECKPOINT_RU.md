@@ -410,7 +410,7 @@
   - `assembleClientDebug`
   - `testClientDebugUnitTest`
 - Выполнен живой прогон нового клиента на телефоне `TECNO LI9`:
-  - код `MJ6SG97A` принят
+  - код `<PAIRING_CODE>` принят
   - приложение сохранило `panel_url = http://<PRIMARY_PLATFORM_SERVER>:18876`
   - исторически приложение сохранило `hub_url` на voice WebSocket `/mcp/`; это больше не считается корректным default для `edge_hub_url`
   - приложение сохранило `robot_id = gosha-main`

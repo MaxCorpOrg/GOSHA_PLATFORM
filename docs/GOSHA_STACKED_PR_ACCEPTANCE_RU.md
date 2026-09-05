@@ -12,7 +12,7 @@
 - Проверяем только `GOSHA_PLATFORM` и контракты с Android/прошивкой.
 - Не менять production, relay, controller, hardware, iOS и pins соседних репозиториев.
 - Не включать motion, gateway операторских команд и любые новые управляющие маршруты.
-- Не записывать в git реальные endpoint, токены, SSID, MAC, IP, аппаратный `device_id`, transcript, prompt или raw audio.
+- Не записывать в git реальные endpoint, токены, пароли, коды подключения/активации, SSID, MAC, IP, аппаратный `device_id`, transcript, prompt или raw audio.
 
 ## CI для stacked Draft PR
 
@@ -89,7 +89,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_selfhost_runtime_events.py
 2. Использовать уже установленную прошивку из `<FIRMWARE_WORKSPACE>` без изменения pins и hardware-файлов.
 3. Проверить только read-only события: heartbeat, состояние сети, voice-turn фазы и ошибки.
 4. Подтвердить, что прошивочные события приходят через `/gosha/events` или совместимый `/xiaozhi/events` с серверной проверкой привязки.
-5. Подтвердить, что в runtime-снимке нет raw `device_id`, MAC, IP, SSID, token, transcript, prompt или raw audio.
+5. Подтвердить, что в runtime-снимке нет raw `device_id`, MAC, IP, SSID, token, коды подключения/активации, transcript, prompt или raw audio.
 
 ## Измерение 20 warm + 5 cold
 
@@ -100,7 +100,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_selfhost_runtime_events.py
 3. Каждый оборот засчитывается только при наличии фаз `user_speech_end` и `robot_first_audio_out` в одной паре `trace.correlation_id` + `task.id`.
 4. Фаза `robot_first_audio_out` должна быть получена от источника `robot`; серверная `tts_first_audio` не закрывает измерение.
 5. В evidence сохранять только обезличенные `task.id`, `trace.correlation_id`, timestamps, фазы, `warm_state` и рассчитанные миллисекунды.
-6. Не сохранять transcript, prompt, raw audio, endpoint, SSID, token, raw `device_id`, MAC или IP.
+6. Не сохранять transcript, prompt, raw audio, endpoint, SSID, token, коды подключения/активации, raw `device_id`, MAC или IP.
 7. Если холодные обороты невозможно получить без управляющего воздействия на production-сервис, cold-часть записать как не выполненную и не заменять её прогретыми данными.
 8. Итоговый отчёт должен отдельно показать `p50`, `p95`, количество засчитанных оборотов и количество отбракованных оборотов по причине отсутствия `robot_first_audio_out`.
 
@@ -109,6 +109,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_selfhost_runtime_events.py
 - Локальный CI пройден.
 - `git diff --check` пройден.
 - Workflow безопасен для недоверенного PR и не использует production secrets.
-- Документация не содержит новых реальных endpoint и owner-only путей.
+- Все отслеживаемые документы, включая исторические checkpoint, проверены на реальные endpoint, owner-only пути, пароли, токены, коды подключения/активации, SSID, MAC и аппаратные идентификаторы; значения заменены переносимыми маркерами.
 - Motion/gateway/operator-command изменения отсутствуют.
 - Реальные результаты panel/Android/firmware smoke и измерения `20 warm + 5 cold` не заявлены, пока не приложено owner-only evidence вне git.

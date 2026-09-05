@@ -614,7 +614,7 @@
 - Выполнен живой прогон `GOSHA_MOBILE` на телефоне `TECNO LI9` через `adb`.
 - На живом телефоне подтверждено:
   - установка `app-client-debug.apk`
-  - прохождение шага регистрации по коду `MJ6SG97A`
+  - прохождение шага регистрации по коду `<PAIRING_CODE>`
   - сохранение в `shared_prefs` нового серверного контура:
     - `panel_url = http://<PRIMARY_PLATFORM_SERVER>:18876`
     - исторически приложение сохраняло `hub_url` на voice WebSocket `/mcp/`; это больше не считается корректным default для `edge_hub_url`
