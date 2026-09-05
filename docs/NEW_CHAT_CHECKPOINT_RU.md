@@ -1,5 +1,16 @@
 # NEW CHAT CHECKPOINT
 
+## Самая свежая точка 2026-09-05
+
+- Для `task-20260905-gosha-platform-ci-candidate` подготовлен платформенный кандидат поверх PR66 `4375a6d0415c07f9b09c3a1b4e0135857ed5d9e1`.
+- `.github/workflows/repo-validation.yml` запускает CI для промежуточных stacked Draft PR без ограничения `pull_request` на base-ветку `main`.
+- Workflow остаётся безопасным для недоверенного PR: `permissions: contents: read`, обычный `pull_request`, checkout без сохранения credentials, без production secrets.
+- `bin/ci_validate.sh` остаётся единой командой CI и теперь проверяет безопасность workflow.
+- Новый документ приёмки: `docs/GOSHA_STACKED_PR_ACCEPTANCE_RU.md`.
+- Документ задаёт panel/Android/firmware smoke/read-only список: network recovery, identity, runtime events, no-motion и `20 warm + 5 cold` voice-turn measurement без выдуманных результатов.
+- Из PR58 перенесена санитарная doc-очистка owner-only путей и живых адресов на маркеры; PR66 voice-turn контракт сохранён.
+- Живой сервер, robot, Android, firmware, relay, controller, hardware, iOS, pins, motion и operator-command gateway не трогались.
+
 ## Самая свежая точка 2026-09-04
 
 - Для задачи `task-20260904-gosha-platform-voice-turn-latency-contract` подготовлен платформенный контракт измерения задержки голосового оборота без живого развёртывания и без обращения к роботу.
@@ -53,7 +64,7 @@
 ## Предыдущая точка 2026-07-30
 
 - Текущая стадия: интеграционный шлюз качества после завершённой живой приёмки треугольника `робот — приложение — панель`.
-- Работать из `/home/max/worktrees/gosha/platform-triangle-runtime`, ветка `feature/triangle-runtime-events`.
+- Работать из `<PLATFORM_TRIANGLE_WORKTREE>`, ветка `feature/triangle-runtime-events`.
 - Последние отправленные вершины перед этой документной фиксацией:
   - платформа: `f2276f7`;
   - Android: `d0ab7c2`;
@@ -72,7 +83,7 @@
 
 ## Предыдущая контрольная точка 2026-07-23
 
-- Текущая профильная ветка: `feature/triangle-runtime-events` в `/home/max/worktrees/gosha/platform-triangle-runtime`.
+- Текущая профильная ветка: `feature/triangle-runtime-events` в `<PLATFORM_TRIANGLE_WORKTREE>`.
 - Стадия: основание общего контура реального времени «робот — приложение — панель» реализовано и развёрнуто; текущие Android APK и тёмно-оранжевая прошивка повторно подтверждены в одном живом цикле.
 - Главный документ: `GOSHA_RUNTIME_TRIANGLE_CONTRACT_RU.md`.
 - Развёрнутый кодовый снимок платформы — `87b24bb`, последняя отправленная контрольная фиксация этапа перед этим планом — `747d663`. Итоговый Android-коммит — `d0ab7c2`; исправление TCP/TLS прошивки — `af4de9c`, тёмно-оранжевая тема — `a063569`, последняя контрольная фиксация прошивки — `8031010`.
@@ -84,7 +95,7 @@
 - План опубликован коммитом `30d1c2d`; финальная проверка ИИ-офиса `task-20260723T124225Z-read-only-review-30d1c2d-home-max-worktrees` завершилась без P0/P1/P2 и дала `Go`.
 - Реализация следующего этапа ещё не начиналась. После явного старта нужно создать отдельное рабочее дерево и не смешивать шлюз команд физических роботов с `gosha_agent_gateway.py`, который маршрутизирует поставщиков ИИ.
 - Вручную остаются визуальная проверка физической тёмно-оранжевой приборной строки и повтор одного голосового диалога.
-- Доказательство: `/home/max/AI_OFFICE/local_only/ai-office/logs/task-20260723T111058Z-read-only/live-validation/acceptance-evidence.json`, SHA-256 `600c3d526dddf95a39c38c1cf126a952d02a2e6b7b506f8a591b6f94d7690f0e`.
+- Доказательство: `<OWNER_ONLY_ACCEPTANCE_EVIDENCE>`, SHA-256 `600c3d526dddf95a39c38c1cf126a952d02a2e6b7b506f8a591b6f94d7690f0e`.
 - Повторный reviewer ИИ-офиса `task-20260722T093653Z-read-only-runtime-triangle` не нашёл P0/P1/P2; последующий живой прогон подтвердил приём событий робота и приложения.
 - Финальный прошивочный reviewer `task-20260722T115308Z-final-review-firmware-tcp-tls-lifetime-fix` также не нашёл P0/P1/P2.
 - `GOSHA_PLATFORM` владеет схемой, проверкой доступа, хранением, агрегацией и операторским отображением; Android и прошивка остаются в отдельных соседних репозиториях.
@@ -105,9 +116,9 @@
    - `GOSHA_SERVER_DEPLOY_RU.md`
    - `../ops/AGENTS.md`
 8. Если задача уходит в прошивку:
-   - `/home/max/GOSHA_FIRMWARE/START_HERE_FOR_NEW_CHAT.md`
+   - `<FIRMWARE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 9. Если задача уходит в мобильный клиент:
-   - `/home/max/GOSHA_MOBILE/START_HERE_FOR_NEW_CHAT.md`
+   - `<MOBILE_WORKSPACE>/START_HERE_FOR_NEW_CHAT.md`
 
 ## Историческая базовая точка до свежей контрольной точки
 
@@ -116,21 +127,21 @@
 - Ветка:
   - `agent/bootstrap-gosha`
 - Актуальный верхний коммит смотри через:
-  - `git -C /home/max/GOSHA_PLATFORM log --oneline -1`
+  - `git -C <LOCAL_WORKSPACE> log --oneline -1`
 
 ## Что уже сделано
 
 - Локальный запуск теперь задокументирован без неоднозначности:
   - канонические команды из репозитория:
-    - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_gateway.sh`
-    - `bash /home/max/GOSHA_PLATFORM/bin/run_local_gosha_panel.sh`
+    - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_gateway.sh`
+    - `bash <LOCAL_WORKSPACE>/bin/run_local_gosha_panel.sh`
     - panel runtime сам проверяет зависимость `websockets`
-  - на этой машине из `/home/max` дополнительно работают wrapper-скрипты:
-    - `bash /home/max/bin/run_local_gosha_gateway.sh`
-    - `bash /home/max/bin/run_local_gosha_panel.sh`
+  - на этой машине из `<HOME_WORKSPACE_ROOT>` дополнительно работают wrapper-скрипты:
+    - `bash <LOCAL_BIN>/run_local_gosha_gateway.sh`
+    - `bash <LOCAL_BIN>/run_local_gosha_panel.sh`
   - есть отдельный честный smoke-check:
-    - `bash /home/max/GOSHA_PLATFORM/bin/check_local_gosha_stack.sh`
-    - alias: `bash /home/max/GOSHA_PLATFORM/bin/check_gosha_panel_stack.sh`
+    - `bash <LOCAL_WORKSPACE>/bin/check_local_gosha_stack.sh`
+    - alias: `bash <LOCAL_WORKSPACE>/bin/check_gosha_panel_stack.sh`
     - теперь он дополнительно печатает `diagnosis_hint`, `protocol_phase` и `error_type` по первому роботу
   - `init_local_lab.sh` теперь автоматически переводит legacy `gosha-main` в `self_hosted_xiaozhi`, поэтому локальный onboarding bundle больше не должен возвращать старый `18890` и `xiaozhi_cloud`
 - Поднят полный подготовительный серверный контур:
@@ -138,7 +149,7 @@
   - `gosha-agent-gateway.service`
   - `gosha-backend.service`
   - `gosha-observer.timer`
-- Голосовой `WebSocket` уже слушает `151.241.228.232:18080/xiaozhi/v1/`
+- Голосовой `WebSocket` уже слушает `<PRIMARY_PLATFORM_SERVER>:18080/xiaozhi/v1/`
 - Причина старого падения `backend` устранена:
   - создаётся `data/.config.yaml`
   - загружается `SenseVoiceSmall`
@@ -225,7 +236,7 @@
   - сервер использует реальную модель `deepseek-v4-flash`
   - локальный распознаватель речи переведён на `VoskASR`
   - на сервер загружена русская модель `vosk-model-small-ru-0.22`
-  - реальное устройство `dc:b4:d9:35:1b:e0` уже привязано к `gosha-main`
+  - реальное устройство `<DEVICE_ID>` уже привязано к `gosha-main`
   - `OTA` уже отдаёт устройству рабочий `websocket`
   - на реальном устройстве подтверждены:
     - слово пробуждения `Гоша`
@@ -254,7 +265,7 @@
   - не уходить самопроизвольно в китайский, японский или английский
   - просить повторить по-русски при плохом распознавании
 - Пакет подключения `mobile API` расширен новым разделом `bundle.mobile_profile`.
-- Создан отдельный Android-проект `/home/max/GOSHA_MOBILE`.
+- Создан отдельный Android-проект `<MOBILE_WORKSPACE>`.
 - Для `GOSHA_MOBILE` уже настроен удалённый `origin`:
   - `git@github.com:MaxCorpOrg/GOSHA_MOBILE.git`
 - Ветка `main` уже отправлена в GitHub и отслеживает:
@@ -315,7 +326,7 @@
   - по результатам этого сравнения живой тестовый профиль уже переключён на:
     - `voice-ru-silero-kseniya`
   - серверный отчёт сохранён в:
-    - `/opt/gosha_platform/runtime/reports/silero_vs_edge_eval_2026-05-16.json`
+    - `<SERVER_TTS_EVAL_REPORT>`
   - формальный итог:
     - `SileroTTS` уже поднят на живом сервере как тестовый `ready`-профиль
     - сравнение с `EdgeTTS` по задержке и устойчивости выполнено
@@ -369,7 +380,7 @@
 6. При любом изменении ключа или профиля поставщика выполнить:
 
 ```bash
-cd /opt/gosha_platform/app
+cd <SERVER_APP_ROOT>
 bash ops/install_server.sh --phase panel
 ```
 

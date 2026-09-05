@@ -22,6 +22,7 @@ required_paths=(
   "README_RU.md"
   "START_HERE_FOR_NEW_CHAT.md"
   "docs/GOSHA_PROJECT_MAP_RU.md"
+  "docs/GOSHA_STACKED_PR_ACCEPTANCE_RU.md"
   "docs/PROJECT_STATUS_RU.md"
   "docs/AGENT_CHECKPOINT_RU.md"
   "docs/NEW_CHAT_CHECKPOINT_RU.md"
@@ -49,6 +50,29 @@ import sys
 panel_html = Path("platform/panel_index.html").read_text(encoding="utf-8", errors="ignore").lower()
 if "<!doctype html>" not in panel_html:
     print("Ошибка: в platform/panel_index.html не найден doctype HTML.", file=sys.stderr)
+    raise SystemExit(1)
+
+workflow = Path(".github/workflows/repo-validation.yml").read_text(encoding="utf-8")
+required_workflow_fragments = [
+    "pull_request:",
+    "converted_to_draft",
+    "permissions:\n  contents: read",
+    "persist-credentials: false",
+    "bash bin/ci_validate.sh",
+]
+for fragment in required_workflow_fragments:
+    if fragment not in workflow:
+        print(f"Ошибка: repo-validation.yml не содержит обязательный фрагмент: {fragment!r}", file=sys.stderr)
+        raise SystemExit(1)
+if "pull_request_target" in workflow:
+    print("Ошибка: repo-validation.yml не должен использовать pull_request_target.", file=sys.stderr)
+    raise SystemExit(1)
+if "secrets." in workflow:
+    print("Ошибка: repo-validation.yml не должен обращаться к GitHub secrets.", file=sys.stderr)
+    raise SystemExit(1)
+pull_request_block = workflow.split("pull_request:", 1)[1].split("\n  push:", 1)[0]
+if "branches:" in pull_request_block:
+    print("Ошибка: pull_request не должен ограничиваться base-веткой main.", file=sys.stderr)
     raise SystemExit(1)
 PY
 

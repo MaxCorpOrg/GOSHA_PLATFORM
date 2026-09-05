@@ -22,9 +22,9 @@
 ## Как здесь работать
 
 1. Сначала прочитай:
-   - `/home/max/GOSHA_PLATFORM/AGENTS.md`
-   - `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`
-   - `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
+   - `<LOCAL_WORKSPACE>/AGENTS.md`
+   - `<LOCAL_WORKSPACE>/docs/GOSHA_PROJECT_MAP_RU.md`
+   - `<LOCAL_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
 2. Не исправляй `TTS`, `ASR` или `LLM` ручными правками внутри контейнера.
 3. Все изменения должны быть воспроизводимы из git:
    - через эту папку;
@@ -37,6 +37,6 @@
 
 ## Что обновлять после значимой правки
 
-- `/home/max/GOSHA_PLATFORM/docs/PROJECT_STATUS_RU.md`
-- `/home/max/GOSHA_PLATFORM/docs/AGENT_CHECKPOINT_RU.md`
-- `/home/max/GOSHA_PLATFORM/docs/GOSHA_PROJECT_MAP_RU.md`, если изменилась карта голосового контура
+- `<LOCAL_WORKSPACE>/docs/PROJECT_STATUS_RU.md`
+- `<LOCAL_WORKSPACE>/docs/AGENT_CHECKPOINT_RU.md`
+- `<LOCAL_WORKSPACE>/docs/GOSHA_PROJECT_MAP_RU.md`, если изменилась карта голосового контура
