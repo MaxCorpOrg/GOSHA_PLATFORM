@@ -106,6 +106,7 @@ function harness() {
 }
 
 test("connection accepts LAN addresses only, never credentials, paths or public services", () => {
+  assert.equal(robotSocketUrl("010.000.0.1"), "ws://10.0.0.1:8080/ws");
   for (const host of [
     "gosha.local",
     "192.168.1.7",

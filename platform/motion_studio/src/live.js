@@ -23,7 +23,8 @@ export function robotSocketUrl(host) {
     privateIp || localName,
     "Введите локальный адрес робота: например, gosha.local или адрес в домашней сети.",
   );
-  return `ws://${host}:8080/ws`;
+  // Normalize decimal octets before URL parsing (which otherwise accepts octal).
+  return `ws://${privateIp ? ipv4.map(Number).join(".") : host}:8080/ws`;
 }
 
 export function validateCapabilities(data) {
