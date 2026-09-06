@@ -1,4 +1,6 @@
 import "./style.css";
+import "./live.css";
+import { mountLivePanel } from "./live-panel.js";
 import {
   PROFILE,
   clone,
@@ -58,6 +60,7 @@ let speed = 1;
 let undo = [];
 let redo = [];
 let scene;
+let live;
 let disposed = false;
 let toastTimer;
 
@@ -156,8 +159,9 @@ function persist() {
   if (!result.ok) notify(result.error, true);
   return result.ok;
 }
-function commit(next) {
+function commit(next, keepLive = false) {
   next = validateMotion(next);
+  if (!keepLive) live?.stop("Настройки движения изменены.");
   if (JSON.stringify(next) === JSON.stringify(motion)) {
     render();
     return;
@@ -181,6 +185,7 @@ function setPlaying(value) {
 }
 function seek(value) {
   if (!Number.isFinite(value)) throw new Error("Введите время в секундах.");
+  live?.stop("Позиция на шкале изменена.");
   setPlaying(false);
   time = Math.max(0, Math.min(motion.duration_ms, Math.round(value)));
   pose = poseAt(motion, time);
@@ -199,6 +204,7 @@ function selectJoint(id) {
     .forEach((el) => el.classList.toggle("selected", el.dataset.select === id));
   $("selection-status").textContent =
     `${PROFILE.joints.find((j) => j.id === id).label} · относительные углы`;
+  live?.refresh();
 }
 function renderLibrary() {
   const list = $("motion-list");
@@ -218,6 +224,7 @@ function renderLibrary() {
     button.querySelector("small").textContent =
       `${seconds(item.duration_ms)} с · ${item.keyframes.length} поз`;
     button.onclick = () => {
+      live?.stop("Выбрано другое движение.");
       setPlaying(false);
       motion = clone(item);
       time = 0;
@@ -295,7 +302,7 @@ function renderTimeline() {
   $("time-input").max = motion.duration_ms / 1000;
 }
 function renderPosition() {
-  scene?.setPose(pose);
+  scene?.setPose(live?.displayPose(pose) ?? pose);
   $("time-output").innerHTML =
     `${seconds(time)} <span>/ ${seconds(motion.duration_ms)} с</span>`;
   $("time-input").value = seconds(time);
@@ -346,6 +353,7 @@ function addMotion(value) {
     throw new Error(
       "В библиотеке уже 100 движений. Скачайте и удалите ненужные.",
     );
+  live?.stop("Открыто другое движение.");
   setPlaying(false);
   motion = validateMotion(value);
   time = 0;
@@ -360,7 +368,7 @@ function recordPose() {
   setPlaying(false);
   const next = putPose(motion, time, pose);
   time = Math.round(time);
-  commit(next);
+  commit(next, true);
 }
 
 $("new").onclick = () =>
@@ -379,11 +387,13 @@ $("add-frame").onclick = () =>
   });
 $("neutral").onclick = () =>
   attempt(() => {
+    live?.stop("Выбрана нулевая поза в редакторе.");
     pose = zeroPose();
     recordPose();
   });
 $("mirror").onclick = () =>
   attempt(() => {
+    live?.stop("Выбрано отражение позы в редакторе.");
     pose = mirrorPose(pose);
     recordPose();
   });
@@ -414,6 +424,7 @@ $("interpolation").onchange = () =>
     commit({ ...motion, interpolation: $("interpolation").value });
   });
 $("play").onclick = () => {
+  live?.stop("Запущен отдельный 3D-предпросмотр.");
   if (time >= motion.duration_ms) seek(0);
   setPlaying(!playing);
 };
@@ -448,6 +459,7 @@ for (const j of PROFILE.joints) {
     time = Math.round(time);
     selectJoint(j.id);
     pose[j.id] = Number(range.value);
+    live?.updateTarget();
     renderPosition();
   };
   range.onchange = () => attempt(recordPose);
@@ -459,10 +471,12 @@ for (const j of PROFILE.joints) {
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
       pose = validatePose({ ...pose, [j.id]: value });
+      live?.updateTarget();
       recordPose();
     });
 }
 function travelHistory(backward) {
+  live?.stop("Поза изменена из истории.");
   setPlaying(false);
   const source = backward ? undo : redo;
   const destination = backward ? redo : undo;
@@ -494,6 +508,7 @@ $("versions").onchange = () => {
 };
 $("cancel-delete").onclick = () => $("delete-dialog").close();
 $("confirm-delete").onclick = () => {
+  live?.stop("Движение удалено из редактора.");
   library.motions = library.motions.filter((m) => m.id !== motion.id);
   delete library.revisions[motion.id];
   if (!library.motions.length) library.motions.push(createMotion());
@@ -541,6 +556,7 @@ const lifecycle = new AbortController();
 document.addEventListener(
   "keydown",
   (e) => {
+    if (live?.keydown(e)) return;
     if (
       ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) ||
       e.target.isContentEditable ||
@@ -558,6 +574,39 @@ document.addEventListener(
   },
   { signal: lifecycle.signal },
 );
+
+function updateLiveView() {
+  const snapshot = live?.snapshot;
+  for (const joint of PROFILE.joints) {
+    const limit = snapshot?.caps?.joint_limits.find(
+      (item) => item.id === joint.id,
+    );
+    const restricted = live?.enabled && snapshot?.caps;
+    for (const prefix of ["range-", "number-"]) {
+      const input = $(prefix + joint.id);
+      input.min = restricted && limit ? limit.min : joint.min;
+      input.max = restricted && limit ? limit.max : joint.max;
+      input.disabled = Boolean(restricted && !limit);
+    }
+  }
+  renderPosition();
+}
+live = mountLivePanel({
+  getPose: () => pose,
+  getMotion: () => motion,
+  getJoint: () => selectedJoint,
+  onUpdate: updateLiveView,
+  onPlayback: (value) => {
+    if (value && time >= motion.duration_ms) {
+      time = 0;
+      pose = poseAt(motion, 0);
+    }
+    setPlaying(value);
+  },
+  notify,
+  signal: lifecycle.signal,
+});
+live.refresh();
 
 async function loadScene() {
   try {
@@ -589,12 +638,20 @@ function tick(now) {
   const elapsed = Math.min(now - previous, 100);
   previous = now;
   if (playing) {
-    time += elapsed * speed;
+    time += elapsed * (live?.running ? live.playbackScale : speed);
     if (time >= motion.duration_ms) {
-      time = loop ? time % motion.duration_ms : motion.duration_ms;
-      if (!loop) setPlaying(false);
+      if (live?.running) {
+        time = motion.duration_ms;
+        pose = poseAt(motion, time);
+        live.updateTarget();
+        live.endTimeline();
+      } else {
+        time = loop ? time % motion.duration_ms : motion.duration_ms;
+        if (!loop) setPlaying(false);
+      }
     }
     pose = poseAt(motion, time);
+    if (live?.running) live.updateTarget();
     renderPosition();
   }
   animation = requestAnimationFrame(tick);
@@ -615,9 +672,18 @@ registerPreviewTools(
       pose: { ...pose },
       playing,
       preview_only: true,
-      hardware_connected: false,
+      hardware_connected: ["ready", "arming", "armed", "stopping"].includes(
+        live?.snapshot.state,
+      ),
+      live_state: live?.snapshot.state ?? "disconnected",
     }),
-    seek,
+    seek: (value) => {
+      if (live?.enabled)
+        throw new Error(
+          "Управление через помощника недоступно в Live. Переключитесь в 3D.",
+        );
+      seek(value);
+    },
   },
   lifecycle.signal,
   () => {
