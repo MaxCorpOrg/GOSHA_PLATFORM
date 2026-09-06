@@ -38,9 +38,13 @@ export function validateCapabilities(data) {
       ? "В прошивке включён режим без движений."
       : "Робот не разрешил живое управление.",
   );
+  const commissioning = data.commissioning === true;
   assert(
+    (data.commissioning === undefined || typeof data.commissioning === "boolean") &&
+      (commissioning ? data.mode === "commissioning" :
+        data.mode === undefined || data.mode === "verified") &&
     data.profile_id === PROFILE.id &&
-      data.calibrated === true &&
+      data.calibrated === !commissioning &&
       /^[a-f0-9]{64}$/.test(data.calibration_id ?? ""),
     "Нужен проверенный профиль приводов, совпадающий с этой моделью.",
   );
@@ -101,6 +105,16 @@ export function validateCapabilities(data) {
     };
   });
   const commanded_pose = validatePose(data.commanded_pose);
+  if (commissioning) {
+    assert(
+      data.watchdog_ms === 300 &&
+        joint_limits.length === 4 &&
+        joint_limits.every((limit) =>
+          PROFILE.joints.slice(2).some((joint) => joint.id === limit.id) &&
+          limit.min === -1 && limit.max === 1 && limit.max_speed_dps === 1),
+      "Первичная проверка допускает только ноги и стопы, ±1° и скорость 1°/с.",
+    );
+  }
   for (const limit of joint_limits)
     assert(
       commanded_pose[limit.id] >= limit.min &&
@@ -110,6 +124,8 @@ export function validateCapabilities(data) {
   return {
     profile_id: PROFILE.id,
     calibration_id: data.calibration_id,
+    calibrated: !commissioning,
+    commissioning,
     watchdog_ms: data.watchdog_ms,
     max_rate_hz: data.max_rate_hz,
     joint_limits,
@@ -230,13 +246,16 @@ export class LiveSession {
       data.request_id === this.requestId
     ) {
       this.caps = validateCapabilities(data);
+      if (this.caps.commissioning) this.speed = 1;
       this.deadline = null;
       this.lastTelemetry = {
         commanded_pose: this.caps.commanded_pose,
         measured_pose: null,
         tilt: null,
       };
-      this.change("ready", "Робот совместим. Для движения откройте сессию.");
+      this.change("ready", this.caps.commissioning
+        ? "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
+        : "Робот совместим. Для движения откройте сессию.");
       return;
     }
     if (
@@ -259,6 +278,8 @@ export class LiveSession {
       this.pending = null;
       this.lastSentAt = this.now();
       this.lastReplyAt = this.now();
+      this.commissioningStartPose = { ...this.lastTelemetry.commanded_pose };
+      this.commissioningJoint = null;
       this.change("armed", "Сессия открыта. Удерживайте разрешение движения.");
       return;
     }
@@ -310,6 +331,7 @@ export class LiveSession {
   }
   validateTelemetry(data) {
     const commanded_pose = validatePose(data.commanded_pose);
+    this.validateCommissioningPose(commanded_pose);
     for (const limit of this.caps.joint_limits)
       assert(
         commanded_pose[limit.id] >= limit.min &&
@@ -364,6 +386,8 @@ export class LiveSession {
       finite(value) && value >= 1 && value <= 15,
       "Скорость настройки должна быть от 1 до 15°/с.",
     );
+    assert(!this.caps?.commissioning || value === 1,
+      "При первичной проверке скорость фиксирована: 1°/с.");
     this.speed = value;
     this.onChange(this.snapshot());
   }
@@ -374,7 +398,19 @@ export class LiveSession {
         pose[limit.id] >= limit.min && pose[limit.id] <= limit.max,
         `${PROFILE.joints.find((j) => j.id === limit.id).label}: цель вне проверенных пределов ${limit.min}…${limit.max}°.`,
       );
+    this.validateCommissioningPose(pose, true);
     return pose;
+  }
+  validateCommissioningPose(pose, selectJoint = false) {
+    if (!this.caps.commissioning) return;
+    const changed = PROFILE.joints.filter((joint) =>
+      Math.abs(pose[joint.id] - this.commissioningStartPose[joint.id]) > 0.000001);
+    assert(changed.length <= 1 && changed.every((joint) =>
+      this.caps.joint_limits.some((limit) => limit.id === joint.id) &&
+      Math.abs(pose[joint.id] - this.commissioningStartPose[joint.id]) <= 1 &&
+      (joint.id === this.commissioningJoint || (selectJoint && !this.commissioningJoint))),
+    "Первичная проверка: допустим шаг одного выбранного сустава до 1°. Остальные должны сохранять начальные команды.");
+    if (selectJoint && changed.length) this.commissioningJoint = changed[0].id;
   }
   setTarget(pose) {
     assert(this.state === "armed", "Сессия Live не открыта.");

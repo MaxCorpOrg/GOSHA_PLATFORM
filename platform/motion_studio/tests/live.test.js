@@ -26,7 +26,7 @@ const capabilities = () => ({
   commanded_pose: zeroPose(),
   feedback: { measured_position: false, imu: false },
 });
-function harness() {
+function harness(caps = capabilities) {
   let now = 1000;
   let id = 0;
   const sockets = [];
@@ -66,7 +66,7 @@ function harness() {
   };
   const ready = () => {
     const socket = open();
-    socket.receive({ ...capabilities(), request_id: live.requestId });
+    socket.receive({ ...caps(), request_id: live.requestId });
     return socket;
   };
   const arm = () => {
@@ -472,4 +472,106 @@ test("STOP reports the final applied command even when it differs from the previ
   assert.equal(h.live.state, "ready");
   assert.equal(h.live.lastTelemetry.commanded_pose.foot_negative_x, 1);
   assert.equal(h.live.lastTelemetry.measured_pose, null);
+});
+
+const commissioningCaps = () => ({
+  ...capabilities(),
+  mode: "commissioning",
+  calibrated: false,
+  commissioning: true,
+  joint_limits: PROFILE.joints.slice(2).map((j) => ({
+    id: j.id, min: -1, max: 1, max_speed_dps: 1,
+  })),
+});
+
+test("commissioning stays explicitly uncalibrated and rejects wider or ambiguous permissions", () => {
+  const caps = validateCapabilities(commissioningCaps());
+  assert.equal(caps.commissioning, true);
+  assert.equal(caps.calibrated, false);
+  for (const mutate of [
+    c => { c.calibrated = true; },
+    c => { c.commissioning = "true"; },
+    c => { delete c.mode; },
+    c => { c.mode = "verified"; },
+    c => { c.joint_limits[0].max = 2; },
+    c => { c.joint_limits[0].min = -2; },
+    c => { c.joint_limits[0].max_speed_dps = 2; },
+    c => { c.joint_limits[0].id = "arm_positive_x"; },
+    c => { c.joint_limits.pop(); },
+    c => { c.watchdog_ms = 500; },
+  ]) {
+    const data = commissioningCaps();
+    mutate(data);
+    assert.throws(() => validateCapabilities(data));
+  }
+  assert.throws(() => livePlaybackScale(createMotion(), caps, 1), /по одному суставу/);
+});
+
+test("commissioning can send one slow joint step but stops before a second joint", () => {
+  const h = harness(commissioningCaps);
+  const socket = h.arm();
+  assert.equal(h.live.speed, 1);
+  assert.throws(() => h.live.setSpeed(2));
+  h.live.hold({ ...zeroPose(), leg_negative_x: 1 });
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "pose");
+  assert.equal(socket.sent.at(-1).speed_dps, 1);
+  assert.deepEqual(socket.sent.at(-1).target, {
+    leg_negative_x: 1, leg_positive_x: 0, foot_negative_x: 0, foot_positive_x: 0,
+  });
+  h.ack(socket);
+  h.live.setTarget(zeroPose());
+  assert.throws(() => h.live.setTarget({ ...zeroPose(), foot_positive_x: 1 }));
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(socket.sent.filter(m => m.op === "pose").length, 1);
+});
+
+test("commissioning rejects multiple joints, inactive arms, and a two-degree session step", () => {
+  for (const target of [
+    { ...zeroPose(), leg_negative_x: 1, leg_positive_x: 1 },
+    { ...zeroPose(), arm_positive_x: 1 },
+  ]) {
+    const h = harness(commissioningCaps);
+    const socket = h.arm();
+    assert.throws(() => h.live.hold(target));
+    assert.equal(socket.sent.at(-1).op, "stop");
+    assert.ok(socket.sent.every(m => m.op !== "pose"));
+  }
+  const h = harness(() => ({
+    ...commissioningCaps(), commanded_pose: { ...zeroPose(), leg_negative_x: -1 },
+  }));
+  const socket = h.arm();
+  assert.throws(() => h.live.hold({ ...zeroPose(), leg_negative_x: 1 }));
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.ok(socket.sent.every(m => m.op !== "pose"));
+});
+
+test("commissioning rejects ACK and STOP that report a different or extra moving joint", () => {
+  for (const op of ["ack", "stopped"]) {
+    for (const reported of [
+      { ...zeroPose(), leg_negative_x: 1, foot_positive_x: 1 },
+      { ...zeroPose(), foot_positive_x: 1 },
+      { ...zeroPose(), arm_positive_x: 1 },
+    ]) {
+      const h = harness(commissioningCaps);
+      const socket = h.arm();
+      h.live.hold({ ...zeroPose(), leg_negative_x: 1 });
+      h.advance(50);
+      const session_id = h.live.sessionId;
+      const seq = h.live.pending.seq;
+      if (op === "stopped") h.live.release();
+      socket.receive({ protocol: LIVE_PROTOCOL, op, session_id, seq,
+        commanded_pose: reported, measured_pose: null, tilt: null });
+      assert.equal(h.live.state, "fault");
+      assert.equal(socket.closed, true);
+      assert.deepEqual(h.live.lastTelemetry.commanded_pose, zeroPose());
+    }
+  }
+  const h = harness(commissioningCaps);
+  const socket = h.arm();
+  h.advance(50);
+  socket.receive({ protocol: LIVE_PROTOCOL, op: "ack", session_id: h.live.sessionId,
+    seq: h.live.pending.seq, commanded_pose: { ...zeroPose(), leg_negative_x: 1 },
+    measured_pose: null, tilt: null });
+  assert.equal(h.live.state, "fault", "Idle session cannot report an unrequested movement");
 });

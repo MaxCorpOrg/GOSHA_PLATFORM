@@ -598,6 +598,11 @@ live = mountLivePanel({
   getMotion: () => motion,
   getJoint: () => selectedJoint,
   onUpdate: updateLiveView,
+  onPose: (value) => {
+    setPlaying(false);
+    pose = validatePose(value);
+    renderPosition();
+  },
   onPlayback: (value) => {
     if (value && time >= motion.duration_ms) {
       time = 0;

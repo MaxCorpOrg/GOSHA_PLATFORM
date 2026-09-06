@@ -2,6 +2,8 @@ import { LiveSession } from "./live.js";
 import { PROFILE } from "./motion.js";
 
 export function livePlaybackScale(motion, caps, speed) {
+  if (caps?.commissioning)
+    throw new Error("При первичной проверке полные движения недоступны. Проверяйте по одному суставу.");
   if (motion.interpolation === "hold")
     throw new Error(
       "Для Live-воспроизведения выберите плавные или линейные переходы.",
@@ -48,6 +50,7 @@ export function mountLivePanel({
   getJoint,
   onUpdate,
   onPlayback,
+  onPose,
   notify,
   signal,
 }) {
@@ -63,6 +66,8 @@ export function mountLivePanel({
     <label class="live-field">Адрес в домашней сети<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
     <button id="live-connect" class="button">Подключить робота</button>
     <div id="live-auth" hidden><label class="live-field">Ключ доступа Live<input id="live-key" type="password" autocomplete="off" placeholder="Выдан при настройке робота" maxlength="128" /></label><button id="live-arm" class="button accent">Открыть сессию</button></div>
+    <p id="live-commissioning-note" class="live-reason" hidden>Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.</p>
+    <button id="live-copy-pose" class="button quiet" hidden>Взять текущие команды робота</button>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small>Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
@@ -143,13 +148,18 @@ export function mountLivePanel({
       : "Отключить";
     byId("live-connect").disabled = state.state === "stopping";
     byId("live-hold").disabled = state.state !== "armed";
-    byId("live-run").disabled = state.state !== "armed";
+    byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
+    byId("live-commissioning-note").hidden = !state.caps?.commissioning;
+    byId("live-copy-pose").hidden = !state.caps?.commissioning;
+    byId("live-copy-pose").disabled = !["ready", "armed"].includes(state.state) || state.holding;
     byId("live-hold").classList.toggle("holding", state.holding);
     byId("live-run").classList.toggle("holding", state.holding && running);
     byId("live-stop").disabled = !["armed", "arming", "stopping"].includes(
       state.state,
     );
     byId("live-speed-value").textContent = `${state.speed}°/с`;
+    byId("live-speed").value = state.speed;
+    byId("live-speed").disabled = Boolean(state.caps?.commissioning);
     byId("live-latency").textContent =
       state.rtt === null ? "—" : `${state.rtt} мс`;
     const joint = getJoint();
@@ -175,7 +185,7 @@ export function mountLivePanel({
     byId("live-limits").replaceChildren();
     if (state.caps) {
       const label = document.createElement("h3");
-      label.textContent = "Проверенные пределы";
+      label.textContent = state.caps.commissioning ? "Ограничения первого теста" : "Проверенные пределы";
       byId("live-limits").append(label);
       for (const j of PROFILE.joints) {
         const limit = state.caps.joint_limits.find((l) => l.id === j.id);
@@ -253,6 +263,10 @@ export function mountLivePanel({
     });
   byId("live-arm").onclick = () =>
     guarded(() => session.arm(byId("live-key").value));
+  byId("live-copy-pose").onclick = () => guarded(() => {
+    if (!session.lastTelemetry || session.holding) return;
+    onPose(session.lastTelemetry.commanded_pose);
+  });
   byId("live-speed").oninput = () =>
     guarded(() => {
       session.setSpeed(Number(byId("live-speed").value));
