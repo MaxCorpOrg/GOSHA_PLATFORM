@@ -455,22 +455,24 @@ for (const j of PROFILE.joints) {
   const range = $("range-" + j.id);
   const number = $("number-" + j.id);
   range.oninput = () => {
+    const value = Number(range.value);
     setPlaying(false);
     time = Math.round(time);
+    // Selection refreshes the inspector, so apply the captured value first.
+    pose[j.id] = value;
     selectJoint(j.id);
-    pose[j.id] = Number(range.value);
     live?.updateTarget();
     renderPosition();
   };
   range.onchange = () => attempt(recordPose);
   number.onchange = () =>
     attempt(() => {
-      setPlaying(false);
-      selectJoint(j.id);
       const value = Number(number.value);
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
       pose = validatePose({ ...pose, [j.id]: value });
+      setPlaying(false);
+      selectJoint(j.id);
       live?.updateTarget();
       recordPose();
     });
