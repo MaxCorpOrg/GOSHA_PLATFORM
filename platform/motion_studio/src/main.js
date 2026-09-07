@@ -584,11 +584,12 @@ function updateLiveView() {
       (item) => item.id === joint.id,
     );
     const restricted = live?.enabled && snapshot?.caps;
+    const initializationLocked = restricted && snapshot.caps.initialization_required;
     for (const prefix of ["range-", "number-"]) {
       const input = $(prefix + joint.id);
       input.min = restricted && limit ? limit.min : joint.min;
       input.max = restricted && limit ? limit.max : joint.max;
-      input.disabled = Boolean(restricted && !limit);
+      input.disabled = Boolean(initializationLocked || (restricted && !limit));
     }
   }
   renderPosition();
@@ -597,6 +598,7 @@ live = mountLivePanel({
   getPose: () => pose,
   getMotion: () => motion,
   getJoint: () => selectedJoint,
+  onSelectJoint: selectJoint,
   onUpdate: updateLiveView,
   onPose: (value) => {
     setPlaying(false);
@@ -679,9 +681,14 @@ registerPreviewTools(
       pose: { ...pose },
       playing,
       preview_only: true,
-      hardware_connected: ["ready", "arming", "armed", "stopping"].includes(
-        live?.snapshot.state,
-      ),
+      hardware_connected: [
+        "init_required",
+        "initializing_right_arm",
+        "ready",
+        "arming",
+        "armed",
+        "stopping",
+      ].includes(live?.snapshot.state),
       live_state: live?.snapshot.state ?? "disconnected",
     }),
     seek: (value) => {

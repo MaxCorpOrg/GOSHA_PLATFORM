@@ -1,5 +1,31 @@
-import { LiveSession } from "./live.js";
+import { LiveSession, RIGHT_ARM_COMMISSIONING_MODE } from "./live.js";
 import { PROFILE } from "./motion.js";
+
+const formatDegrees = (value) =>
+  `${value > 0 ? "+" : ""}${Number(value.toFixed(1))}°`;
+const jointById = (id) => PROFILE.joints.find((joint) => joint.id === id);
+
+export function liveStepSizeForJoint(caps, jointId) {
+  if (!caps?.joint_limits.some((limit) => limit.id === jointId))
+    throw new Error("Выберите доступный сустав Live.");
+  if (caps.mode === RIGHT_ARM_COMMISSIONING_MODE && jointId === "arm_positive_x")
+    return 5;
+  return 1;
+}
+
+export function prepareLiveStepTarget(commandedPose, caps, jointId, direction) {
+  const limit = caps?.joint_limits.find((item) => item.id === jointId);
+  if (!limit) throw new Error("Выберите доступный сустав Live.");
+  if (![1, -1].includes(direction))
+    throw new Error("Выберите направление шага.");
+  const step = liveStepSizeForJoint(caps, jointId) * direction;
+  const target = { ...commandedPose, [jointId]: commandedPose[jointId] + step };
+  if (target[jointId] < limit.min || target[jointId] > limit.max)
+    throw new Error(
+      `${jointById(jointId).label}: выбранный шаг выходит за предел ${limit.min}…${limit.max}°.`,
+    );
+  return target;
+}
 
 export function livePlaybackScale(motion, caps, speed) {
   if (caps?.commissioning)
@@ -48,6 +74,7 @@ export function mountLivePanel({
   getPose,
   getMotion,
   getJoint,
+  onSelectJoint = () => {},
   onUpdate,
   onPlayback,
   onPose,
@@ -65,14 +92,27 @@ export function mountLivePanel({
     <p id="live-reason" class="live-reason">Подключите робота с поддержкой Live.</p>
     <label class="live-field">Адрес в домашней сети<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
     <button id="live-connect" class="button">Подключить робота</button>
-    <div id="live-auth" hidden><label class="live-field">Ключ доступа Live<input id="live-key" type="password" autocomplete="off" placeholder="Выдан при настройке робота" maxlength="128" /></label><button id="live-arm" class="button accent">Открыть сессию</button></div>
+    <div id="live-auth" hidden><label class="live-field">Ключ доступа Live<input id="live-key" type="password" autocomplete="off" placeholder="Выдан при настройке робота" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
     <p id="live-commissioning-note" class="live-reason" hidden>Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.</p>
     <button id="live-copy-pose" class="button quiet" hidden>Взять текущие команды робота</button>
+    <div id="live-step" class="live-step" hidden>
+      <h3>Пошаговый тест</h3>
+      <div id="live-step-joints" class="live-step-joints"></div>
+      <dl class="live-step-status">
+        <dt>Сустав</dt><dd id="live-step-joint">—</dd>
+        <dt>Команда</dt><dd id="live-step-current">—</dd>
+        <dt>Цель</dt><dd id="live-step-target">—</dd>
+        <dt>Шаг</dt><dd id="live-step-size">—</dd>
+      </dl>
+      <div class="live-step-actions"><button id="live-step-minus" class="button quiet" aria-pressed="true">−</button><button id="live-step-plus" class="button quiet" aria-pressed="false">+</button><button id="live-step-hold" class="button live-hold" disabled>Удерживать шаг</button></div>
+      <small>Подготовка цели не двигает робота и не меняет библиотеку. Движение идёт только пока удерживается кнопка.</small>
+    </div>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small>Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
     <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
     <div id="live-limits" class="live-limits"></div>
+    <div class="live-log"><h3>Журнал команд</h3><ol id="live-command-log"></ol></div>
     <p class="live-final-note">Остановка удерживает последнюю команду приводам. Она не выравнивает робота и не заменяет физическое отключение питания.</p>
   `;
   sidebar.prepend(panel);
@@ -88,6 +128,7 @@ export function mountLivePanel({
   let running = false;
   let playbackScale = 1;
   let connectionState;
+  let stepDirection = -1;
   const abort = new AbortController();
   signal.addEventListener(
     "abort",
@@ -109,12 +150,101 @@ export function mountLivePanel({
   const states = {
     disconnected: "Не подключён",
     connecting: "Проверка связи",
+    init_required: "Нужно включить руку",
+    initializing_right_arm: "Включаем руку",
     ready: "Готов к сессии",
     arming: "Проверка доступа",
     armed: "Сессия открыта",
     stopping: "Останавливаем",
     fault: "Live недоступен",
   };
+  const isRightArmMode = (state) =>
+    state.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE;
+  const activeJointIds = (state) =>
+    state.caps?.joint_limits.map((limit) => limit.id) ?? [];
+  const selectedLiveJoint = (state) => {
+    const active = activeJointIds(state);
+    const current = getJoint();
+    return active.includes(current) ? current : active[0] ?? current;
+  };
+  const currentCommandedPose = (state) =>
+    state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
+  const buildStepTarget = (state) =>
+    prepareLiveStepTarget(
+      currentCommandedPose(state),
+      state.caps,
+      selectedLiveJoint(state),
+      stepDirection,
+    );
+  function renderStep(state) {
+    const step = byId("live-step");
+    const active = activeJointIds(state);
+    const visible =
+      Boolean(state.caps) &&
+      !state.caps.initialization_required &&
+      state.state !== "disconnected" &&
+      state.state !== "fault";
+    step.hidden = !visible;
+    byId("live-step-joints").replaceChildren();
+    if (!visible || !active.length) {
+      byId("live-step-joint").textContent = "—";
+      byId("live-step-current").textContent = "—";
+      byId("live-step-target").textContent = "—";
+      byId("live-step-size").textContent = "—";
+      byId("live-step-hold").disabled = true;
+      return;
+    }
+    const selected = selectedLiveJoint(state);
+    for (const id of active) {
+      const joint = jointById(id);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "text-button";
+      button.textContent = joint.short;
+      button.dataset.liveJoint = id;
+      button.classList.toggle("selected", id === selected);
+      button.onclick = () => onSelectJoint(id);
+      byId("live-step-joints").append(button);
+    }
+    const pose = currentCommandedPose(state);
+    const stepSize = liveStepSizeForJoint(state.caps, selected);
+    let targetText = "—";
+    let target = null;
+    let targetError = "";
+    try {
+      target = buildStepTarget(state);
+      targetText = formatDegrees(target[selected]);
+    } catch (e) {
+      targetError = e.message;
+      targetText = "Вне предела";
+    }
+    byId("live-step-joint").textContent = jointById(selected).label;
+    byId("live-step-current").textContent = formatDegrees(pose[selected]);
+    byId("live-step-target").textContent = targetText;
+    byId("live-step-target").title = targetError;
+    byId("live-step-size").textContent = `${stepDirection > 0 ? "+" : "−"}${stepSize}°`;
+    byId("live-step-minus").setAttribute("aria-pressed", stepDirection === -1);
+    byId("live-step-plus").setAttribute("aria-pressed", stepDirection === 1);
+    byId("live-step-minus").textContent = `−${stepSize}°`;
+    byId("live-step-plus").textContent = `+${stepSize}°`;
+    byId("live-step-hold").disabled = state.state !== "armed" || !target;
+  }
+  function renderCommandLog(state) {
+    const list = byId("live-command-log");
+    list.replaceChildren();
+    for (const entry of state.commandLog ?? []) {
+      const item = document.createElement("li");
+      item.className = `live-log-${entry.kind}`;
+      const op = entry.op === "initialize_right_arm" ? "INIT" : entry.op.toUpperCase();
+      item.textContent = `${op}: ${entry.detail}`;
+      list.append(item);
+    }
+    if (!list.children.length) {
+      const item = document.createElement("li");
+      item.textContent = "Пока нет команд";
+      list.append(item);
+    }
+  }
   function render(state) {
     connectionState = state;
     if (pendingMode !== null && state.state === "disconnected") {
@@ -136,7 +266,22 @@ export function mountLivePanel({
         ? "fault"
         : "";
     byId("live-reason").textContent = state.reason;
-    byId("live-auth").hidden = !["ready", "arming"].includes(state.state);
+    const keyReady = byId("live-key").value.length >= 16;
+    const rightArmInitState = ["init_required", "initializing_right_arm"].includes(
+      state.state,
+    );
+    byId("live-auth").hidden = ![
+      "init_required",
+      "initializing_right_arm",
+      "ready",
+      "arming",
+    ].includes(state.state);
+    byId("live-init-right-arm").hidden = !(
+      rightArmInitState && keyReady
+    );
+    byId("live-init-right-arm").disabled =
+      state.state !== "init_required" || !keyReady;
+    byId("live-arm").hidden = rightArmInitState;
     byId("live-arm").disabled = state.state !== "ready";
     byId("live-host").disabled = !["disconnected", "fault"].includes(
       state.state,
@@ -147,16 +292,28 @@ export function mountLivePanel({
       ? "Подключить робота"
       : "Отключить";
     byId("live-connect").disabled = state.state === "stopping";
-    byId("live-hold").disabled = state.state !== "armed";
+    byId("live-hold").textContent = isRightArmMode(state)
+      ? "Текущая поза недоступна"
+      : "Удерживать → текущая поза";
+    byId("live-hold").disabled = state.state !== "armed" || isRightArmMode(state);
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
-    byId("live-copy-pose").hidden = !state.caps?.commissioning;
-    byId("live-copy-pose").disabled = !["ready", "armed"].includes(state.state) || state.holding;
+    byId("live-commissioning-note").textContent = isRightArmMode(state)
+      ? "Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Направление модели ещё не подтверждено: отрицательный шаг соответствует старому примеру приветствия, но физику проверяет оператор."
+      : "Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.";
+    byId("live-copy-pose").hidden =
+      !state.caps?.commissioning || state.caps.initialization_required;
+    byId("live-copy-pose").disabled =
+      !["ready", "armed"].includes(state.state) || state.holding;
     byId("live-hold").classList.toggle("holding", state.holding);
     byId("live-run").classList.toggle("holding", state.holding && running);
-    byId("live-stop").disabled = !["armed", "arming", "stopping"].includes(
-      state.state,
-    );
+    byId("live-step-hold").classList.toggle("holding", state.holding);
+    byId("live-stop").disabled = ![
+      "armed",
+      "arming",
+      "initializing_right_arm",
+      "stopping",
+    ].includes(state.state);
     byId("live-speed-value").textContent = `${state.speed}°/с`;
     byId("live-speed").value = state.speed;
     byId("live-speed").disabled = Boolean(state.caps?.commissioning);
@@ -166,8 +323,14 @@ export function mountLivePanel({
     const telemetry = ["disconnected", "fault"].includes(state.state)
       ? null
       : state.telemetry;
+    const initializationPlaceholder =
+      state.caps?.initialization_required && joint === "arm_positive_x";
     byId("live-commanded").textContent = telemetry
-      ? `${telemetry.commanded_pose[joint].toFixed(1)}°`
+      ? initializationPlaceholder
+        ? "Нет команды / не включена"
+        : state.caps?.joint_limits.some((limit) => limit.id === joint)
+          ? `${telemetry.commanded_pose[joint].toFixed(1)}°`
+          : "Недоступен"
       : "—";
     byId("live-measured").textContent = telemetry?.measured_pose
       ? `${telemetry.measured_pose[joint].toFixed(1)}°`
@@ -185,18 +348,29 @@ export function mountLivePanel({
     byId("live-limits").replaceChildren();
     if (state.caps) {
       const label = document.createElement("h3");
-      label.textContent = state.caps.commissioning ? "Ограничения первого теста" : "Проверенные пределы";
+      label.textContent = isRightArmMode(state)
+        ? "Ограничения правой руки"
+        : state.caps.commissioning
+          ? "Ограничения первого теста"
+          : "Проверенные пределы";
       byId("live-limits").append(label);
       for (const j of PROFILE.joints) {
         const limit = state.caps.joint_limits.find((l) => l.id === j.id);
         const row = document.createElement("p");
+        const note =
+          isRightArmMode(state) && j.id === "arm_positive_x"
+            ? " · GPIO12, нейтраль 135°, первый шаг −5°"
+            : "";
         row.textContent = limit
-          ? `${j.label}: ${limit.min}…${limit.max}°`
+          ? `${j.label}: ${limit.min}…${limit.max}° · до ${limit.max_speed_dps}°/с${note}`
           : `${j.label}: недоступен`;
         byId("live-limits").append(row);
       }
     }
-    byId("live-key").disabled = state.state === "arming";
+    const initializing = ["arming", "initializing_right_arm"].includes(state.state);
+    byId("live-key").disabled = initializing;
+    renderStep(state);
+    renderCommandLog(state);
     const badge = document.querySelector(".preview-badge");
     badge.replaceChildren();
     const dot = document.createElement("span");
@@ -209,6 +383,8 @@ export function mountLivePanel({
             ? "Live · ждём остановку"
             : state.state === "fault"
               ? "Live · нет подтверждения"
+              : state.state === "init_required"
+                ? "Live · включение руки"
               : "Live · ожидание сессии"
         : "3D-предпросмотр",
     );
@@ -235,6 +411,10 @@ export function mountLivePanel({
   }
   function start(run = false) {
     guarded(() => {
+      if (!run && isRightArmMode(session.snapshot()))
+        throw new Error(
+          "В режиме правой руки используйте только пошаговый тест.",
+        );
       if (run)
         playbackScale = livePlaybackScale(
           getMotion(),
@@ -248,7 +428,8 @@ export function mountLivePanel({
     });
   }
   function release(reason) {
-    if (session.state === "arming") session.disconnect();
+    if (["arming", "initializing_right_arm"].includes(session.state))
+      session.requestDisconnect();
     else session.release(reason);
     running = false;
     onPlayback(false);
@@ -263,6 +444,9 @@ export function mountLivePanel({
     });
   byId("live-arm").onclick = () =>
     guarded(() => session.arm(byId("live-key").value));
+  byId("live-init-right-arm").onclick = () =>
+    guarded(() => session.initializeRightArm(byId("live-key").value));
+  byId("live-key").oninput = () => render(session.snapshot());
   byId("live-copy-pose").onclick = () => guarded(() => {
     if (!session.lastTelemetry || session.holding) return;
     onPose(session.lastTelemetry.commanded_pose);
@@ -306,10 +490,52 @@ export function mountLivePanel({
       }
     };
   }
+  for (const [id, direction] of [
+    ["live-step-minus", -1],
+    ["live-step-plus", 1],
+  ]) {
+    byId(id).onclick = () => {
+      stepDirection = direction;
+      render(session.snapshot());
+    };
+  }
+  const stepHold = byId("live-step-hold");
+  const startStep = () =>
+    guarded(() => {
+      const target = buildStepTarget(session.snapshot());
+      session.hold(target);
+      running = false;
+      onPlayback(false);
+      render(session.snapshot());
+    });
+  stepHold.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    stepHold.setPointerCapture(e.pointerId);
+    startStep();
+  };
+  stepHold.onpointerup = () => release("Пошаговая кнопка отпущена.");
+  stepHold.onpointercancel = () => release("Пошаговое удержание отменено.");
+  stepHold.onlostpointercapture = () => {
+    if (session.holding) release("Пошаговое удержание завершено.");
+  };
+  stepHold.onkeydown = (e) => {
+    if (e.code === "Enter" && !e.repeat) {
+      e.preventDefault();
+      startStep();
+    }
+  };
+  stepHold.onkeyup = (e) => {
+    if (e.code === "Enter") {
+      e.preventDefault();
+      release("Пошаговая кнопка отпущена.");
+    }
+  };
   byId("live-stop").onclick = () => {
     running = false;
     onPlayback(false);
-    if (session.state === "arming") session.disconnect();
+    if (["arming", "initializing_right_arm"].includes(session.state))
+      session.requestDisconnect();
     else session.stop("СТОП.");
   };
   document.addEventListener(
@@ -325,7 +551,8 @@ export function mountLivePanel({
   window.addEventListener(
     "blur",
     () => {
-      if (session.state === "arming") session.disconnect();
+      if (["arming", "initializing_right_arm"].includes(session.state))
+        session.requestDisconnect();
       else release("Окно потеряло фокус.");
     },
     { signal: abort.signal },
@@ -384,11 +611,12 @@ export function mountLivePanel({
       )
         return false;
       e.preventDefault();
-      if (!e.repeat) start(false);
+      if (!e.repeat && !isRightArmMode(session.snapshot())) start(false);
       return true;
     },
     updateTarget() {
-      if (session.holding) guarded(() => session.setTarget(getPose()));
+      if (session.holding && !isRightArmMode(session.snapshot()))
+        guarded(() => session.setTarget(getPose()));
     },
     stop: (reason) => release(reason),
     displayPose(fallback) {

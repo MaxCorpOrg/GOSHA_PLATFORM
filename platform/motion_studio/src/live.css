@@ -116,12 +116,77 @@
   line-height: 1.65;
   color: #aab6c6;
 }
+.live-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid #303b48;
+  border-bottom: 1px solid #303b48;
+}
+.live-step h3,
+.live-log h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.live-step-joints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.live-step-joints button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #3c4552;
+  border-radius: 4px;
+  color: #b9c6d5;
+}
+.live-step-joints button.selected {
+  border-color: #77d2a9;
+  color: #dff8ec;
+}
+.live-step-status {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 10px;
+  margin: 0;
+  font-size: 13px;
+}
+.live-step-status dt {
+  color: #a9b7c9;
+}
+.live-step-status dd {
+  margin: 0;
+  color: #e4ebf6;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.live-step-actions {
+  display: grid;
+  grid-template-columns: minmax(58px, 0.5fr) minmax(58px, 0.5fr) minmax(140px, 1fr);
+  gap: 8px;
+}
+.live-step-actions .button {
+  min-height: 42px;
+  white-space: normal;
+}
+.live-step-actions [aria-pressed="true"] {
+  border-color: #77d2a9;
+  color: #dff8ec;
+}
+.live-step small,
+.live-log li {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #aab6c6;
+}
 .button.live-hold {
   background: #244039;
   border-color: #42795e;
   color: #c0f6df;
 }
-.live-hold-controls .holding {
+.live-hold-controls .holding,
+.button.live-hold.holding {
   background: #32654e;
   box-shadow: 0 0 0 2px #82d9ad;
   color: white;
@@ -165,6 +230,23 @@
   margin-top: 10px;
   color: #c4cedb;
 }
+.live-log {
+  border-top: 1px solid #303b48;
+  padding-top: 16px;
+}
+.live-log ol {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.live-log-sent {
+  color: #c0f6df;
+}
+.live-log-error {
+  color: #ffb9a9;
+}
 .live-final-note {
   border-top: 1px solid #303b48;
   padding-top: 16px;
@@ -185,6 +267,8 @@
   .live-heading,
   .live-reason,
   .live-connection-state,
+  .live-step,
+  .live-log,
   .live-final-note {
     grid-column: 1/-1;
   }

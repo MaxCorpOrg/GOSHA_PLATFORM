@@ -3,10 +3,15 @@ import assert from "node:assert/strict";
 import {
   LIVE_PROTOCOL,
   LiveSession,
+  RIGHT_ARM_COMMISSIONING_MODE,
+  RIGHT_ARM_INITIALIZATION_REASON,
   robotSocketUrl,
   validateCapabilities,
 } from "../src/live.js";
-import { livePlaybackScale } from "../src/live-panel.js";
+import {
+  livePlaybackScale,
+  prepareLiveStepTarget,
+} from "../src/live-panel.js";
 import { PROFILE, createMotion, putPose, zeroPose } from "../src/motion.js";
 
 const capabilities = () => ({
@@ -484,6 +489,22 @@ const commissioningCaps = () => ({
   })),
 });
 
+const rightArmCaps = (initialized = true) => ({
+  ...capabilities(),
+  mode: RIGHT_ARM_COMMISSIONING_MODE,
+  calibrated: false,
+  commissioning: true,
+  motion_allowed: initialized,
+  reason: initialized ? undefined : RIGHT_ARM_INITIALIZATION_REASON,
+  right_arm_initialized: initialized,
+  joint_limits: [
+    { id: "arm_positive_x", min: -5, max: 5, max_speed_dps: 1 },
+    ...PROFILE.joints.slice(2).map((j) => ({
+      id: j.id, min: -1, max: 1, max_speed_dps: 1,
+    })),
+  ],
+});
+
 test("commissioning stays explicitly uncalibrated and rejects wider or ambiguous permissions", () => {
   const caps = validateCapabilities(commissioningCaps());
   assert.equal(caps.commissioning, true);
@@ -574,4 +595,268 @@ test("commissioning rejects ACK and STOP that report a different or extra moving
     seq: h.live.pending.seq, commanded_pose: { ...zeroPose(), leg_negative_x: 1 },
     measured_pose: null, tilt: null });
   assert.equal(h.live.state, "fault", "Idle session cannot report an unrequested movement");
+});
+
+test("right-arm commissioning waits for explicit initialization and ignores commands before init", () => {
+  const h = harness(() => rightArmCaps(false));
+  const socket = h.ready();
+  assert.equal(h.live.state, "init_required");
+  assert.equal(h.live.caps.initialization_required, true);
+  assert.equal(h.live.caps.right_arm_initialized, false);
+  assert.throws(() => h.live.arm("synthetic-test-key-only"));
+  assert.throws(() => h.live.hold(zeroPose()));
+  h.advance(50);
+  assert.equal(socket.sent.length, 1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "ack",
+    session_id: "session-ignored-before-init",
+    seq: 1,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -5 },
+    measured_pose: null,
+    tilt: null,
+  });
+  socket.receive({ protocol: LIVE_PROTOCOL, op: "legacy_motion" });
+  assert.equal(h.live.state, "init_required");
+  assert.equal(socket.sent.length, 1);
+});
+
+test("right-arm initialization has a distinct wire step and never arms automatically", () => {
+  const h = harness(() => rightArmCaps(false));
+  const socket = h.ready();
+  h.live.initializeRightArm("synthetic-test-key-only");
+  const init = socket.sent.at(-1);
+  assert.equal(init.op, "initialize_right_arm");
+  assert.equal(init.calibration_id, "a".repeat(64));
+  assert.equal(init.access_key, "synthetic-test-key-only");
+  assert.equal(h.live.state, "initializing_right_arm");
+  const request_id = h.live.requestId;
+  socket.receive({ ...rightArmCaps(true), request_id });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.caps.right_arm_initialized, true);
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "initialize_right_arm");
+  h.live.arm("synthetic-test-key-only");
+  assert.equal(socket.sent.at(-1).op, "arm");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "armed",
+    request_id: h.live.requestId,
+    session_id: "session-00000000001",
+    calibration_id: "a".repeat(64),
+  });
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "keepalive");
+  assert.equal(socket.sent.filter((message) => message.op === "pose").length, 0);
+  for (let i = 0; i < 20; i++) {
+    h.ack(socket);
+    h.advance(50);
+  }
+  const log = JSON.stringify(h.live.snapshot().commandLog);
+  assert.ok(h.live.snapshot().commandLog.length <= 16);
+  assert.doesNotMatch(log, /synthetic-test-key-only/);
+  assert.doesNotMatch(log, /session-00000000001/);
+});
+
+test("right-arm initialization timeout does not retry and reports unknown hold state", () => {
+  const h = harness(() => rightArmCaps(false));
+  const socket = h.ready();
+  h.live.initializeRightArm("synthetic-test-key-only");
+  const sent = socket.sent.length;
+  h.advance(1999);
+  assert.equal(h.live.state, "initializing_right_arm");
+  h.advance(1);
+  assert.equal(h.live.state, "fault");
+  assert.match(h.live.reason, /состояние неизвестно/);
+  assert.equal(socket.closed, true);
+  h.advance(5000);
+  assert.equal(socket.sent.length, sent);
+});
+
+test("right-arm initialization cancel closes as unknown without retrying or posing", () => {
+  for (const cancel of [
+    (live) => live.stop(),
+    (live) => live.requestDisconnect(),
+  ]) {
+    const h = harness(() => rightArmCaps(false));
+    const socket = h.ready();
+    h.live.initializeRightArm("synthetic-test-key-only");
+    const sent = socket.sent.length;
+    cancel(h.live);
+    assert.equal(h.live.state, "fault");
+    assert.match(h.live.reason, /состояние неизвестно/);
+    assert.equal(socket.closed, true);
+    h.advance(5000);
+    assert.equal(socket.sent.length, sent);
+    assert.equal(socket.sent.filter((message) => message.op === "pose").length, 0);
+  }
+});
+
+test("right-arm commissioning capabilities require the exact five-joint envelope", () => {
+  const caps = validateCapabilities(rightArmCaps(true));
+  assert.equal(caps.mode, RIGHT_ARM_COMMISSIONING_MODE);
+  assert.equal(caps.commissioning, true);
+  assert.equal(caps.calibrated, false);
+  assert.equal(caps.right_arm_initialized, true);
+  assert.deepEqual(
+    caps.joint_limits.map((limit) => limit.id),
+    [
+      "arm_positive_x",
+      "leg_negative_x",
+      "leg_positive_x",
+      "foot_negative_x",
+      "foot_positive_x",
+    ],
+  );
+  for (const mutate of [
+    (c) => { c.right_arm_initialized = false; },
+    (c) => { c.motion_allowed = false; c.reason = "no_motion_profile"; },
+    (c) => { c.joint_limits[0].id = "arm_negative_x"; },
+    (c) => { c.joint_limits[0].min = -6; },
+    (c) => { c.joint_limits[0].max = 6; },
+    (c) => { c.joint_limits[0].max_speed_dps = 2; },
+    (c) => { c.joint_limits.pop(); },
+    (c) => { c.watchdog_ms = 500; },
+  ]) {
+    const data = rightArmCaps(true);
+    mutate(data);
+    assert.throws(() => validateCapabilities(data));
+  }
+  assert.throws(() => livePlaybackScale(createMotion(), caps, 1), /по одному суставу/);
+});
+
+test("right-arm commissioning sends one five-degree arm step and blocks a second joint", () => {
+  const h = harness(() => rightArmCaps(true));
+  const socket = h.arm();
+  assert.equal(h.live.speed, 1);
+  h.live.hold({ ...zeroPose(), arm_positive_x: -5 });
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "pose");
+  assert.equal(socket.sent.at(-1).speed_dps, 1);
+  assert.deepEqual(socket.sent.at(-1).target, {
+    arm_positive_x: -5,
+    leg_negative_x: 0,
+    leg_positive_x: 0,
+    foot_negative_x: 0,
+    foot_positive_x: 0,
+  });
+  assert.equal(Object.hasOwn(socket.sent.at(-1).target, "arm_negative_x"), false);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "ack",
+    session_id: h.live.sessionId,
+    seq: h.live.pending.seq,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -5 },
+    measured_pose: null,
+    tilt: null,
+  });
+  h.live.setTarget(zeroPose());
+  assert.throws(() => h.live.setTarget({ ...zeroPose(), leg_negative_x: 1 }));
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(socket.sent.filter((message) => message.op === "pose").length, 1);
+});
+
+test("right-arm commissioning release sends STOP and keeps the final command explicit", () => {
+  const h = harness(() => rightArmCaps(true));
+  const socket = h.arm();
+  h.live.hold({ ...zeroPose(), arm_positive_x: -5 });
+  h.advance(50);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "ack",
+    session_id: h.live.sessionId,
+    seq: h.live.pending.seq,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -5 },
+    measured_pose: null,
+    tilt: null,
+  });
+  const session_id = h.live.sessionId;
+  h.live.release();
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(h.live.state, "stopping");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "stopped",
+    session_id,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -5 },
+    measured_pose: null,
+    tilt: null,
+  });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, -5);
+  const sent = socket.sent.length;
+  h.advance(500);
+  assert.equal(socket.sent.length, sent);
+});
+
+test("right-arm commissioning keeps leg steps to one degree from the ARM baseline", () => {
+  const h = harness(() => ({
+    ...rightArmCaps(true),
+    commanded_pose: { ...zeroPose(), leg_negative_x: -1 },
+  }));
+  const socket = h.arm();
+  assert.throws(() => h.live.hold({ ...zeroPose(), leg_negative_x: 1 }));
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.ok(socket.sent.every((message) => message.op !== "pose"));
+});
+
+test("right-arm commissioning rejects ACK and STOP outside the selected joint envelope", () => {
+  for (const op of ["ack", "stopped"]) {
+    for (const reported of [
+      { ...zeroPose(), arm_positive_x: -6 },
+      { ...zeroPose(), arm_positive_x: -5, leg_negative_x: 1 },
+      { ...zeroPose(), arm_positive_x: -5, arm_negative_x: 1 },
+    ]) {
+      const h = harness(() => rightArmCaps(true));
+      const socket = h.arm();
+      h.live.hold({ ...zeroPose(), arm_positive_x: -5 });
+      h.advance(50);
+      const session_id = h.live.sessionId;
+      const seq = h.live.pending.seq;
+      if (op === "stopped") h.live.release();
+      socket.receive({
+        protocol: LIVE_PROTOCOL,
+        op,
+        session_id,
+        seq,
+        commanded_pose: reported,
+        measured_pose: null,
+        tilt: null,
+      });
+      assert.equal(h.live.state, "fault");
+      assert.equal(socket.closed, true);
+      assert.deepEqual(h.live.lastTelemetry.commanded_pose, zeroPose());
+    }
+  }
+});
+
+test("preparing a step target never changes saved keyframes or the library pose", () => {
+  const motion = createMotion("Приветствие");
+  motion.keyframes[0].pose.leg_negative_x = 1;
+  const before = JSON.stringify(motion);
+  const caps = validateCapabilities(rightArmCaps(true));
+  const target = prepareLiveStepTarget(
+    zeroPose(),
+    caps,
+    "arm_positive_x",
+    -1,
+  );
+  assert.equal(target.arm_positive_x, -5);
+  assert.equal(JSON.stringify(motion), before);
+  assert.equal(motion.keyframes[0].pose.leg_negative_x, 1);
+  assert.throws(() =>
+    prepareLiveStepTarget(zeroPose(), caps, "arm_negative_x", -1),
+  );
+  assert.throws(() =>
+    prepareLiveStepTarget(
+      { ...zeroPose(), arm_positive_x: 5 },
+      caps,
+      "arm_positive_x",
+      1,
+    ),
+  );
+  assert.equal(
+    prepareLiveStepTarget(zeroPose(), caps, "leg_positive_x", 1).leg_positive_x,
+    1,
+  );
 });
