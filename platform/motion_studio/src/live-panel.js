@@ -440,6 +440,7 @@ export function mountLivePanel({
         ? "Подключить по USB"
         : "Подключить по Wi-Fi"
       : "Отключить";
+    byId("live-connect").setAttribute("aria-label", byId("live-connect").textContent);
     byId("live-connect").disabled =
       state.state === "stopping" ||
       (transport === "usb" &&
@@ -549,7 +550,7 @@ export function mountLivePanel({
         : "3D-предпросмотр",
     );
     const status = document.querySelector(".statusbar > span:first-child");
-    const transportName = state.transport === "usb" ? "USB" : "Wi-Fi";
+    const transportName = transport === "usb" ? "USB" : "Wi-Fi";
     status.textContent = enabled
       ? `Live ${transportName} · ${states[state.state]}`
       : "На компьютере · робот не подключён";

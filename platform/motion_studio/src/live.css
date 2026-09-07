@@ -31,10 +31,14 @@
   border-radius: 50%;
 }
 .workspace.live-workspace {
+  min-height: 0;
   grid-template-columns: minmax(292px, 304px) minmax(420px, 1fr) minmax(250px, 290px);
 }
 .workspace.live-workspace.live-right-arm-workspace {
   grid-template-columns: minmax(292px, 304px) minmax(420px, 1fr);
+}
+.workspace.live-workspace .library {
+  height: calc(100dvh - 103px);
 }
 .workspace.live-right-arm-workspace .inspector {
   display: none;
@@ -285,6 +289,7 @@
   bottom: 0;
   z-index: 5;
   min-height: 48px;
+  flex-shrink: 0;
   background: #732e29;
   border-color: #bb554d;
   color: #ffddd7;
@@ -377,7 +382,7 @@
   }
   .workspace.live-workspace .library {
     height: calc(100dvh - 103px);
-    min-height: 740px;
+    min-height: 0;
   }
 }
 @media (max-width: 650px) {
