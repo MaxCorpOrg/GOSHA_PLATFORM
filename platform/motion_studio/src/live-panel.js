@@ -158,7 +158,7 @@ export function mountLivePanel({
       <small>Подготовка цели не двигает робота и не меняет библиотеку. Движение идёт только пока удерживается кнопка.</small>
     </div>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
-    <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small>Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.</small></div>
+    <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
     <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
     <div id="live-limits" class="live-limits"></div>
@@ -352,6 +352,13 @@ export function mountLivePanel({
       ? "Текущая поза недоступна"
       : "Удерживать → текущая поза";
     byId("live-hold").disabled = state.state !== "armed" || isRightArmMode(state);
+    byId("live-hold-hint").textContent = !state.caps
+      ? "Подключите робота, чтобы узнать доступный способ управления."
+      : isRightArmMode(state)
+        ? rightArmInitState
+          ? "Сначала проверьте положение руки и включите её отдельной кнопкой. Шаги станут доступны после подтверждения включения."
+          : "Выберите сустав и знак шага, откройте сессию и удерживайте кнопку шага. Отпустите для остановки. Пробел не запускает движение; его отпускание также завершает сессию."
+        : "Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.";
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
     byId("live-commissioning-note").textContent = isRightArmMode(state)
