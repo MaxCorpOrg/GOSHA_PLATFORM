@@ -1,22 +1,30 @@
 from __future__ import annotations
 
+import asyncio
+import errno
 import json
+import os
 import queue
+import serial
+import termios
+import threading
 import time
 import unittest
 from types import SimpleNamespace
 
 from aiohttp import ClientSession, WSMsgType
 from aiohttp.test_utils import TestServer
-import serial
 
+import bridge.usb_bridge as bridge
 from bridge.usb_bridge import (
     LIVE_PROTOCOL,
     WIRE_PREFIX,
     BridgeError,
+    PosixSerialDevice,
     create_app,
     list_allowed_ports,
     open_serial_port,
+    _write_frame_bounded,
     _validate_request,
 )
 
@@ -96,15 +104,7 @@ class FakeSerial:
         object.__setattr__(self, name, value)
 
     def open(self):
-        self.events.append(
-            (
-                "open",
-                getattr(self, "baudrate", None),
-                getattr(self, "exclusive", None),
-                getattr(self, "dtr", None),
-                getattr(self, "rts", None),
-            )
-        )
+        self.events.append(("open", getattr(self, "port", None)))
         self.is_open = True
 
     def write(self, raw: bytes):
@@ -155,6 +155,21 @@ class FakeSerial:
         self.is_open = False
 
 
+def fake_serial_writer(serial_obj, raw: bytes, timeout_seconds: float, should_stop):
+    if should_stop():
+        raise BridgeError("serial_error")
+    return serial_obj.write(raw)
+
+
+async def wait_for_condition(predicate, timeout: float = 0.5) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return predicate()
+
+
 class UsbBridgeUnitTests(unittest.TestCase):
     def test_enumeration_allows_only_usb_303a_1001_and_hides_paths(self):
         ports = list_allowed_ports(
@@ -173,31 +188,179 @@ class UsbBridgeUnitTests(unittest.TestCase):
         self.assertNotIn("path", public)
         self.assertNotIn("/", public["label"])
 
-    def test_serial_open_deasserts_lines_before_open_and_uses_exclusive_115200(self):
+    def test_serial_open_uses_injected_adapter_without_modem_line_setters(self):
         fake = FakeSerial(auto_reply=False)
         port = list_allowed_ports(lambda: [port_info()])[0]
-        opened = open_serial_port(port, lambda: fake)
+        opened = open_serial_port(
+            port,
+            lambda device: setattr(fake, "port", device) or fake,
+        )
         self.assertIs(opened, fake)
-        self.assertIn(("dtr", False, False), fake.events)
-        self.assertIn(("rts", False, False), fake.events)
-        self.assertIn(("open", 115200, True, False, False), fake.events)
-        self.assertEqual(fake.write_timeout, 0.1)
+        self.assertEqual(fake.port, "/dev/ttyACM0")
+        self.assertEqual(fake.events, [("open", "/dev/ttyACM0")])
+        self.assertFalse(any(event[0] in {"dtr", "rts"} for event in fake.events))
 
-    def test_serial_safety_failure_refuses_open_before_dtr_or_rts_toggle(self):
-        class UnsafeSerial(FakeSerial):
-            def __setattr__(self, name, value):
-                if name == "dtr" and value is False:
-                    object.__setattr__(self, name, True)
-                    return
-                super().__setattr__(name, value)
+    def test_posix_serial_open_sets_raw_mode_without_hupcl_or_flow_control(self):
+        master_fd, slave_fd = os.openpty()
+        device = os.ttyname(slave_fd)
+        os.close(slave_fd)
+        serial_obj = PosixSerialDevice(device)
+        try:
+            serial_obj.open()
+            attrs = termios.tcgetattr(serial_obj.fileno())
+            cflag = attrs[2]
+            self.assertTrue(cflag & termios.CLOCAL)
+            self.assertTrue(cflag & termios.CREAD)
+            self.assertFalse(cflag & termios.HUPCL)
+            if hasattr(termios, "CRTSCTS"):
+                self.assertFalse(cflag & termios.CRTSCTS)
+            self.assertEqual(attrs[4], termios.B115200)
+            self.assertEqual(attrs[5], termios.B115200)
+        finally:
+            serial_obj.close()
+            os.close(master_fd)
 
-        unsafe = UnsafeSerial(auto_reply=False)
-        port = list_allowed_ports(lambda: [port_info()])[0]
+    def test_posix_serial_open_fails_closed_when_tty_verify_fails(self):
+        original_open = bridge.os.open
+        original_close = bridge.os.close
+        original_flock = bridge.fcntl.flock
+        original_configure = bridge._configure_tty_raw_no_hangup
+        closed = []
+
+        def fake_configure(_fd):
+            raise BridgeError("usb_serial_safety")
+
+        try:
+            bridge.os.open = lambda *_args: 123
+            bridge.os.close = lambda fd: closed.append(fd)
+            bridge.fcntl.flock = lambda *_args: None
+            bridge._configure_tty_raw_no_hangup = fake_configure
+            serial_obj = PosixSerialDevice("/dev/fake")
+            with self.assertRaises(BridgeError) as caught:
+                serial_obj.open()
+            self.assertEqual(caught.exception.code, "usb_serial_safety")
+            self.assertEqual(serial_obj.fd, None)
+            self.assertFalse(serial_obj.is_open)
+            self.assertEqual(closed, [123])
+        finally:
+            bridge.os.open = original_open
+            bridge.os.close = original_close
+            bridge.fcntl.flock = original_flock
+            bridge._configure_tty_raw_no_hangup = original_configure
+
+    def test_bounded_posix_write_bypasses_pyserial_false_timeout_after_full_write(self):
+        read_fd, write_fd = os.pipe()
+        os.set_blocking(write_fd, False)
+
+        class PipeSerial:
+            pyserial_write_called = False
+
+            def fileno(self):
+                return write_fd
+
+            def write(self, raw):
+                self.pyserial_write_called = True
+                raise serial.SerialTimeoutException("Write timeout")
+
+        payload = b"@GOSHA-LIVE:{\"protocol\":\"gosha.motion.live.v1\"}\n"
+        try:
+            serial_obj = PipeSerial()
+            written = _write_frame_bounded(
+                serial_obj,
+                payload,
+                0.1,
+                lambda: False,
+            )
+            self.assertEqual(written, len(payload))
+            self.assertFalse(serial_obj.pyserial_write_called)
+            self.assertEqual(os.read(read_fd, len(payload)), payload)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
+    def test_bounded_posix_write_retries_eagain_and_partial_without_final_select(self):
+        payload = b"0123456789"
+        writes = []
+        selects = []
+
+        def fake_write(_fd, chunk):
+            writes.append(bytes(chunk))
+            if len(writes) == 1:
+                raise BlockingIOError(errno.EAGAIN, "again")
+            if len(writes) == 2:
+                return 4
+            return len(chunk)
+
+        def fake_select(_fd, timeout):
+            selects.append(timeout)
+            return True
+
+        serial_obj = SimpleNamespace(fileno=lambda: 99)
+        written = _write_frame_bounded(
+            serial_obj,
+            payload,
+            0.1,
+            lambda: False,
+            os_write=fake_write,
+            select_writable=fake_select,
+        )
+        self.assertEqual(written, len(payload))
+        self.assertEqual(writes, [payload, payload, payload[4:]])
+        self.assertEqual(len(selects), 2)
+        self.assertTrue(all(0 < timeout <= 0.1 for timeout in selects))
+
+    def test_bounded_posix_write_deadline_is_at_most_write_timeout(self):
+        payload = b"x"
+        selects = []
+
+        def fake_write(_fd, _chunk):
+            raise BlockingIOError(errno.EAGAIN, "again")
+
+        def fake_select(_fd, timeout):
+            selects.append(timeout)
+            time.sleep(timeout)
+            return False
+
+        started = time.monotonic()
         with self.assertRaises(BridgeError) as caught:
-            open_serial_port(port, lambda: unsafe)
-        self.assertEqual(caught.exception.code, "usb_serial_safety")
-        self.assertFalse(unsafe.is_open)
-        self.assertTrue(unsafe.closed)
+            _write_frame_bounded(
+                SimpleNamespace(fileno=lambda: 99),
+                payload,
+                1.0,
+                lambda: False,
+                os_write=fake_write,
+                select_writable=fake_select,
+            )
+        self.assertEqual(caught.exception.code, "usb_bridge_queue_stale")
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertTrue(selects)
+        self.assertTrue(all(0 < timeout <= 0.011 for timeout in selects))
+
+    def test_bounded_posix_write_stop_event_cancels_after_partial(self):
+        payload = b"abcdef"
+        writes = []
+        stopped = False
+
+        def fake_write(_fd, chunk):
+            writes.append(bytes(chunk))
+            return 2
+
+        def fake_select(_fd, _timeout):
+            nonlocal stopped
+            stopped = True
+            return True
+
+        with self.assertRaises(BridgeError) as caught:
+            _write_frame_bounded(
+                SimpleNamespace(fileno=lambda: 99),
+                payload,
+                0.1,
+                lambda: stopped,
+                os_write=fake_write,
+                select_writable=fake_select,
+            )
+        self.assertEqual(caught.exception.code, "serial_error")
+        self.assertEqual(writes, [payload])
 
     def test_request_size_is_bounded_before_wire_encoding(self):
         with self.assertRaises(BridgeError) as caught:
@@ -220,16 +383,20 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         *,
         infos=None,
         serial_factory=None,
+        serial_writer=None,
         hello_timeout=0.2,
     ):
         if infos is None:
             infos = [port_info()]
         if serial_factory is None:
-            serial_factory = FakeSerial
+            serial_factory = lambda _device: FakeSerial()
+        if serial_writer is None:
+            serial_writer = fake_serial_writer
         app = create_app(
             allowed_origin=ORIGIN,
             comports=lambda: infos,
             serial_factory=serial_factory,
+            serial_writer=serial_writer,
             hello_timeout=hello_timeout,
         )
         server = TestServer(app)
@@ -253,7 +420,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         fake = FakeSerial(split_reply=True)
         info = port_info()
         port_id = list_allowed_ports(lambda: [info])[0].port_id
-        server = await self.start_bridge(infos=[info], serial_factory=lambda: fake)
+        server = await self.start_bridge(infos=[info], serial_factory=lambda _device: fake)
         ws = await self.ws_connect(server, port_id)
         await ws.send_str(
             json.dumps(
@@ -270,7 +437,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'"op":"hello"', fake.writes[0])
         self.assertFalse(fake.flush_called)
         await ws.close()
-        self.assertTrue(fake.closed)
+        self.assertTrue(await wait_for_condition(lambda: fake.closed))
 
     async def test_absent_device_reports_distinct_error_without_opening_serial(self):
         opened = []
@@ -279,7 +446,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
             opened.append(True)
             return FakeSerial()
 
-        server = await self.start_bridge(infos=[], serial_factory=factory)
+        server = await self.start_bridge(infos=[], serial_factory=lambda _device: factory())
         ws = await self.ws_connect(server, "a" * 24)
         await ws.send_str(
             json.dumps(
@@ -299,7 +466,10 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         def busy_factory():
             raise serial.SerialException("busy")
 
-        busy_server = await self.start_bridge(infos=[info], serial_factory=busy_factory)
+        busy_server = await self.start_bridge(
+            infos=[info],
+            serial_factory=lambda _device: busy_factory(),
+        )
         busy_ws = await self.ws_connect(busy_server, port_id)
         await busy_ws.send_str(
             json.dumps(
@@ -312,7 +482,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         silent = FakeSerial(auto_reply=False)
         nohello_server = await self.start_bridge(
             infos=[info],
-            serial_factory=lambda: silent,
+            serial_factory=lambda _device: silent,
             hello_timeout=0.05,
         )
         nohello_ws = await self.ws_connect(nohello_server, port_id)
@@ -334,7 +504,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         partial = FakeSerial(auto_reply=False, write_result=0)
         partial_server = await self.start_bridge(
             infos=[info],
-            serial_factory=lambda: partial,
+            serial_factory=lambda _device: partial,
             hello_timeout=1,
         )
         partial_ws = await self.ws_connect(partial_server, port_id)
@@ -347,10 +517,10 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(partial_message.data)["code"], "serial_error")
         self.assertFalse(partial.flush_called)
 
-        slow = FakeSerial(auto_reply=False, write_delay=0.35)
+        slow = FakeSerial(auto_reply=False, write_delay=0.09)
         slow_server = await self.start_bridge(
             infos=[info],
-            serial_factory=lambda: slow,
+            serial_factory=lambda _device: slow,
             hello_timeout=1,
         )
         slow_ws = await self.ws_connect(slow_server, port_id)
@@ -369,12 +539,59 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
         )
+        for seq in range(2, 7):
+            await slow_ws.send_str(
+                json.dumps(
+                    {
+                        "protocol": LIVE_PROTOCOL,
+                        "op": "keepalive",
+                        "session_id": "session-queued",
+                        "seq": seq,
+                    }
+                )
+            )
         stale_message = await slow_ws.receive(timeout=1)
         self.assertEqual(
             json.loads(stale_message.data)["code"],
             "usb_bridge_queue_stale",
         )
-        self.assertEqual(len(slow.writes), 1)
+        self.assertLess(len(slow.writes), 7)
+
+    async def test_cleanup_waits_for_writer_before_closing_serial(self):
+        info = port_info()
+        port_id = list_allowed_ports(lambda: [info])[0].port_id
+        fake = FakeSerial(auto_reply=False)
+        writer_started = threading.Event()
+        writer_done = threading.Event()
+        observed = {}
+
+        def slow_bounded_writer(serial_obj, raw, _timeout_seconds, should_stop):
+            serial_obj.writes.append(raw)
+            writer_started.set()
+            time.sleep(0.08)
+            observed["closed_during_write"] = serial_obj.closed
+            observed["stop_seen"] = should_stop()
+            writer_done.set()
+            return len(raw)
+
+        server = await self.start_bridge(
+            infos=[info],
+            serial_factory=lambda _device: fake,
+            serial_writer=slow_bounded_writer,
+            hello_timeout=1,
+        )
+        ws = await self.ws_connect(server, port_id)
+        await ws.send_str(
+            json.dumps(
+                {"protocol": LIVE_PROTOCOL, "op": "hello", "request_id": "r-cleanup"}
+            )
+        )
+        self.assertTrue(await asyncio.to_thread(writer_started.wait, 0.5))
+        await ws.close()
+        self.assertTrue(await asyncio.to_thread(writer_done.wait, 0.5))
+        self.assertFalse(observed["closed_during_write"])
+        self.assertTrue(observed["stop_seen"])
+        self.assertTrue(await wait_for_condition(lambda: fake.closed))
 
     async def test_partial_prefixed_response_times_out_while_chunks_continue(self):
         info = port_info()
@@ -385,7 +602,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         )
         server = await self.start_bridge(
             infos=[info],
-            serial_factory=lambda: fake,
+            serial_factory=lambda _device: fake,
             hello_timeout=1,
         )
         ws = await self.ws_connect(server, port_id)
@@ -405,7 +622,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         port_id = list_allowed_ports(lambda: [info])[0].port_id
         server = await self.start_bridge(
             infos=[info],
-            serial_factory=lambda: FakeSerial(auto_reply=False),
+            serial_factory=lambda _device: FakeSerial(auto_reply=False),
             hello_timeout=1,
         )
         async with ClientSession(headers={"Origin": "http://127.0.0.1:5175"}) as bad:

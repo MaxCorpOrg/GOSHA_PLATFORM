@@ -3,15 +3,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import errno
+import fcntl
 import hashlib
 import json
 import logging
+import os
 import re
+import select
+import termios
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 from aiohttp import WSMsgType, web
-import serial
 from serial.tools import list_ports
 
 
@@ -28,11 +33,19 @@ SERIAL_WRITE_TIMEOUT = 0.1
 SERIAL_READ_CHUNK = 512
 SERIAL_FRAME_TIMEOUT = 0.5
 QUEUE_FRAME_TTL = 0.25
+SERIAL_WRITE_POLL = 0.01
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5177
 DEFAULT_ORIGIN = "http://127.0.0.1:5176"
 PORT_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 LOGGER = logging.getLogger("gosha_motion_studio.usb_bridge")
+RETRY_WRITE_ERRNOS = {
+    errno.EAGAIN,
+    errno.EALREADY,
+    errno.EWOULDBLOCK,
+    errno.EINPROGRESS,
+    errno.EINTR,
+}
 
 
 class BridgeError(Exception):
@@ -109,33 +122,199 @@ def list_allowed_ports(
     return result
 
 
+def _clear_flag(value: int, name: str) -> int:
+    return value & ~getattr(termios, name, 0)
+
+
+def _cc_is_zero(value: object) -> bool:
+    return value == 0 or value == b"\x00"
+
+
+def _verify_tty_raw_no_hangup(fd: int) -> None:
+    attrs = termios.tcgetattr(fd)
+    cflag = attrs[2]
+    if (cflag & termios.CLOCAL) != termios.CLOCAL:
+        raise BridgeError("usb_serial_safety")
+    if (cflag & termios.CREAD) != termios.CREAD:
+        raise BridgeError("usb_serial_safety")
+    if (cflag & termios.CSIZE) != termios.CS8:
+        raise BridgeError("usb_serial_safety")
+    for name in ("CRTSCTS", "HUPCL"):
+        if cflag & getattr(termios, name, 0):
+            raise BridgeError("usb_serial_safety")
+    speed = getattr(termios, f"B{SERIAL_BAUD}", None)
+    if attrs[4] != speed or attrs[5] != speed:
+        raise BridgeError("usb_serial_safety")
+    if not _cc_is_zero(attrs[6][termios.VMIN]):
+        raise BridgeError("usb_serial_safety")
+    if not _cc_is_zero(attrs[6][termios.VTIME]):
+        raise BridgeError("usb_serial_safety")
+
+
+def _configure_tty_raw_no_hangup(fd: int) -> None:
+    attrs = termios.tcgetattr(fd)
+    iflag, oflag, cflag, lflag, _ispeed, _ospeed, cc = attrs
+
+    for name in (
+        "INLCR",
+        "IGNCR",
+        "ICRNL",
+        "IGNBRK",
+        "BRKINT",
+        "PARMRK",
+        "ISTRIP",
+        "INPCK",
+        "IXON",
+        "IXOFF",
+        "IXANY",
+    ):
+        iflag = _clear_flag(iflag, name)
+    for name in ("OPOST", "ONLCR", "OCRNL"):
+        oflag = _clear_flag(oflag, name)
+    for name in (
+        "ICANON",
+        "ECHO",
+        "ECHOE",
+        "ECHOK",
+        "ECHONL",
+        "ISIG",
+        "IEXTEN",
+        "ECHOCTL",
+        "ECHOKE",
+    ):
+        lflag = _clear_flag(lflag, name)
+
+    cflag = _clear_flag(cflag, "CSIZE")
+    cflag |= termios.CS8 | termios.CLOCAL | termios.CREAD
+    for name in ("PARENB", "PARODD", "CMSPAR", "CSTOPB", "CRTSCTS", "HUPCL"):
+        cflag = _clear_flag(cflag, name)
+
+    speed = getattr(termios, f"B{SERIAL_BAUD}", None)
+    if speed is None:
+        raise BridgeError("usb_serial_safety")
+    attrs = [iflag, oflag, cflag, lflag, speed, speed, cc]
+    attrs[6][termios.VMIN] = 0
+    attrs[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    _verify_tty_raw_no_hangup(fd)
+
+
+class PosixSerialDevice:
+    def __init__(
+        self,
+        device: str,
+        *,
+        baudrate: int = SERIAL_BAUD,
+        timeout: float = SERIAL_READ_TIMEOUT,
+        write_timeout: float = SERIAL_WRITE_TIMEOUT,
+    ) -> None:
+        if baudrate != SERIAL_BAUD or write_timeout > SERIAL_WRITE_TIMEOUT:
+            raise BridgeError("usb_serial_safety")
+        self.port = device
+        self.baudrate = baudrate
+        self.timeout = timeout
+        self.write_timeout = write_timeout
+        self.exclusive = True
+        self.fd: int | None = None
+        self.is_open = False
+
+    def open(self) -> None:
+        if self.is_open:
+            raise BridgeError("usb_port_busy")
+        fd: int | None = None
+        stage = "open"
+        try:
+            fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            stage = "lock"
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            stage = "configure"
+            _configure_tty_raw_no_hangup(fd)
+            self.fd = fd
+            self.is_open = True
+        except BlockingIOError as exc:
+            if fd is not None:
+                with contextlib.suppress(Exception):
+                    os.close(fd)
+            code = "usb_serial_safety" if stage == "configure" else "usb_port_busy"
+            raise BridgeError(code) from exc
+        except BridgeError:
+            if fd is not None:
+                with contextlib.suppress(Exception):
+                    os.close(fd)
+            raise
+        except Exception as exc:
+            if fd is not None:
+                with contextlib.suppress(Exception):
+                    os.close(fd)
+            code = "usb_serial_safety" if stage == "configure" else "usb_port_busy"
+            raise BridgeError(code) from exc
+
+    def fileno(self) -> int:
+        if self.fd is None or not self.is_open:
+            raise BridgeError("serial_error")
+        return self.fd
+
+    def reset_input_buffer(self) -> None:
+        if self.fd is None or not self.is_open:
+            raise BridgeError("serial_error")
+        termios.tcflush(self.fd, termios.TCIFLUSH)
+
+    def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes:
+        fd = self.fileno()
+        limit = size if size is not None else 1
+        line = bytearray()
+        deadline = time.monotonic() + self.timeout
+        while len(line) < limit:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                readable, _, _ = select.select([fd], [], [], remaining)
+            except OSError as exc:
+                if exc.errno in RETRY_WRITE_ERRNOS:
+                    continue
+                raise BridgeError("serial_error") from exc
+            if not readable:
+                break
+            try:
+                chunk = os.read(fd, 1)
+            except OSError as exc:
+                if exc.errno in RETRY_WRITE_ERRNOS:
+                    continue
+                raise BridgeError("serial_error") from exc
+            if not chunk:
+                raise BridgeError("serial_error")
+            line.extend(chunk)
+            if line.endswith(expected):
+                break
+        return bytes(line)
+
+    def close(self) -> None:
+        fd, self.fd = self.fd, None
+        self.is_open = False
+        if fd is not None:
+            with contextlib.suppress(Exception):
+                os.close(fd)
+
+
+def _make_serial_device(
+    port: AllowedPort,
+    serial_factory: Callable[[str], Any] | None,
+) -> Any:
+    if serial_factory is None:
+        return PosixSerialDevice(port.device)
+    return serial_factory(port.device)
+
+
 def open_serial_port(
     port: AllowedPort,
-    serial_factory: Callable[[], Any] = serial.Serial,
+    serial_factory: Callable[[str], Any] | None = None,
 ) -> Any:
     ser: Any | None = None
 
-    def require_attr(name: str, value: object) -> None:
-        assert ser is not None
-        try:
-            setattr(ser, name, value)
-        except Exception as exc:
-            raise BridgeError("usb_serial_safety") from exc
-        if getattr(ser, name, value) != value:
-            raise BridgeError("usb_serial_safety")
-
     try:
-        ser = serial_factory()
-        ser.port = port.device
-        ser.baudrate = SERIAL_BAUD
-        ser.timeout = SERIAL_READ_TIMEOUT
-        ser.write_timeout = SERIAL_WRITE_TIMEOUT
-        require_attr("exclusive", True)
-        require_attr("dtr", False)
-        require_attr("rts", False)
+        ser = _make_serial_device(port, serial_factory)
         ser.open()
-        require_attr("dtr", False)
-        require_attr("rts", False)
         with contextlib.suppress(Exception):
             ser.reset_input_buffer()
         return ser
@@ -149,6 +328,75 @@ def open_serial_port(
             with contextlib.suppress(Exception):
                 ser.close()
         raise BridgeError("usb_port_busy") from exc
+
+
+def _serial_fd(serial_obj: Any) -> int:
+    fileno = getattr(serial_obj, "fileno", None)
+    if callable(fileno):
+        fd = fileno()
+    else:
+        fd = getattr(serial_obj, "fd", None)
+    if not isinstance(fd, int) or fd < 0:
+        raise BridgeError("serial_error")
+    return fd
+
+
+def _select_writable(fd: int, timeout: float) -> bool:
+    try:
+        _, writable, _ = select.select([], [fd], [], timeout)
+    except OSError as exc:
+        if exc.errno in RETRY_WRITE_ERRNOS:
+            return False
+        raise BridgeError("serial_error") from exc
+    return bool(writable)
+
+
+def _write_frame_bounded(
+    serial_obj: Any,
+    data: bytes,
+    timeout_seconds: float,
+    should_stop: Callable[[], bool],
+    *,
+    os_write: Callable[[int, memoryview], int] = os.write,
+    select_writable: Callable[[int, float], bool] = _select_writable,
+    clock: Callable[[], float] = time.monotonic,
+) -> int:
+    timeout_seconds = min(timeout_seconds, SERIAL_WRITE_TIMEOUT)
+    if timeout_seconds <= 0:
+        raise BridgeError("usb_bridge_queue_stale")
+    fd = _serial_fd(serial_obj)
+    view = memoryview(data)
+    deadline = clock() + timeout_seconds
+    offset = 0
+    wait_before_next_write = False
+
+    while offset < len(view):
+        if should_stop():
+            raise BridgeError("serial_error")
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise BridgeError("usb_bridge_queue_stale")
+        if wait_before_next_write:
+            wait_time = min(remaining, SERIAL_WRITE_POLL)
+            if not select_writable(fd, wait_time):
+                continue
+            if should_stop():
+                raise BridgeError("serial_error")
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise BridgeError("usb_bridge_queue_stale")
+        try:
+            written = os_write(fd, view[offset:])
+        except OSError as exc:
+            if exc.errno in RETRY_WRITE_ERRNOS:
+                wait_before_next_write = True
+                continue
+            raise BridgeError("serial_error") from exc
+        if written <= 0:
+            raise BridgeError("serial_error")
+        offset += written
+        wait_before_next_write = offset < len(view)
+    return offset
 
 
 def _compact_json(data: Any) -> str:
@@ -200,13 +448,15 @@ class BridgeController:
         *,
         allowed_origin: str = DEFAULT_ORIGIN,
         comports: Callable[[], Iterable[Any]] = list_ports.comports,
-        serial_factory: Callable[[], Any] = serial.Serial,
+        serial_factory: Callable[[str], Any] | None = None,
+        serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
         hello_timeout: float = 2.5,
         logger: logging.Logger = LOGGER,
     ) -> None:
         self.allowed_origin = allowed_origin
         self.comports = comports
         self.serial_factory = serial_factory
+        self.serial_writer = serial_writer
         self.hello_timeout = hello_timeout
         self.logger = logger
         self._active = False
@@ -334,6 +584,8 @@ class BridgeController:
                 except Exception:
                     await close_with_error("serial_error")
                     return
+                if stop_event.is_set():
+                    return
                 now = asyncio.get_running_loop().time()
                 if (
                     frame_started_at is not None
@@ -378,9 +630,24 @@ class BridgeController:
                     await close_with_error("usb_bridge_queue_stale")
                     return
                 try:
-                    written = await asyncio.to_thread(serial_obj.write, frame.line)
+                    timeout_seconds = min(
+                        SERIAL_WRITE_TIMEOUT,
+                        frame.deadline - asyncio.get_running_loop().time(),
+                    )
+                    written = await asyncio.to_thread(
+                        self.serial_writer,
+                        serial_obj,
+                        frame.line,
+                        timeout_seconds,
+                        stop_event.is_set,
+                    )
+                except BridgeError as exc:
+                    await close_with_error(exc.code)
+                    return
                 except Exception:
                     await close_with_error("serial_error")
+                    return
+                if stop_event.is_set():
                     return
                 if written != len(frame.line):
                     await close_with_error("serial_error")
@@ -415,6 +682,31 @@ class BridgeController:
                     break
         finally:
             stop_event.set()
+            cancel_requested = False
+
+            async def run_cleanup(awaitable_factory: Callable[[], Any]) -> Any:
+                nonlocal cancel_requested
+                try:
+                    return await awaitable_factory()
+                except asyncio.CancelledError:
+                    cancel_requested = True
+                    current = asyncio.current_task()
+                    if current is not None and hasattr(current, "uncancel"):
+                        current.uncancel()
+                    return await awaitable_factory()
+
+            async def drain_io_tasks() -> None:
+                if not tasks:
+                    return
+                done, pending = await asyncio.wait(
+                    tasks,
+                    timeout=SERIAL_READ_TIMEOUT + SERIAL_WRITE_TIMEOUT + 0.2,
+                )
+                if pending:
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+
             if hello_task is not None:
                 hello_task.cancel()
             while not write_queue.empty():
@@ -422,14 +714,13 @@ class BridgeController:
                     write_queue.get_nowait()
             with contextlib.suppress(asyncio.QueueFull):
                 write_queue.put_nowait(None)
+            await run_cleanup(drain_io_tasks)
             if serial_obj is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.to_thread(serial_obj.close)
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            await self.release_owner()
+                    serial_obj.close()
+            await run_cleanup(self.release_owner)
+            if cancel_requested:
+                raise asyncio.CancelledError
         return ws
 
 
@@ -437,13 +728,15 @@ def create_app(
     *,
     allowed_origin: str = DEFAULT_ORIGIN,
     comports: Callable[[], Iterable[Any]] = list_ports.comports,
-    serial_factory: Callable[[], Any] = serial.Serial,
+    serial_factory: Callable[[str], Any] | None = None,
+    serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
     hello_timeout: float = 2.5,
 ) -> web.Application:
     controller = BridgeController(
         allowed_origin=allowed_origin,
         comports=comports,
         serial_factory=serial_factory,
+        serial_writer=serial_writer,
         hello_timeout=hello_timeout,
     )
     app = web.Application(client_max_size=REQUEST_JSON_MAX + 1024)

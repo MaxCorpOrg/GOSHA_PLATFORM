@@ -181,9 +181,12 @@ USB не меняет JSON-контракт Live. Браузер подключ�
 `ws://127.0.0.1:5177/live?port_id=<opaque-id>`. Служба принимает запросы только
 с точным Origin редактора `http://127.0.0.1:5176`, работает на loopback и
 допускает одного владельца serial-порта. Перед открытием port настроен как
-exclusive, `115200`, `write_timeout` меньше watchdog, DTR/RTS сняты; если
-безопасная настройка не подтверждается, порт не открывается. Служба не делает
-reset, не toggles DTR/RTS для autoreset и не запускает helper motion-callback.
+exclusive, raw `115200`, deadline записи меньше watchdog. Linux adapter не
+вызывает modem-line ioctl и не переключает DTR/RTS; `HUPCL` и flow control
+выключены и проверяются повторным чтением termios. PySerial используется
+только для перечисления устройств: его последовательные DTR/RTS setter при
+open на ESP32-S3 могли вызывать USB reset. При неподтверждённой настройке
+обмен закрывается. Служба не запускает helper motion-callback.
 
 Первым сообщением WebSocket должен быть обычный Live `hello`. Если устройство
 отсутствует, занято или не возвращает корректный `capabilities`, клиент получает
