@@ -132,21 +132,22 @@ export function mountLivePanel({
   signal,
 }) {
   const sidebar = document.querySelector(".library");
+  const workspace = document.querySelector(".workspace");
   const panel = document.createElement("section");
   panel.id = "live-panel";
   panel.className = "live-panel";
   panel.hidden = true;
   panel.innerHTML = `
-    <div class="live-heading"><span class="eyebrow">РЕАЛЬНЫЙ РОБОТ</span><h2>Live-настройка</h2><p>Проверяйте движение на роботе и наблюдайте его опору.</p></div>
-    <div class="live-connection-state"><span id="live-dot"></span><strong id="live-state">Не подключён</strong></div>
-    <p id="live-reason" class="live-reason">Подключите робота с поддержкой Live.</p>
-    <label class="live-field">Адрес в домашней сети<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
-    <button id="live-connect" class="button">Подключить робота</button>
-    <div id="live-auth" hidden><label class="live-field">Ключ доступа Live<input id="live-key" type="password" autocomplete="off" placeholder="Выдан при настройке робота" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
-    <p id="live-commissioning-note" class="live-reason" hidden>Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.</p>
-    <button id="live-copy-pose" class="button quiet" hidden>Взять текущие команды робота</button>
+    <div class="live-heading"><span class="eyebrow">РЕАЛЬНЫЙ РОБОТ</span><h2>Live</h2></div>
+    <div class="live-primary">
+      <div class="live-connection-state"><span id="live-dot"></span><strong id="live-state">Не подключён</strong></div>
+      <p id="live-reason" class="live-reason">Подключите робота с поддержкой Live.</p>
+      <label class="live-field">Адрес робота<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
+      <button id="live-connect" class="button">Подключить робота</button>
+      <div id="live-auth" hidden><label class="live-field">Ключ Live<input id="live-key" type="password" autocomplete="off" placeholder="16+ символов" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
+    </div>
     <div id="live-step" class="live-step" hidden>
-      <h3>Пошаговый тест</h3>
+      <div class="live-step-title"><h3>Пошаговый тест</h3><span>удержание</span></div>
       <div id="live-step-joints" class="live-step-joints"></div>
       <dl class="live-step-status">
         <dt>Сустав</dt><dd id="live-step-joint">—</dd>
@@ -155,15 +156,29 @@ export function mountLivePanel({
         <dt>Шаг</dt><dd id="live-step-size">—</dd>
       </dl>
       <div class="live-step-actions"><button id="live-step-minus" class="button quiet" aria-pressed="true">−</button><button id="live-step-plus" class="button quiet" aria-pressed="false">+</button><button id="live-step-hold" class="button live-hold" disabled>Удерживать шаг</button></div>
-      <small>Подготовка цели не двигает робота и не меняет библиотеку. Движение идёт только пока удерживается кнопка.</small>
+      <small>Цель готовится без движения. Робот двигается только пока удерживается кнопка.</small>
     </div>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
-    <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
-    <div id="live-limits" class="live-limits"></div>
-    <div class="live-log"><h3>Журнал команд</h3><ol id="live-command-log"></ol></div>
-    <p class="live-final-note">Остановка удерживает последнюю команду приводам. Она не выравнивает робота и не заменяет физическое отключение питания.</p>
+    <details class="live-details">
+      <summary>Пояснения и режим</summary>
+      <p id="live-commissioning-note" class="live-reason" hidden>Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.</p>
+      <button id="live-copy-pose" class="button quiet" hidden>Взять текущие команды робота</button>
+    </details>
+    <details class="live-details">
+      <summary>Обратная связь и пределы</summary>
+      <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
+      <div id="live-limits" class="live-limits"></div>
+    </details>
+    <details class="live-details">
+      <summary>Журнал команд</summary>
+      <div class="live-log"><ol id="live-command-log"></ol></div>
+    </details>
+    <details class="live-details">
+      <summary>Что делает STOP</summary>
+      <p class="live-final-note">Остановка удерживает последнюю команду приводам. Она не выравнивает робота и не заменяет физическое отключение питания.</p>
+    </details>
   `;
   sidebar.prepend(panel);
   const toggle = document.createElement("div");
@@ -315,6 +330,11 @@ export function mountLivePanel({
         onPlayback(false);
       }
     }
+    workspace?.classList.toggle("live-workspace", enabled);
+    workspace?.classList.toggle(
+      "live-right-arm-workspace",
+      enabled && isRightArmMode(state),
+    );
     byId("live-state").textContent = states[state.state];
     byId("live-dot").className = ["ready", "armed"].includes(state.state)
       ? "connected"
@@ -464,6 +484,8 @@ export function mountLivePanel({
     onPlayback(false);
     panel.hidden = !value;
     sidebar.classList.toggle("show-live", value);
+    workspace?.classList.toggle("live-workspace", value);
+    if (!value) workspace?.classList.remove("live-right-arm-workspace");
     byId("mode-live").setAttribute("aria-pressed", value);
     byId("mode-preview").setAttribute("aria-pressed", !value);
   }
