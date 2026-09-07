@@ -1,4 +1,8 @@
-import { LiveSession, RIGHT_ARM_COMMISSIONING_MODE } from "./live.js";
+import {
+  LiveSession,
+  RIGHT_ARM_COMMISSIONING_MODE,
+  listUsbBridgePorts,
+} from "./live.js";
 import { PROFILE } from "./motion.js";
 
 const formatDegrees = (value) =>
@@ -142,8 +146,16 @@ export function mountLivePanel({
     <div class="live-primary">
       <div class="live-connection-state"><span id="live-dot"></span><strong id="live-state">Не подключён</strong></div>
       <p id="live-reason" class="live-reason">Подключите робота с поддержкой Live.</p>
-      <label class="live-field">Адрес робота<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
-      <button id="live-connect" class="button">Подключить робота</button>
+      <div class="live-transport" role="group" aria-label="Транспорт Live"><button id="live-transport-usb" type="button" aria-pressed="true">USB</button><button id="live-transport-wifi" type="button" aria-pressed="false">Wi-Fi</button></div>
+      <div id="live-usb-controls" class="live-usb-controls">
+        <label class="live-field">USB-порт<select id="live-usb-port"></select></label>
+        <button id="live-usb-refresh" class="button quiet" type="button">Найти USB</button>
+        <small id="live-usb-status">Служба USB слушает только этот компьютер и показывает только USB 303a:1001.</small>
+      </div>
+      <div id="live-wifi-controls" hidden>
+        <label class="live-field">Адрес робота<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
+      </div>
+      <button id="live-connect" class="button">Подключить по USB</button>
       <div id="live-auth" hidden><label class="live-field">Ключ Live<input id="live-key" type="password" autocomplete="off" placeholder="16+ символов" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
     </div>
     <div id="live-step" class="live-step" hidden>
@@ -193,6 +205,11 @@ export function mountLivePanel({
   let running = false;
   let playbackScale = 1;
   let connectionState;
+  let transport = "usb";
+  let usbPorts = [];
+  let usbLoading = false;
+  let usbMessage =
+    "Служба USB слушает только этот компьютер и показывает только USB 303a:1001.";
   let stepDirection = -1;
   let activeStep = null;
   const abort = new AbortController();
@@ -226,6 +243,9 @@ export function mountLivePanel({
   };
   const isRightArmMode = (state) =>
     state.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE;
+  const selectedUsbPort = () => byId("live-usb-port").value;
+  const canChangeTransport = (state) =>
+    ["disconnected", "fault"].includes(state.state);
   const activeJointIds = (state) =>
     state.caps?.joint_limits.map((limit) => limit.id) ?? [];
   const selectedLiveJoint = (state) => {
@@ -316,6 +336,42 @@ export function mountLivePanel({
       list.append(item);
     }
   }
+  function renderUsbPorts() {
+    const select = byId("live-usb-port");
+    const previous = select.value;
+    select.replaceChildren();
+    if (!usbPorts.length) {
+      select.add(new Option("USB 303a:1001 не найден", ""));
+    } else {
+      for (const port of usbPorts)
+        select.add(
+          new Option(
+            `${port.label}${port.busy ? " · занят" : ""}`,
+            port.port_id,
+          ),
+        );
+      if (usbPorts.some((port) => port.port_id === previous))
+        select.value = previous;
+    }
+  }
+  async function refreshUsbPorts() {
+    if (usbLoading) return;
+    usbLoading = true;
+    usbMessage = "Ищем USB 303a:1001 через локальную службу…";
+    render(session.snapshot());
+    try {
+      usbPorts = await listUsbBridgePorts();
+      usbMessage = usbPorts.length
+        ? "Найденный порт не открывается до нажатия «Подключить по USB»."
+        : "USB 303a:1001 не найден. Проверьте кабель и обновите список.";
+    } catch (e) {
+      usbPorts = [];
+      usbMessage = e.message;
+    } finally {
+      usbLoading = false;
+      if (!abort.signal.aborted) render(session.snapshot());
+    }
+  }
   function render(state) {
     connectionState = state;
     if (pendingMode !== null && state.state === "disconnected") {
@@ -342,6 +398,23 @@ export function mountLivePanel({
         ? "fault"
         : "";
     byId("live-reason").textContent = state.reason;
+    renderUsbPorts();
+    byId("live-transport-usb").setAttribute(
+      "aria-pressed",
+      transport === "usb",
+    );
+    byId("live-transport-wifi").setAttribute(
+      "aria-pressed",
+      transport === "wifi",
+    );
+    byId("live-transport-usb").disabled = !canChangeTransport(state);
+    byId("live-transport-wifi").disabled = !canChangeTransport(state);
+    byId("live-usb-controls").hidden = transport !== "usb";
+    byId("live-wifi-controls").hidden = transport !== "wifi";
+    byId("live-usb-refresh").disabled =
+      !canChangeTransport(state) || usbLoading;
+    byId("live-usb-port").disabled = !canChangeTransport(state) || usbLoading;
+    byId("live-usb-status").textContent = usbMessage;
     const keyReady = byId("live-key").value.length >= 16;
     const rightArmInitState = ["init_required", "initializing_right_arm"].includes(
       state.state,
@@ -359,15 +432,19 @@ export function mountLivePanel({
       state.state !== "init_required" || !keyReady;
     byId("live-arm").hidden = rightArmInitState;
     byId("live-arm").disabled = state.state !== "ready";
-    byId("live-host").disabled = !["disconnected", "fault"].includes(
-      state.state,
-    );
+    byId("live-host").disabled = !canChangeTransport(state);
     byId("live-connect").textContent = ["disconnected", "fault"].includes(
       state.state,
     )
-      ? "Подключить робота"
+      ? transport === "usb"
+        ? "Подключить по USB"
+        : "Подключить по Wi-Fi"
       : "Отключить";
-    byId("live-connect").disabled = state.state === "stopping";
+    byId("live-connect").disabled =
+      state.state === "stopping" ||
+      (transport === "usb" &&
+        ["disconnected", "fault"].includes(state.state) &&
+        !selectedUsbPort());
     byId("live-hold").textContent = isRightArmMode(state)
       ? "Текущая поза недоступна"
       : "Удерживать → текущая поза";
@@ -426,7 +503,7 @@ export function mountLivePanel({
         ? "Не измеряется"
         : "Нет данных";
     byId("live-feedback-note").textContent = state.caps
-      ? "Команда приводу не подтверждает его фактический угол. Отсутствующие измерения не заменяются расчётом."
+      ? "ACK и STOP подтверждают принятую команду прошивки, а не физический угол. Отсутствующие измерения не заменяются расчётом."
       : "Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.";
     byId("live-limits").replaceChildren();
     if (state.caps) {
@@ -472,8 +549,9 @@ export function mountLivePanel({
         : "3D-предпросмотр",
     );
     const status = document.querySelector(".statusbar > span:first-child");
+    const transportName = state.transport === "usb" ? "USB" : "Wi-Fi";
     status.textContent = enabled
-      ? `Live · ${states[state.state]}`
+      ? `Live ${transportName} · ${states[state.state]}`
       : "На компьютере · робот не подключён";
     onUpdate();
   }
@@ -488,6 +566,8 @@ export function mountLivePanel({
     if (!value) workspace?.classList.remove("live-right-arm-workspace");
     byId("mode-live").setAttribute("aria-pressed", value);
     byId("mode-preview").setAttribute("aria-pressed", !value);
+    if (value && transport === "usb" && !usbPorts.length && !usbLoading)
+      refreshUsbPorts();
   }
   function mode(value) {
     if (value === enabled) return;
@@ -521,10 +601,23 @@ export function mountLivePanel({
   }
   byId("mode-preview").onclick = () => mode(false);
   byId("mode-live").onclick = () => mode(true);
+  byId("live-transport-usb").onclick = () => {
+    if (!canChangeTransport(session.snapshot())) return;
+    transport = "usb";
+    render(session.snapshot());
+    refreshUsbPorts();
+  };
+  byId("live-transport-wifi").onclick = () => {
+    if (!canChangeTransport(session.snapshot())) return;
+    transport = "wifi";
+    render(session.snapshot());
+  };
+  byId("live-usb-refresh").onclick = refreshUsbPorts;
   byId("live-connect").onclick = () =>
     guarded(() => {
       if (!["disconnected", "fault"].includes(session.state))
         session.requestDisconnect();
+      else if (transport === "usb") session.connectUsb(selectedUsbPort());
       else session.connect(byId("live-host").value);
     });
   byId("live-arm").onclick = () =>

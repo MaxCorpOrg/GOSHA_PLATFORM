@@ -1,6 +1,8 @@
 import { PROFILE, validatePose } from "./motion.js";
 
 export const LIVE_PROTOCOL = "gosha.motion.live.v1";
+export const USB_BRIDGE_HTTP_URL = "http://127.0.0.1:5177";
+export const USB_BRIDGE_WS_URL = "ws://127.0.0.1:5177/live";
 export const RIGHT_ARM_INITIALIZATION_REASON =
   "right_arm_initialization_required";
 export const RIGHT_ARM_COMMISSIONING_MODE = "commissioning_right_arm";
@@ -16,6 +18,7 @@ const RIGHT_ARM_COMMISSIONING_JOINTS = Object.freeze([
   ...LEG_COMMISSIONING_JOINTS,
 ]);
 const COMMAND_LOG_LIMIT = 16;
+const USB_PORT_ID_PATTERN = /^[a-f0-9]{24}$/;
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -113,6 +116,104 @@ export function robotSocketUrl(host) {
   );
   // Normalize decimal octets before URL parsing (which otherwise accepts octal).
   return `ws://${privateIp ? ipv4.map(Number).join(".") : host}:8080/ws`;
+}
+
+export function usbBridgeSocketUrl(portId) {
+  assert(
+    typeof portId === "string" && USB_PORT_ID_PATTERN.test(portId),
+    "Выберите USB-порт из списка найденных устройств.",
+  );
+  const url = new URL(USB_BRIDGE_WS_URL);
+  url.searchParams.set("port_id", portId);
+  return url.toString();
+}
+
+function normalizeUsbBridgePort(port) {
+  assert(
+    port &&
+      typeof port === "object" &&
+      !Object.hasOwn(port, "path") &&
+      !Object.hasOwn(port, "device") &&
+      !Object.hasOwn(port, "raw") &&
+      typeof port.port_id === "string" &&
+      USB_PORT_ID_PATTERN.test(port.port_id) &&
+      typeof port.label === "string" &&
+      port.label.length >= 3 &&
+      port.label.length <= 120 &&
+      !port.label.includes("/") &&
+      port.vid === "303a" &&
+      port.pid === "1001" &&
+      (port.busy === undefined || typeof port.busy === "boolean"),
+    "Локальная служба USB вернула неподдерживаемое устройство.",
+  );
+  return {
+    port_id: port.port_id,
+    label: port.label,
+    vid: port.vid,
+    pid: port.pid,
+    busy: port.busy === true,
+  };
+}
+
+export async function listUsbBridgePorts({
+  fetchImpl = fetch,
+  bridgeUrl = USB_BRIDGE_HTTP_URL,
+  timeoutMs = 1200,
+} = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(`${bridgeUrl}/ports`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response?.ok)
+      throw new Error(
+        "Локальная служба USB недоступна. Запустите редактор через bash start.sh.",
+      );
+    const data = await response.json();
+    assert(
+      data?.protocol === LIVE_PROTOCOL && Array.isArray(data.ports),
+      "Локальная служба USB вернула неожиданный ответ.",
+    );
+    return data.ports.map(normalizeUsbBridgePort);
+  } catch (e) {
+    if (controller.signal.aborted)
+      throw new Error(
+        "Локальная служба USB недоступна. Запустите редактор через bash start.sh.",
+      );
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function bridgeErrorMessage(code) {
+  const messages = {
+    usb_device_absent:
+      "USB-устройство 303a:1001 не найдено. Обновите список и проверьте кабель.",
+    usb_port_busy:
+      "USB-порт уже занят другой программой или сессией Live.",
+    firmware_nohello:
+      "USB-порт открыт, но прошивка не ответила на Live hello.",
+    usb_bridge_request_too_large:
+      "Служба USB отклонила слишком большой запрос.",
+    usb_bridge_queue_full:
+      "Служба USB остановила переполненную очередь команд.",
+    usb_bridge_queue_stale:
+      "Служба USB закрыла устаревшую очередь команд. Повторное движение требует новой сессии.",
+    usb_bridge_invalid_request:
+      "Служба USB получила некорректный Live-запрос.",
+    usb_bridge_invalid_response:
+      "Служба USB получила некорректный ответ прошивки.",
+    usb_bridge_response_too_large:
+      "Служба USB остановила слишком большой ответ прошивки.",
+    serial_error:
+      "USB-соединение с устройством прервано. Повторное движение требует новой сессии.",
+    usb_serial_safety:
+      "Служба USB не смогла безопасно отключить DTR/RTS перед открытием порта.",
+  };
+  return messages[code] ?? null;
 }
 
 export function validateCapabilities(data) {
@@ -261,11 +362,17 @@ export class LiveSession {
     this.rtt = null;
     this.closeAfterStop = false;
     this.commandLog = [];
+    this.transport = "wifi";
+    this.socketErrorReason =
+      "Не удалось соединиться. Проверьте адрес, Wi-Fi и поддержку Live в прошивке.";
+    this.socketCloseReason =
+      "Связь с роботом потеряна. Повторное движение требует новой сессии.";
   }
   snapshot() {
     return {
       state: this.state,
       reason: this.reason,
+      transport: this.transport,
       caps: this.caps,
       holding: this.holding,
       rtt: this.rtt,
@@ -298,21 +405,51 @@ export class LiveSession {
     this.onChange(this.snapshot());
   }
   connect(host) {
-    const url = robotSocketUrl(host);
+    this.connectUrl(robotSocketUrl(host), {
+      transport: "wifi",
+      connectingReason: "Проверяем поддержку Live…",
+      openErrorReason: "Браузер не разрешил подключение к роботу.",
+      socketErrorReason:
+        "Не удалось соединиться. Проверьте адрес, Wi-Fi и поддержку Live в прошивке.",
+      socketCloseReason:
+        "Связь с роботом потеряна. Повторное движение требует новой сессии.",
+    });
+  }
+  connectUsb(portId) {
+    this.connectUrl(usbBridgeSocketUrl(portId), {
+      transport: "usb",
+      connectingReason: "Проверяем USB Live через локальную службу…",
+      openErrorReason: "Браузер не смог открыть локальную службу USB.",
+      socketErrorReason:
+        "Локальная служба USB недоступна. Запустите редактор через bash start.sh.",
+      socketCloseReason:
+        "USB Live закрыт. Повторное движение требует новой сессии.",
+    });
+  }
+  connectUrl(url, {
+    transport = "wifi",
+    connectingReason = "Проверяем поддержку Live…",
+    openErrorReason = "Браузер не разрешил подключение к роботу.",
+    socketErrorReason = this.socketErrorReason,
+    socketCloseReason = this.socketCloseReason,
+  } = {}) {
     this.disconnect();
     const generation = ++this.generation;
+    this.transport = transport;
+    this.socketErrorReason = socketErrorReason;
+    this.socketCloseReason = socketCloseReason;
     this.caps = null;
     this.lastTelemetry = null;
     this.rtt = null;
     this.commandLog = [];
     this.requestId = this.makeId();
     this.deadline = this.now() + 3000;
-    this.change("connecting", "Проверяем поддержку Live…");
+    this.change("connecting", connectingReason);
     let socket;
     try {
       socket = this.socketFactory(url);
     } catch {
-      this.fail("Браузер не разрешил подключение к роботу.");
+      this.fail(openErrorReason);
       return;
     }
     this.socket = socket;
@@ -339,19 +476,34 @@ export class LiveSession {
       }
     };
     socket.onerror = () => {
-      if (generation === this.generation)
-        this.fail(
-          "Не удалось соединиться. Проверьте адрес, Wi-Fi и поддержку Live в прошивке.",
-        );
+      if (generation === this.generation) this.fail(this.socketErrorReason);
     };
     socket.onclose = () => {
-      if (generation === this.generation)
-        this.fail(
-          "Связь с роботом потеряна. Повторное движение требует новой сессии.",
-        );
+      if (generation === this.generation) this.fail(this.socketCloseReason);
     };
   }
   receive(data) {
+    if (
+      data.op === "error" &&
+      (data.request_id === this.requestId ||
+        data.session_id === this.sessionId ||
+        (this.transport === "usb" &&
+          ["connecting", "arming", "initializing_right_arm", "armed"].includes(
+            this.state,
+          )))
+    ) {
+      this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
+      const bridgeMessage = bridgeErrorMessage(data.code);
+      this.fail(
+        bridgeMessage ??
+          (data.code === "auth_failed"
+            ? "Робот отклонил ключ доступа."
+            : this.state === "initializing_right_arm"
+              ? "Робот отклонил включение правой руки."
+              : "Робот отклонил команду. Сессия остановлена."),
+      );
+      return;
+    }
     if (
       this.state === "connecting" &&
       data.op === "capabilities" &&
@@ -373,11 +525,19 @@ export class LiveSession {
         );
         return;
       }
-      this.change("ready", this.caps.commissioning
-        ? this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
-          ? "Правая рука включена. Один выбранный сустав за сессию: правая рука до 5°, ноги и стопы до 1° при 1°/с."
-          : "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
-        : "Робот совместим. Для движения откройте сессию.");
+      const transportNote =
+        this.transport === "usb"
+          ? " USB отвечает через локальную службу."
+          : "";
+      this.change(
+        "ready",
+        (this.caps.commissioning
+          ? this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
+            ? "Правая рука включена. Один выбранный сустав за сессию: правая рука до 5°, ноги и стопы до 1° при 1°/с."
+            : "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
+          : "Робот совместим. Для движения откройте сессию.") +
+          transportNote,
+      );
       return;
     }
     if (
@@ -431,20 +591,6 @@ export class LiveSession {
       this.commissioningJoint = null;
       this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
       this.change("armed", "Сессия открыта. Удерживайте разрешение движения.");
-      return;
-    }
-    if (
-      data.op === "error" &&
-      (data.request_id === this.requestId || data.session_id === this.sessionId)
-    ) {
-      this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
-      this.fail(
-        data.code === "auth_failed"
-          ? "Робот отклонил ключ доступа."
-          : this.state === "initializing_right_arm"
-            ? "Робот отклонил включение правой руки."
-            : "Робот отклонил команду. Сессия остановлена.",
-      );
       return;
     }
     if (

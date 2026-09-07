@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1 --port 5176 --strictPort",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5176 --strictPort",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:bridge": "bash scripts/run_bridge_tests.sh"
   },
   "dependencies": {
     "three": "0.185.1"

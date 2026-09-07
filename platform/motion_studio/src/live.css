@@ -65,6 +65,39 @@
   display: grid;
   gap: 9px;
 }
+.live-transport {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #3c4552;
+  border-radius: 7px;
+  background: #11161d;
+}
+.live-transport button {
+  min-height: 32px;
+  border-radius: 4px;
+  color: #aebaca;
+  font-size: 13px;
+}
+.live-transport button[aria-pressed="true"] {
+  background: #374354;
+  color: #f0f6fc;
+}
+.live-usb-controls,
+#live-wifi-controls {
+  display: grid;
+  gap: 8px;
+}
+.live-usb-controls[hidden],
+#live-wifi-controls[hidden] {
+  display: none;
+}
+.live-usb-controls small {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #aab6c6;
+}
 .live-reason {
   margin: 0;
   color: #abb7c6;
@@ -99,6 +132,11 @@
 }
 .live-field input {
   width: 100%;
+  font-size: 14px;
+}
+.live-field select {
+  width: 100%;
+  min-height: 36px;
   font-size: 14px;
 }
 #live-auth {

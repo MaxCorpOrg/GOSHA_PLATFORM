@@ -5,7 +5,9 @@ import {
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
   RIGHT_ARM_INITIALIZATION_REASON,
+  listUsbBridgePorts,
   robotSocketUrl,
+  usbBridgeSocketUrl,
   validateCapabilities,
 } from "../src/live.js";
 import {
@@ -37,8 +39,9 @@ function harness(caps = capabilities) {
   let now = 1000;
   let id = 0;
   const sockets = [];
-  const factory = () => {
+  const factory = (url) => {
     const socket = {
+      url,
       readyState: 0,
       bufferedAmount: 0,
       sent: [],
@@ -111,6 +114,111 @@ function harness(caps = capabilities) {
     },
   };
 }
+
+test("USB bridge client accepts only opaque listed ports and hides filesystem paths", async () => {
+  const port_id = "a".repeat(24);
+  assert.match(
+    usbBridgeSocketUrl(port_id),
+    /^ws:\/\/127\.0\.0\.1:5177\/live\?port_id=a{24}$/,
+  );
+  for (const invalid of ["", "/dev/ttyACM0", "a".repeat(23), "g".repeat(24)])
+    assert.throws(() => usbBridgeSocketUrl(invalid));
+
+  const ports = await listUsbBridgePorts({
+    fetchImpl: async (_url, options) => {
+      assert.ok(options.signal instanceof AbortSignal);
+      return {
+        ok: true,
+        async json() {
+          return {
+            protocol: LIVE_PROTOCOL,
+            ports: [{ port_id, label: "ESP32-S3 USB 303a:1001", vid: "303a", pid: "1001" }],
+          };
+        },
+      };
+    },
+  });
+  assert.deepEqual(ports, [
+    { port_id, label: "ESP32-S3 USB 303a:1001", vid: "303a", pid: "1001", busy: false },
+  ]);
+
+  await assert.rejects(
+    () =>
+      listUsbBridgePorts({
+        fetchImpl: async () => ({
+          ok: true,
+          async json() {
+            return {
+              protocol: LIVE_PROTOCOL,
+              ports: [
+                {
+                  port_id,
+                  label: "ESP32-S3 USB 303a:1001",
+                  vid: "303a",
+                  pid: "1001",
+                  path: "/dev/ttyACM0",
+                },
+              ],
+            };
+          },
+        }),
+      }),
+    /неподдерживаемое устройство/,
+  );
+});
+
+test("USB bridge port listing uses a bounded fetch timeout", async () => {
+  await assert.rejects(
+    () =>
+      listUsbBridgePorts({
+        timeoutMs: 1,
+        fetchImpl: (_url, options) =>
+          new Promise((resolve, reject) => {
+            options.signal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+            setTimeout(() => resolve({ ok: true, json: async () => ({}) }), 50);
+          }),
+      }),
+    /служба USB недоступна/,
+  );
+  await assert.rejects(
+    () =>
+      listUsbBridgePorts({
+        timeoutMs: 1,
+        fetchImpl: async (_url, options) => ({
+          ok: true,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              options.signal.addEventListener("abort", () =>
+                reject(new Error("body aborted")),
+              );
+            }),
+        }),
+      }),
+    /служба USB недоступна/,
+  );
+});
+
+test("USB Live connection uses the local bridge and still starts with hello only", () => {
+  const h = harness();
+  const port_id = "b".repeat(24);
+  h.live.connectUsb(port_id);
+  const socket = h.sockets.at(-1);
+  assert.equal(
+    socket.url,
+    `ws://127.0.0.1:5177/live?port_id=${port_id}`,
+  );
+  socket.readyState = 1;
+  socket.onopen();
+  assert.equal(socket.sent.length, 1);
+  assert.equal(socket.sent[0].op, "hello");
+  assert.deepEqual(Object.keys(socket.sent[0]).sort(), [
+    "op",
+    "protocol",
+    "request_id",
+  ]);
+});
 
 test("connection accepts LAN addresses only, never credentials, paths or public services", () => {
   assert.equal(robotSocketUrl("010.000.0.1"), "ws://10.0.0.1:8080/ws");
