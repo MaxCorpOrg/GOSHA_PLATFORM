@@ -9,7 +9,9 @@ import {
   validateCapabilities,
 } from "../src/live.js";
 import {
+  createLiveStepPlan,
   livePlaybackScale,
+  liveStepViewModel,
   prepareLiveStepTarget,
 } from "../src/live-panel.js";
 import { PROFILE, createMotion, putPose, zeroPose } from "../src/motion.js";
@@ -787,6 +789,90 @@ test("right-arm commissioning release sends STOP and keeps the final command exp
   const sent = socket.sent.length;
   h.advance(500);
   assert.equal(socket.sent.length, sent);
+});
+
+test("right-arm step display keeps the armed joint and absolute target through partial ACKs", () => {
+  const caps = validateCapabilities(rightArmCaps(true));
+  const activeStep = createLiveStepPlan(
+    zeroPose(),
+    caps,
+    "arm_positive_x",
+    -1,
+  );
+  for (const value of [0, -1, -2, -3, -4, -5]) {
+    const view = liveStepViewModel(
+      {
+        state: "armed",
+        caps,
+        holding: true,
+        telemetry: {
+          commanded_pose: { ...zeroPose(), arm_positive_x: value },
+        },
+      },
+      "leg_negative_x",
+      1,
+      activeStep,
+    );
+    assert.equal(view.jointId, "arm_positive_x");
+    assert.equal(view.direction, -1);
+    assert.equal(view.stepSize, 5);
+    assert.equal(view.current, value);
+    assert.equal(view.target.arm_positive_x, -5);
+    assert.equal(view.holdDisabled, false);
+    assert.equal(view.locked, true);
+  }
+  const stopping = liveStepViewModel(
+    {
+      state: "stopping",
+      caps,
+      holding: false,
+      telemetry: {
+        commanded_pose: { ...zeroPose(), arm_positive_x: -3 },
+      },
+    },
+    "foot_positive_x",
+    1,
+    activeStep,
+  );
+  assert.equal(stopping.jointId, "arm_positive_x");
+  assert.equal(stopping.target.arm_positive_x, -5);
+  assert.equal(stopping.locked, true);
+  assert.equal(stopping.holdDisabled, true);
+});
+
+test("right-arm held step keeps sending the fixed target until release follows STOP", () => {
+  const h = harness(() => rightArmCaps(true));
+  const socket = h.arm();
+  h.live.hold({ ...zeroPose(), arm_positive_x: -5 });
+  for (const value of [-1, -2, -3, -4, -5]) {
+    h.advance(50);
+    const poseMessage = socket.sent.at(-1);
+    assert.equal(poseMessage.op, "pose");
+    assert.equal(poseMessage.target.arm_positive_x, -5);
+    socket.receive({
+      protocol: LIVE_PROTOCOL,
+      op: "ack",
+      session_id: h.live.sessionId,
+      seq: h.live.pending.seq,
+      commanded_pose: { ...zeroPose(), arm_positive_x: value },
+      measured_pose: null,
+      tilt: null,
+    });
+  }
+  const session_id = h.live.sessionId;
+  h.live.release();
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(h.live.state, "stopping");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "stopped",
+    session_id,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -5 },
+    measured_pose: null,
+    tilt: null,
+  });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, -5);
 });
 
 test("right-arm commissioning keeps leg steps to one degree from the ARM baseline", () => {

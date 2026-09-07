@@ -31,9 +31,11 @@ UI Live получил пошаговый контроль: выбранный �
 bounded-журнал команд/ACK/STOP/ошибок без `access_key` и `session_id`.
 Подготовка цели не меняет keyframes или библиотеку; текущая библиотека владельца
 не очищалась. Общий playback в commissioning-режимах запрещён, а в режиме правой
-руки обычная «текущая поза» и пробел не отправляют позу из редактора.
+руки обычная «текущая поза» и пробел не отправляют позу из редактора. Во время
+удержания и STOP UI показывает зафиксированный активный тест: сустав, знак и
+абсолютная цель не пересчитываются от промежуточных ACK.
 
-Проверки: `npm test` — 51/51 PASS, `npm run build` — PASS. Browser reload,
+Проверки: `npm test` — 53/53 PASS, `npm run build` — PASS. Browser reload,
 robot/network/serial/flash/MCP motion/push/remote не выполнялись. Связанный
 прошивочный wire должен оставаться: `hello` → `capabilities(init_required)` →
 `initialize_right_arm` → `capabilities(initialized)` → ручной `arm` → удерживаемая

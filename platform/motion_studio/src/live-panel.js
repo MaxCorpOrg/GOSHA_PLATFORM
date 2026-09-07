@@ -27,6 +27,56 @@ export function prepareLiveStepTarget(commandedPose, caps, jointId, direction) {
   return target;
 }
 
+export function createLiveStepPlan(commandedPose, caps, jointId, direction) {
+  const stepSize = liveStepSizeForJoint(caps, jointId);
+  return {
+    jointId,
+    direction,
+    stepSize,
+    target: prepareLiveStepTarget(commandedPose, caps, jointId, direction),
+  };
+}
+
+export function liveStepViewModel(state, selectedJoint, direction, activeStep) {
+  const active = state.caps?.joint_limits.map((limit) => limit.id) ?? [];
+  const visible =
+    Boolean(state.caps) &&
+    !state.caps.initialization_required &&
+    state.state !== "disconnected" &&
+    state.state !== "fault";
+  if (!visible || !active.length)
+    return { visible, active, holdDisabled: true, locked: false };
+  const pose = state.telemetry?.commanded_pose ?? state.caps.commanded_pose;
+  const plan =
+    activeStep && active.includes(activeStep.jointId) ? activeStep : null;
+  const jointId =
+    plan?.jointId ?? (active.includes(selectedJoint) ? selectedJoint : active[0]);
+  const shownDirection = plan?.direction ?? direction;
+  const stepSize = plan?.stepSize ?? liveStepSizeForJoint(state.caps, jointId);
+  const locked = Boolean(plan && (state.holding || state.state === "stopping"));
+  let target = plan?.target ?? null;
+  let targetError = "";
+  if (!target) {
+    try {
+      target = prepareLiveStepTarget(pose, state.caps, jointId, shownDirection);
+    } catch (e) {
+      targetError = e.message;
+    }
+  }
+  return {
+    visible,
+    active,
+    jointId,
+    direction: shownDirection,
+    stepSize,
+    current: pose[jointId],
+    target,
+    targetError,
+    locked,
+    holdDisabled: state.state !== "armed" || !target,
+  };
+}
+
 export function livePlaybackScale(motion, caps, speed) {
   if (caps?.commissioning)
     throw new Error("При первичной проверке полные движения недоступны. Проверяйте по одному суставу.");
@@ -129,6 +179,7 @@ export function mountLivePanel({
   let playbackScale = 1;
   let connectionState;
   let stepDirection = -1;
+  let activeStep = null;
   const abort = new AbortController();
   signal.addEventListener(
     "abort",
@@ -169,8 +220,13 @@ export function mountLivePanel({
   };
   const currentCommandedPose = (state) =>
     state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
-  const buildStepTarget = (state) =>
-    prepareLiveStepTarget(
+  const reusableStepPlan = (state) =>
+    activeStep && activeJointIds(state).includes(activeStep.jointId)
+      ? activeStep
+      : null;
+  const buildStepPlan = (state) =>
+    reusableStepPlan(state) ??
+    createLiveStepPlan(
       currentCommandedPose(state),
       state.caps,
       selectedLiveJoint(state),
@@ -178,15 +234,16 @@ export function mountLivePanel({
     );
   function renderStep(state) {
     const step = byId("live-step");
-    const active = activeJointIds(state);
-    const visible =
-      Boolean(state.caps) &&
-      !state.caps.initialization_required &&
-      state.state !== "disconnected" &&
-      state.state !== "fault";
-    step.hidden = !visible;
+    const view = liveStepViewModel(
+      state,
+      getJoint(),
+      stepDirection,
+      activeStep,
+    );
+    step.hidden = !view.visible;
     byId("live-step-joints").replaceChildren();
-    if (!visible || !active.length) {
+    if (!view.visible || !view.active.length) {
+      activeStep = null;
       byId("live-step-joint").textContent = "—";
       byId("live-step-current").textContent = "—";
       byId("live-step-target").textContent = "—";
@@ -194,8 +251,8 @@ export function mountLivePanel({
       byId("live-step-hold").disabled = true;
       return;
     }
-    const selected = selectedLiveJoint(state);
-    for (const id of active) {
+    const selected = view.jointId;
+    for (const id of view.active) {
       const joint = jointById(id);
       const button = document.createElement("button");
       button.type = "button";
@@ -203,31 +260,30 @@ export function mountLivePanel({
       button.textContent = joint.short;
       button.dataset.liveJoint = id;
       button.classList.toggle("selected", id === selected);
-      button.onclick = () => onSelectJoint(id);
+      button.disabled = view.locked;
+      button.onclick = () => {
+        if (view.locked) return;
+        activeStep = null;
+        onSelectJoint(id);
+      };
       byId("live-step-joints").append(button);
     }
-    const pose = currentCommandedPose(state);
-    const stepSize = liveStepSizeForJoint(state.caps, selected);
-    let targetText = "—";
-    let target = null;
-    let targetError = "";
-    try {
-      target = buildStepTarget(state);
-      targetText = formatDegrees(target[selected]);
-    } catch (e) {
-      targetError = e.message;
-      targetText = "Вне предела";
-    }
+    const targetText = view.target
+      ? formatDegrees(view.target[selected])
+      : "Вне предела";
     byId("live-step-joint").textContent = jointById(selected).label;
-    byId("live-step-current").textContent = formatDegrees(pose[selected]);
+    byId("live-step-current").textContent = formatDegrees(view.current);
     byId("live-step-target").textContent = targetText;
-    byId("live-step-target").title = targetError;
-    byId("live-step-size").textContent = `${stepDirection > 0 ? "+" : "−"}${stepSize}°`;
-    byId("live-step-minus").setAttribute("aria-pressed", stepDirection === -1);
-    byId("live-step-plus").setAttribute("aria-pressed", stepDirection === 1);
-    byId("live-step-minus").textContent = `−${stepSize}°`;
-    byId("live-step-plus").textContent = `+${stepSize}°`;
-    byId("live-step-hold").disabled = state.state !== "armed" || !target;
+    byId("live-step-target").title = view.targetError;
+    byId("live-step-size").textContent =
+      `${view.direction > 0 ? "+" : "−"}${view.stepSize}°`;
+    byId("live-step-minus").setAttribute("aria-pressed", view.direction === -1);
+    byId("live-step-plus").setAttribute("aria-pressed", view.direction === 1);
+    byId("live-step-minus").disabled = view.locked;
+    byId("live-step-plus").disabled = view.locked;
+    byId("live-step-minus").textContent = `−${view.stepSize}°`;
+    byId("live-step-plus").textContent = `+${view.stepSize}°`;
+    byId("live-step-hold").disabled = view.holdDisabled;
   }
   function renderCommandLog(state) {
     const list = byId("live-command-log");
@@ -495,6 +551,14 @@ export function mountLivePanel({
     ["live-step-plus", 1],
   ]) {
     byId(id).onclick = () => {
+      const view = liveStepViewModel(
+        session.snapshot(),
+        getJoint(),
+        stepDirection,
+        activeStep,
+      );
+      if (view.locked) return;
+      activeStep = null;
       stepDirection = direction;
       render(session.snapshot());
     };
@@ -502,8 +566,14 @@ export function mountLivePanel({
   const stepHold = byId("live-step-hold");
   const startStep = () =>
     guarded(() => {
-      const target = buildStepTarget(session.snapshot());
-      session.hold(target);
+      const plan = buildStepPlan(session.snapshot());
+      activeStep = plan;
+      try {
+        session.hold(plan.target);
+      } catch (e) {
+        activeStep = null;
+        throw e;
+      }
       running = false;
       onPlayback(false);
       render(session.snapshot());
