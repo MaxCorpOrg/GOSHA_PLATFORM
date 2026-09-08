@@ -21,7 +21,7 @@ export function liveStepSizeForJoint(caps, jointId) {
   if (caps.commissioning) {
     const step = commissioningDeltaLimit(caps, jointId);
     if (!step) throw new Error("Выберите доступный сустав Live.");
-    return step;
+    return Math.min(step, 15);
   }
   return 1;
 }
@@ -630,7 +630,7 @@ export function mountLivePanel({
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
     const rightStep = rightArmStepSize(state);
     byId("live-commissioning-note").textContent = isRightArmMode(state)
-      ? `Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Текущий предел правой руки ${rightStep}°; направление модели проверяет оператор.`
+      ? `Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Текущий диапазон правой руки ${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").min}…${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").max}°; направление модели проверяет оператор.`
       : "Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.";
     byId("live-copy-pose").hidden =
       !state.caps?.commissioning || state.caps.initialization_required;

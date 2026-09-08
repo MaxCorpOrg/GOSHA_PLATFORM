@@ -35,6 +35,7 @@ function commissioningJointIds(mode) {
 }
 
 function rightArmCommissioningExtent(limit) {
+  if (limit?.id === "arm_positive_x" && limit.min === -70 && limit.max === 15) return 70;
   if (
     limit?.id === "arm_positive_x" &&
     RIGHT_ARM_COMMISSIONING_EXTENTS.includes(limit.max) &&
@@ -74,7 +75,7 @@ function validateCommissioningLimits(mode, joint_limits, watchdog_ms) {
         return limit.min === -1 && limit.max === 1;
       }),
     mode === RIGHT_ARM_COMMISSIONING_MODE
-      ? "Проверка правой руки допускает только правую руку ±5° или ±15°, ноги и стопы ±1°, скорость 1°/с."
+      ? "Проверка правой руки допускает только правую руку ±5°, ±15° или −70…+15°, ноги и стопы ±1°, скорость 1°/с."
       : "Первичная проверка допускает только ноги и стопы, ±1° и скорость 1°/с.",
   );
 }
@@ -550,10 +551,7 @@ export class LiveSession {
         );
         return;
       }
-      const rightArmExtent =
-        this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
-          ? commissioningDeltaLimit(this.caps, "arm_positive_x")
-          : null;
+      const rightArmLimit = this.caps.joint_limits.find((item) => item.id === "arm_positive_x");
       const transportNote =
         this.transport === "usb"
           ? " USB отвечает через локальную службу."
@@ -562,7 +560,7 @@ export class LiveSession {
         "ready",
         (this.caps.commissioning
           ? this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
-            ? `Правая рука включена. Один выбранный сустав за сессию: правая рука до ${rightArmExtent}°, ноги и стопы до 1° при 1°/с.`
+            ? `Правая рука включена. Один выбранный сустав за сессию: правая рука ${rightArmLimit.min}…${rightArmLimit.max}°, ноги и стопы до 1° при 1°/с.`
             : "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
           : "Робот совместим. Для движения откройте сессию.") +
           transportNote,

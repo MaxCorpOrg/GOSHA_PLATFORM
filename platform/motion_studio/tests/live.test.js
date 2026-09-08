@@ -1317,3 +1317,39 @@ test("inspector only enables the held joint and shows target separately from com
   assert.equal(stopped.value,-12);
   assert.equal(stopped.disabled,true);
 });
+
+
+function arm70Caps() {
+  const caps = rightArmCaps(true,15);
+  caps.joint_limits.find((joint) => joint.id === "arm_positive_x").min = -70;
+  return caps;
+}
+
+test("explicit seventy-degree upward profile retains separate downward limit", () => {
+  const caps = validateCapabilities(arm70Caps());
+  const row = liveInspectorJointViewModel({state:"armed",caps,commissioning_start_pose:zeroPose()},"arm_positive_x");
+  assert.deepEqual([row.min,row.max],[-70,15]);
+  assert.equal(liveStepSizeForJoint(caps,"arm_positive_x"),15);
+  for (const [min,max] of [[-70,70],[-70,45],[-69,15],[-71,15],[-15,70]]) {
+    const malformed = arm70Caps();
+    Object.assign(malformed.joint_limits.find((j)=>j.id === "arm_positive_x"),{min,max});
+    assert.throws(()=>validateCapabilities(malformed));
+  }
+});
+
+test("seventy-degree profile enforces actual bounds and session delta without widening old profile", () => {
+  const h = harness(arm70Caps);
+  const socket = h.arm();
+  h.live.beginHold({...zeroPose(),arm_positive_x:-70});
+  h.advance(100);
+  assert.equal(socket.sent.at(-1).target.arm_positive_x,-70);
+  assert.equal(socket.sent.at(-1).speed_dps,1);
+  h.ack(socket,{...zeroPose(),arm_positive_x:-1});
+  assert.throws(()=>h.live.updatePose({...zeroPose(),arm_positive_x:16}));
+  assert.equal(socket.sent.at(-1).op,"stop");
+  const old = harness(()=>rightArmCaps(true,15));
+  old.arm();
+  assert.throws(()=>old.live.beginHold({...zeroPose(),arm_positive_x:-70}));
+  const boundary = liveSafeIntervalForJoint(validateCapabilities(arm70Caps()),"arm_positive_x",{...zeroPose(),arm_positive_x:-70});
+  assert.deepEqual(boundary,{min:-70,max:0});
+});
