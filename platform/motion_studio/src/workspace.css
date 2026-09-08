@@ -618,6 +618,30 @@
   color: #8d9aaa;
   margin-top: 1px;
 }
+/* Zero follows the actual angle scale, including asymmetric arm ranges. */
+.joint-control > input[type="range"] { margin-inline: 0; }
+.joint-control .range-ends { position: relative; }
+.range-zero { position: absolute; transform: translateX(-50%); }
+.range-zero button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 5px;
+  min-width: 24px;
+  cursor: pointer;
+}
+.range-zero button::before {
+  content: "";
+  position: absolute;
+  height: 4px;
+  width: 1px;
+  background: currentColor;
+  left: 50%;
+  top: -5px;
+}
+.range-zero button:hover:enabled { color: var(--accent); }
+.range-zero button:disabled { cursor: default; }
 .pose-actions {
   display: flex;
   align-items: center;

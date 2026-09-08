@@ -37,7 +37,7 @@ function editor() {
     errors: [],
     seconds: (value) => value / 1000,
     icon: () => "",
-    document: { querySelectorAll: () => [], querySelector: () => ({ querySelectorAll: () => [{}, {}, {}] }) },
+    document: { querySelectorAll: () => [], querySelector: () => ({ querySelectorAll: () => [{style:{}}, {style:{}}, {style:{}}] }) },
     $: (id) => {
       if (!elements.has(id)) {
         let value = "";
@@ -185,4 +185,27 @@ test("editor numeric draft survives telemetry and commits on blur; STOP clears a
   number.value="42";number.oninput();disabled=true;ui.updateLiveView();
   assert.equal(number.dataset.liveDraft,undefined);assert.equal(number.value,"0");
   number.onblur();assert.equal(sent.length,1);
+});
+
+
+test("zero control sets exactly zero and respects the Live session gate", () => {
+  const ui = editor();
+  const id = "arm_positive_x";
+  const number = ui.$("number-" + id);
+  number.value = -10;
+  number.onchange();
+  ui.$("zero-" + id).onclick();
+  assert.equal(ui.pose[id], 0);
+  assert.equal(ui.motion.keyframes[0].pose[id], 0);
+  const calls = [];
+  ui.live.enabled = true;
+  ui.live.editorMode = true;
+  ui.live.setInspectorAngle = (...args) => calls.push(args);
+  number.disabled = true;
+  ui.$("zero-" + id).onclick();
+  assert.equal(calls.length, 0);
+  number.disabled = false;
+  number.dataset.liveDraft = "-10";
+  ui.$("zero-" + id).onclick();
+  assert.deepEqual(calls, [[id, "0"]]);
 });

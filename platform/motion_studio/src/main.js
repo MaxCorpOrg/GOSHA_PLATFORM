@@ -114,7 +114,7 @@ document.querySelector("#app").innerHTML = `
       <div class="panel-heading"><span class="eyebrow">НАСТРОЙКА ПОЗЫ</span><span class="count">6</span></div>
       <h2>Суставы</h2>
       <p class="inspector-intro">Измените угол — поза запишется на текущей отметке времени.</p>
-      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}"/><div class="range-ends"><span>${j.min}°</span><span>0</span><span>+${j.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`).join("")}</div>
+      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}"/><div class="range-ends"><span>${j.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${j.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`).join("")}</div>
       <div class="pose-actions"><button class="button quiet" id="neutral">${icon("reset")}Нулевая поза</button><button class="icon-button" id="mirror" title="Отразить позу" aria-label="Отразить позу">${icon("mirror")}</button></div>
       <div class="sequence-settings"><h3>Параметры движения</h3><label>Длительность <span><input id="duration" type="number" min="0.5" max="120" step="0.1" /> с</span></label><label>Переходы <select id="interpolation"><option value="smooth">Плавные</option><option value="linear">Линейные</option><option value="hold">Без перехода</option></select></label></div>
       <div class="version-actions"><button class="button quiet" id="save-version">${icon("save")}Сохранить версию</button><select id="versions" aria-label="Восстановить сохранённую версию"><option value="">История версий</option></select></div>
@@ -463,6 +463,12 @@ document.querySelectorAll("[data-select]").forEach((el) => {
 for (const j of PROFILE.joints) {
   const range = $("range-" + j.id);
   const number = $("number-" + j.id);
+  $("zero-" + j.id).onclick = () => {
+    if (number.disabled) return;
+    delete number.dataset.liveDraft;
+    number.value = "0";
+    number.onchange();
+  };
   range.oninput = () => {
     if (live?.enabled) return;
     const value = Number(range.value);
@@ -618,7 +624,12 @@ function updateLiveView() {
     const row = document.querySelector(`.joint-control[data-joint="${joint.id}"]`);
     const ends = row.querySelectorAll(".range-ends span");
     ends[0].textContent = view && !view.available ? "—" : `${range.min}°`;
-    ends[1].textContent = view ? "Live" : "0";
+    const min = Number(range.min), max = Number(range.max);
+    const fraction = max > min ? (0 - min) / (max - min) : 0.5;
+    // Native range thumb travels within half a 16px thumb at either edge.
+    ends[1].style.left = `calc(${100 * fraction}% + ${8 * (1 - 2 * fraction)}px)`;
+    ends[1].hidden = Boolean(view && !view.available) || min > 0 || max < 0;
+    $("zero-" + joint.id).disabled = number.disabled;
     ends[2].textContent = view && !view.available ? "—" : `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
     const note = $("live-row-" + joint.id);
     note.hidden = !view;
