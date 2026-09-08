@@ -118,6 +118,24 @@ export function liveSliderViewModel(
   };
 }
 
+export function liveInspectorJointViewModel(state, jointId, activeStep = null, activeSliderJoint = null) {
+  const joint = jointById(jointId);
+  const limit = state.caps?.joint_limits.find((item) => item.id === jointId);
+  const available = Boolean(limit) && !["disconnected", "fault"].includes(state.state);
+  const view = available ? liveSliderViewModel(state, jointId, activeStep, activeSliderJoint) : null;
+  const command = currentCommandedPose(state)?.[jointId] ?? 0;
+  const ownView = view?.jointId === jointId;
+  return {
+    min: ownView ? view.min : (limit?.min ?? joint.min),
+    max: ownView ? view.max : (limit?.max ?? joint.max),
+    command,
+    value: ownView ? view.value : command,
+    disabled: !available || !ownView || view.disabled,
+    available,
+    reason: !state.caps ? "Подключите робота" : !available ? "Недоступен" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "В сессии выбран другой сустав" : "Держите ползунок · отпустите для STOP",
+  };
+}
+
 export function liveStepViewModel(
   state,
   selectedJoint,
@@ -258,19 +276,6 @@ export function mountLivePanel({
     <div id="live-joint-picker" class="live-joint-picker" hidden>
       <div class="live-step-title"><h3>Сустав</h3><span>один за сессию</span></div>
       <div id="live-step-joints" class="live-step-joints"></div>
-    </div>
-    <div id="live-slider-block" class="live-slider-block" hidden>
-      <div class="live-step-title"><h3>Ползунок сустава</h3><span>держать</span></div>
-      <dl class="live-step-status">
-        <dt>Сустав</dt><dd id="live-slider-joint">—</dd>
-        <dt>Команда</dt><dd id="live-slider-command">—</dd>
-        <dt>Цель</dt><dd id="live-slider-target">—</dd>
-        <dt>Диапазон</dt><dd id="live-slider-interval">—</dd>
-      </dl>
-      <label class="live-slider-label">Цель <output id="live-slider-value">—</output></label>
-      <input id="live-slider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Цель выбранного сустава Live" />
-      <div class="range-ends"><span id="live-slider-min">—</span><span id="live-slider-max">—</span></div>
-      <small id="live-slider-hint">Откройте сессию ARM и держите бегунок; отпускание отправит STOP.</small>
     </div>
     <details id="live-step-details" class="live-details live-step-details" hidden>
       <summary id="live-step-summary">Пошаговый тест ±</summary>
@@ -472,44 +477,6 @@ export function mountLivePanel({
     byId("live-step-minus").textContent = `−${view.stepSize}°`;
     byId("live-step-plus").textContent = `+${view.stepSize}°`;
     byId("live-step-hold").disabled = view.holdDisabled;
-  }
-  function renderSlider(state) {
-    const block = byId("live-slider-block");
-    const view = liveSliderViewModel(
-      state,
-      getJoint(),
-      activeStep,
-      activeSliderJoint,
-    );
-    block.hidden = !view.visible;
-    const slider = byId("live-slider");
-    if (!view.visible || !view.active.length) {
-      slider.disabled = true;
-      byId("live-slider-joint").textContent = "—";
-      byId("live-slider-command").textContent = "—";
-      byId("live-slider-target").textContent = "—";
-      byId("live-slider-interval").textContent = "—";
-      byId("live-slider-value").textContent = "—";
-      byId("live-slider-min").textContent = "—";
-      byId("live-slider-max").textContent = "—";
-      byId("live-slider-hint").textContent =
-        "Откройте сессию ARM и держите бегунок; отпускание отправит STOP.";
-      return;
-    }
-    slider.min = view.min;
-    slider.max = view.max;
-    slider.value = Number(view.value.toFixed(1));
-    slider.disabled = view.disabled;
-    byId("live-slider-joint").textContent = jointById(view.jointId).label;
-    byId("live-slider-command").textContent = formatDegrees(view.command);
-    byId("live-slider-target").textContent = formatDegrees(view.target);
-    byId("live-slider-interval").textContent =
-      `${formatDegrees(view.min)}…${formatDegrees(view.max)}`;
-    byId("live-slider-value").textContent = formatDegrees(view.value);
-    byId("live-slider-min").textContent = formatDegrees(view.min);
-    byId("live-slider-max").textContent = formatDegrees(view.max);
-    byId("live-slider-hint").textContent = view.hint;
-    block.classList.toggle("holding", activeSliderJoint === view.jointId);
   }
   function renderCommandLog(state) {
     const list = byId("live-command-log");
@@ -734,7 +701,6 @@ export function mountLivePanel({
     const initializing = ["arming", "initializing_right_arm"].includes(state.state);
     byId("live-key").disabled = initializing;
     renderStep(state);
-    renderSlider(state);
     renderCommandLog(state);
     const badge = document.querySelector(".preview-badge");
     badge.replaceChildren();
@@ -938,7 +904,6 @@ export function mountLivePanel({
       release("Пошаговая кнопка отпущена.");
     }
   };
-  const liveSlider = byId("live-slider");
   const sliderKeys = new Set([
     "ArrowLeft",
     "ArrowRight",
@@ -949,25 +914,27 @@ export function mountLivePanel({
     "Home",
     "End",
   ]);
-  function startSliderHold(source) {
+  function startSliderHold(liveSlider, jointId, source) {
     guarded(() => {
       const view = liveSliderViewModel(
         session.snapshot(),
-        getJoint(),
+        jointId,
         activeStep,
         activeSliderJoint,
       );
-      if (view.disabled) {
+      if (view.disabled || view.jointId !== jointId) {
         render(session.snapshot());
         return;
       }
+      const requestedValue = liveSlider.value;
+      onSelectJoint(jointId);
       activeStep = null;
       activeSliderJoint = view.jointId;
       sliderPointerActive = source === "pointer";
       sliderKeyboardActive = source === "keyboard";
       try {
         session.beginHold(
-          sliderTargetPose(session.snapshot(), view.jointId, liveSlider.value),
+          sliderTargetPose(session.snapshot(), view.jointId, requestedValue),
         );
       } catch (e) {
         activeSliderJoint = null;
@@ -980,10 +947,10 @@ export function mountLivePanel({
       render(session.snapshot());
     });
   }
-  function updateSliderHold() {
+  function updateSliderHold(liveSlider, jointId) {
     guarded(() => {
       if (
-        !activeSliderJoint ||
+        activeSliderJoint !== jointId ||
         session.state !== "armed" ||
         !session.holding
       ) {
@@ -1004,25 +971,25 @@ export function mountLivePanel({
     release(reason);
     render(session.snapshot());
   }
-  liveSlider.onpointerdown = (e) => {
-    if (e.button !== 0 || liveSlider.disabled) return;
-    liveSlider.setPointerCapture(e.pointerId);
-    startSliderHold("pointer");
-  };
-  liveSlider.oninput = updateSliderHold;
-  liveSlider.onchange = () => render(session.snapshot());
-  liveSlider.onpointerup = () => releaseSlider("Ползунок отпущен.");
-  liveSlider.onpointercancel = () => releaseSlider("Ползунок отменён.");
-  liveSlider.onlostpointercapture = () =>
-    releaseSlider("Ползунок отпущен.");
-  liveSlider.onblur = () => releaseSlider("Ползунок потерял фокус.");
-  liveSlider.onkeydown = (e) => {
-    if (!sliderKeys.has(e.code) || e.repeat || liveSlider.disabled) return;
-    startSliderHold("keyboard");
-  };
-  liveSlider.onkeyup = (e) => {
-    if (sliderKeys.has(e.code)) releaseSlider("Клавиша ползунка отпущена.");
-  };
+  for (const joint of PROFILE.joints) {
+    const input = document.getElementById(`range-${joint.id}`);
+    const listen = (event, handler) => input.addEventListener(event, handler, { signal: abort.signal });
+    listen("pointerdown", (e) => {
+      if (!enabled || e.button !== 0 || input.disabled) return;
+      input.setPointerCapture(e.pointerId);
+      startSliderHold(input, joint.id, "pointer");
+    });
+    listen("input", () => { if (enabled) updateSliderHold(input, joint.id); });
+    listen("pointerup", () => { if (enabled) releaseSlider("Ползунок отпущен."); });
+    listen("pointercancel", () => { if (enabled) releaseSlider("Ползунок отменён."); });
+    listen("lostpointercapture", () => { if (enabled) releaseSlider("Ползунок отпущен."); });
+    listen("blur", () => { if (enabled) releaseSlider("Ползунок потерял фокус."); });
+    listen("keydown", (e) => {
+      if (!enabled || !sliderKeys.has(e.code) || e.repeat || input.disabled) return;
+      startSliderHold(input, joint.id, "keyboard");
+    });
+    listen("keyup", (e) => { if (enabled && sliderKeys.has(e.code)) releaseSlider("Клавиша ползунка отпущена."); });
+  }
   byId("live-stop").onclick = () => {
     sliderPointerActive = false;
     sliderKeyboardActive = false;
@@ -1113,6 +1080,9 @@ export function mountLivePanel({
         guarded(() => session.updatePose(getPose()));
     },
     stop: (reason) => release(reason),
+    inspectorView(id) {
+      return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint) : null;
+    },
     canSelectJoint(id) {
       const locked = activeLockedJoint(session.snapshot());
       return !locked || locked === id;

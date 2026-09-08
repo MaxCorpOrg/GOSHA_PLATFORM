@@ -113,7 +113,7 @@ document.querySelector("#app").innerHTML = `
       <div class="panel-heading"><span class="eyebrow">НАСТРОЙКА ПОЗЫ</span><span class="count">6</span></div>
       <h2>Суставы</h2>
       <p class="inspector-intro">Измените угол — поза запишется на текущей отметке времени.</p>
-      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}"/><div class="range-ends"><span>${j.min}°</span><span>0</span><span>+${j.max}°</span></div></div>`).join("")}</div>
+      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}"/><div class="range-ends"><span>${j.min}°</span><span>0</span><span>+${j.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`).join("")}</div>
       <div class="pose-actions"><button class="button quiet" id="neutral">${icon("reset")}Нулевая поза</button><button class="icon-button" id="mirror" title="Отразить позу" aria-label="Отразить позу">${icon("mirror")}</button></div>
       <div class="sequence-settings"><h3>Параметры движения</h3><label>Длительность <span><input id="duration" type="number" min="0.5" max="120" step="0.1" /> с</span></label><label>Переходы <select id="interpolation"><option value="smooth">Плавные</option><option value="linear">Линейные</option><option value="hold">Без перехода</option></select></label></div>
       <div class="version-actions"><button class="button quiet" id="save-version">${icon("save")}Сохранить версию</button><select id="versions" aria-label="Восстановить сохранённую версию"><option value="">История версий</option></select></div>
@@ -322,9 +322,9 @@ function renderPosition() {
       el.classList.toggle("at-time", Number(el.dataset.time) === time),
     );
   for (const joint of PROFILE.joints) {
-    const value = +pose[joint.id].toFixed(1);
-    $("range-" + joint.id).value = value;
-    $("number-" + joint.id).value = value;
+    const view = live?.inspectorView(joint.id);
+    $("range-" + joint.id).value = view?.value ?? +pose[joint.id].toFixed(1);
+    $("number-" + joint.id).value = view?.command ?? +pose[joint.id].toFixed(1);
   }
 }
 function renderVersions() {
@@ -460,6 +460,7 @@ for (const j of PROFILE.joints) {
   const range = $("range-" + j.id);
   const number = $("number-" + j.id);
   range.oninput = () => {
+    if (live?.enabled) return;
     const value = Number(range.value);
     setPlaying(false);
     time = Math.round(time);
@@ -469,9 +470,10 @@ for (const j of PROFILE.joints) {
     live?.updateTarget();
     renderPosition();
   };
-  range.onchange = () => attempt(recordPose);
+  range.onchange = () => { if (!live?.enabled) attempt(recordPose); };
   number.onchange = () =>
     attempt(() => {
+      if (live?.enabled) { renderPosition(); return; }
       const value = Number(number.value);
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
@@ -583,20 +585,29 @@ document.addEventListener(
 );
 
 function updateLiveView() {
-  const snapshot = live?.snapshot;
   for (const joint of PROFILE.joints) {
-    const limit = snapshot?.caps?.joint_limits.find(
-      (item) => item.id === joint.id,
-    );
-    const restricted = live?.enabled && snapshot?.caps;
-    const initializationLocked = restricted && snapshot.caps.initialization_required;
-    for (const prefix of ["range-", "number-"]) {
-      const input = $(prefix + joint.id);
-      input.min = restricted && limit ? limit.min : joint.min;
-      input.max = restricted && limit ? limit.max : joint.max;
-      input.disabled = Boolean(initializationLocked || (restricted && !limit));
-    }
+    const view = live?.inspectorView(joint.id);
+    const range = $("range-" + joint.id), number = $("number-" + joint.id);
+    range.min = number.min = view?.min ?? joint.min;
+    range.max = number.max = view?.max ?? joint.max;
+    range.disabled = view?.disabled ?? false;
+    number.disabled = Boolean(view);
+    const row = document.querySelector(`.joint-control[data-joint="${joint.id}"]`);
+    const ends = row.querySelectorAll(".range-ends span");
+    ends[0].textContent = `${range.min}°`;
+    ends[1].textContent = view ? "Live" : "0";
+    ends[2].textContent = `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
+    const note = $("live-row-" + joint.id);
+    note.hidden = !view;
+    note.textContent = view ? (view.available ? `Команда ${view.command}° · цель ${view.value}°. ${view.reason}` : view.reason) : "";
   }
+  document.querySelector(".inspector-intro").textContent = live?.enabled
+    ? "Откройте сессию слева. Держите ползунок — робот идёт к цели; отпустите для STOP. Позу сохраняйте кнопкой под моделью."
+    : "Измените угол — поза запишется на текущей отметке времени.";
+  document.querySelector(".calibration-note").textContent = live?.enabled
+    ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."
+    : "Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.";
+  $("neutral").disabled = $("mirror").disabled = Boolean(live?.enabled);
   renderPosition();
 }
 live = mountLivePanel({

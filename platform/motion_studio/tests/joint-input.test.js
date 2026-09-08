@@ -37,7 +37,7 @@ function editor() {
     errors: [],
     seconds: (value) => value / 1000,
     icon: () => "",
-    document: { querySelectorAll: () => [] },
+    document: { querySelectorAll: () => [], querySelector: () => ({ querySelectorAll: () => [{}, {}, {}] }) },
     $: (id) => {
       if (!elements.has(id)) {
         let value = "";
@@ -62,6 +62,7 @@ function editor() {
     canSelectJoint: () => true,
     displayPose: (pose) => pose,
     recordPose: (pose) => pose,
+    inspectorView: () => null,
     updateTarget() {},
   };
   context.notify = (message) => context.errors.push(message);
@@ -151,4 +152,18 @@ test("recording a pose can save the confirmed Live command explicitly", () => {
   assert.equal(ui.commits.length, 1);
   assert.equal(poseAt(ui.motion, 0).arm_positive_x, -15);
   assert.deepEqual(ui.scenePose, commanded);
+});
+
+
+test("Live inspector render keeps target separate and never records on input release", () => {
+  const ui = editor();
+  ui.live.enabled = true;
+  ui.live.inspectorView = (id) => ({min:-15,max:15,disabled:false,available:true,command:id === "arm_positive_x" ? -2 : 0,value:id === "arm_positive_x" ? -15 : 0,reason:"Держите"});
+  ui.updateLiveView();
+  assert.equal(ui.$("range-arm_positive_x").value,"-15");
+  assert.equal(ui.$("number-arm_positive_x").value,"-2");
+  ui.$("range-arm_positive_x").oninput();
+  ui.$("range-arm_positive_x").onchange();
+  assert.equal(ui.commits.length,0);
+  assert.equal(ui.pose.arm_positive_x,0);
 });

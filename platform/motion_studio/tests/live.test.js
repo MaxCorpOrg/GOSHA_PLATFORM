@@ -14,6 +14,7 @@ import {
   createLiveStepPlan,
   liveSafeIntervalForJoint,
   liveSliderViewModel,
+  liveInspectorJointViewModel,
   livePlaybackScale,
   liveStepSizeForJoint,
   liveStepViewModel,
@@ -1292,4 +1293,27 @@ test("preparing a step target never changes saved keyframes or the library pose"
     prepareLiveStepTarget(zeroPose(), caps, "leg_positive_x", 1).leg_positive_x,
     1,
   );
+});
+
+
+test("inspector rows are unavailable before connection and preserve actual caps", () => {
+  assert.equal(liveInspectorJointViewModel({state:"disconnected"}, "arm_positive_x").disabled, true);
+  const caps = validateCapabilities(rightArmCaps(true, 15));
+  const ready = {state:"ready", caps};
+  const right = liveInspectorJointViewModel(ready,"arm_positive_x");
+  assert.deepEqual([right.min,right.max,right.disabled],[-15,15,true]);
+  assert.equal(liveInspectorJointViewModel(ready,"arm_negative_x").available,false);
+  const old = liveInspectorJointViewModel({state:"armed",caps:validateCapabilities(rightArmCaps(true,5))},"arm_positive_x");
+  assert.deepEqual([old.min,old.max],[-5,5]);
+});
+
+test("inspector only enables the held joint and shows target separately from command", () => {
+  const caps = validateCapabilities(rightArmCaps(true,15));
+  const state = {state:"armed",caps,holding:true,commissioning_start_pose:{...zeroPose(),arm_positive_x:-10},commissioning_joint:"arm_positive_x",telemetry:{commanded_pose:{...zeroPose(),arm_positive_x:-12}},target:{...zeroPose(),arm_positive_x:-15}};
+  const arm = liveInspectorJointViewModel(state,"arm_positive_x",null,"arm_positive_x");
+  assert.deepEqual([arm.min,arm.max,arm.command,arm.value,arm.disabled],[-15,5,-12,-15,false]);
+  assert.equal(liveInspectorJointViewModel(state,"leg_negative_x",null,"arm_positive_x").disabled,true);
+  const stopped = liveInspectorJointViewModel({...state,state:"ready",target:null,commissioning_joint:null},"arm_positive_x");
+  assert.equal(stopped.value,-12);
+  assert.equal(stopped.disabled,true);
 });
