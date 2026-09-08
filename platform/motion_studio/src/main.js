@@ -594,9 +594,9 @@ function updateLiveView() {
     number.disabled = Boolean(view);
     const row = document.querySelector(`.joint-control[data-joint="${joint.id}"]`);
     const ends = row.querySelectorAll(".range-ends span");
-    ends[0].textContent = `${range.min}°`;
+    ends[0].textContent = view && !view.available ? "—" : `${range.min}°`;
     ends[1].textContent = view ? "Live" : "0";
-    ends[2].textContent = `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
+    ends[2].textContent = view && !view.available ? "—" : `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
     const note = $("live-row-" + joint.id);
     note.hidden = !view;
     note.textContent = view ? (view.available ? `Команда ${view.command}° · цель ${view.value}°. ${view.reason}` : view.reason) : "";
