@@ -1,3 +1,4 @@
+import { normalizePwmDiagnostics } from "./pwm-diagnostics.js";
 import { PROFILE, validatePose } from "./motion.js";
 
 export const LIVE_PROTOCOL = "gosha.motion.live.v1";
@@ -354,6 +355,7 @@ export function validateCapabilities(data) {
     max_rate_hz: data.max_rate_hz,
     joint_limits,
     commanded_pose,
+    pwm_diagnostics: normalizePwmDiagnostics(data.pwm_diagnostics),
     feedback: {
       measured_position: data.feedback?.measured_position === true,
       imu: data.feedback?.imu === true,
@@ -553,6 +555,7 @@ export class LiveSession {
       this.deadline = null;
       this.lastTelemetry = {
         commanded_pose: this.caps.commanded_pose,
+        pwm_diagnostics: this.caps.pwm_diagnostics,
         measured_pose: null,
         tilt: null,
       };
@@ -597,6 +600,7 @@ export class LiveSession {
       this.deadline = null;
       this.lastTelemetry = {
         commanded_pose: this.caps.commanded_pose,
+        pwm_diagnostics: this.caps.pwm_diagnostics,
         measured_pose: null,
         tilt: null,
       };
@@ -716,7 +720,7 @@ export class LiveSession {
       );
       tilt = { roll: data.tilt.roll, pitch: data.tilt.pitch };
     }
-    return { commanded_pose, measured_pose, tilt };
+    return { commanded_pose, measured_pose, tilt, pwm_diagnostics: normalizePwmDiagnostics(data.pwm_diagnostics) };
   }
   initializeRightArm(key) {
     assert(

@@ -1,3 +1,4 @@
+import { pwmDiagnosticText } from "./pwm-diagnostics.js";
 import {
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
@@ -315,7 +316,7 @@ export function mountLivePanel({
     </details>
     <details class="live-details">
       <summary>Обратная связь и пределы</summary>
-      <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
+      <div class="live-readings"><h3>Обратная связь</h3><dl><dt>Подтверждение</dt><dd id="live-latency">—</dd><dt>Команда суставу</dt><dd id="live-commanded">—</dd><dt>Выход привода</dt><dd id="live-pwm">Нет данных драйвера</dd><dt>Измеренный угол</dt><dd id="live-measured">Нет данных</dd><dt>Наклон корпуса</dt><dd id="live-tilt">Нет данных</dd></dl><p id="live-feedback-note">Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.</p></div>
       <div id="live-limits" class="live-limits"></div>
     </details>
     <details class="live-details">
@@ -693,6 +694,7 @@ export function mountLivePanel({
           ? `${telemetry.commanded_pose[joint].toFixed(1)}°`
           : "Недоступен"
       : "—";
+    byId("live-pwm").textContent = pwmDiagnosticText(telemetry?.pwm_diagnostics, joint);
     byId("live-measured").textContent = telemetry?.measured_pose
       ? `${telemetry.measured_pose[joint].toFixed(1)}°`
       : state.caps && !state.caps.feedback.measured_position
@@ -704,7 +706,7 @@ export function mountLivePanel({
         ? "Не измеряется"
         : "Нет данных";
     byId("live-feedback-note").textContent = state.caps
-      ? "ACK и STOP подтверждают принятую команду прошивки, а не физический угол. Отсутствующие измерения не заменяются расчётом."
+      ? "ACK подтверждает команду. Частота и PWM — регистры платы, не измерение сигнала на разъёме или угла привода. STOP прекращает новые движения."
       : "Датчики и пределы будут проверены при подключении. 3D-модель сама не определяет равновесие.";
     byId("live-limits").replaceChildren();
     if (state.caps) {
