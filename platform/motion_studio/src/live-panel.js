@@ -132,7 +132,7 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
     value: ownView ? view.value : command,
     disabled: !available || !ownView || view.disabled,
     available,
-    reason: !state.caps ? "Подключите робота" : !available ? "Недоступен" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Для другого сустава: STOP → новая сессия" : "Выберите угол · удерживать не нужно",
+    reason: !state.caps ? "Подключите робота" : !available ? (!limit ? "Отключён в прошивке · настройка доступна в 3D" : "Нет связи с роботом") : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Для другого сустава: STOP → новая сессия" : "Выберите угол · удерживать не нужно",
   };
 }
 
