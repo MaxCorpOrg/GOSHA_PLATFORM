@@ -1,6 +1,8 @@
-import { clone, validateMotion, examples } from "./motion.js";
+import { clone, validateMotion, examples, constrainLegacyArmMotion } from "./motion.js";
 
 export const STORAGE_KEY = "ai-robots.motion-studio.v1";
+
+export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}.before-arm55`;
 
 export function createStore(storage) {
   let writable = true;
@@ -26,7 +28,13 @@ export function createStore(storage) {
           data.motions.length > 100
         )
           throw new Error("Invalid library");
-        const motions = data.motions.map(validateMotion);
+        let adjusted = false;
+        const normalize = (value) => {
+          const result = constrainLegacyArmMotion(value);
+          adjusted ||= result.changed;
+          return result.motion;
+        };
+        const motions = data.motions.map(normalize);
         if (new Set(motions.map((m) => m.id)).size !== motions.length)
           throw new Error("Duplicate ids");
         const revisions = Object.create(null);
@@ -42,13 +50,20 @@ export function createStore(storage) {
               !Number.isFinite(Date.parse(r.saved_at))
             )
               throw new Error("Invalid date");
-            const snapshot = validateMotion(r.motion);
+            const snapshot = normalize(r.motion);
             if (snapshot.id !== motion.id)
               throw new Error("Invalid revision identity");
             return { saved_at: r.saved_at, motion: snapshot };
           });
         }
+        let originalLibrary = storage.getItem(LEGACY_BACKUP_KEY);
+        if (adjusted && !originalLibrary) {
+          storage.setItem(LEGACY_BACKUP_KEY, raw);
+          originalLibrary = raw;
+        }
         return {
+          originalLibrary,
+          adjusted,
           motions,
           active_id: motions.some((m) => m.id === data.active_id)
             ? data.active_id

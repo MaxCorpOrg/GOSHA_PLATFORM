@@ -5,6 +5,7 @@ export const USB_BRIDGE_HTTP_URL = "http://127.0.0.1:5177";
 export const USB_BRIDGE_WS_URL = "ws://127.0.0.1:5177/live";
 export const RIGHT_ARM_INITIALIZATION_REASON =
   "right_arm_initialization_required";
+export const MOTION_EDITOR_MODE = "motion_editor";
 export const RIGHT_ARM_COMMISSIONING_MODE = "commissioning_right_arm";
 export const RIGHT_ARM_COMMISSIONING_EXTENTS = Object.freeze([5, 15]);
 const LEG_COMMISSIONING_MODE = "commissioning";
@@ -242,7 +243,8 @@ export function validateCapabilities(data) {
   );
   const mode = data.mode ?? "verified";
   const commissioning = data.commissioning === true;
-  const rightArmMode = mode === RIGHT_ARM_COMMISSIONING_MODE;
+  const editorMode = mode === MOTION_EDITOR_MODE;
+  const rightArmMode = mode === RIGHT_ARM_COMMISSIONING_MODE || editorMode;
   const initializationRequired =
     rightArmMode &&
     data.right_arm_initialized === false &&
@@ -257,13 +259,13 @@ export function validateCapabilities(data) {
   assert(
     (data.commissioning === undefined || typeof data.commissioning === "boolean") &&
       (commissioning
-        ? mode === LEG_COMMISSIONING_MODE || rightArmMode
-        : mode === "verified") &&
+        ? mode === LEG_COMMISSIONING_MODE || mode === RIGHT_ARM_COMMISSIONING_MODE
+        : mode === "verified" || editorMode) &&
       (!rightArmMode || typeof data.right_arm_initialized === "boolean") &&
       (!rightArmMode ||
         data.right_arm_initialized === (data.motion_allowed === true)) &&
     data.profile_id === PROFILE.id &&
-      data.calibrated === !commissioning &&
+      data.calibrated === (!commissioning && !editorMode) &&
       /^[a-f0-9]{64}$/.test(data.calibration_id ?? ""),
     "Нужен проверенный профиль приводов, совпадающий с этой моделью.",
   );
@@ -324,6 +326,11 @@ export function validateCapabilities(data) {
     };
   });
   const commanded_pose = validatePose(data.commanded_pose);
+  if (editorMode) {
+    assert(data.watchdog_ms === 300 && joint_limits.length === RIGHT_ARM_COMMISSIONING_JOINTS.length &&
+      joint_limits.every((limit) => RIGHT_ARM_COMMISSIONING_JOINTS.includes(limit.id) && limit.max_speed_dps >= 1 && limit.max_speed_dps <= 10),
+      "Профиль редактора должен содержать подключённую правую руку, ноги и стопы, скорость до 10°/с.");
+  }
   if (commissioning) {
     validateCommissioningLimits(mode, joint_limits, data.watchdog_ms);
   }
@@ -337,7 +344,7 @@ export function validateCapabilities(data) {
     profile_id: PROFILE.id,
     mode,
     calibration_id: data.calibration_id,
-    calibrated: !commissioning,
+    calibrated: !commissioning && !editorMode,
     commissioning,
     initialization_required: initializationRequired,
     right_arm_initialized: rightArmMode
@@ -542,6 +549,7 @@ export class LiveSession {
     ) {
       this.caps = validateCapabilities(data);
       if (this.caps.commissioning) this.speed = 1;
+      else if (this.caps.mode === MOTION_EDITOR_MODE) this.speed = Math.min(5,...this.caps.joint_limits.map(j=>j.max_speed_dps));
       this.deadline = null;
       this.lastTelemetry = {
         commanded_pose: this.caps.commanded_pose,
@@ -552,7 +560,7 @@ export class LiveSession {
       if (this.caps.initialization_required) {
         this.change(
           "init_required",
-          "Правая рука не включена. Введите ключ и нажмите «Включить правую руку»; начальное удержание 135° может сдвинуть свободную правую руку.",
+          "Правая рука не включена. Введите ключ и нажмите «Включить правую руку»; начальное удержание может сдвинуть свободную правую руку.",
         );
         return;
       }
@@ -567,7 +575,7 @@ export class LiveSession {
           ? this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
             ? `Правая рука включена. Один выбранный сустав за сессию: правая рука ${rightArmLimit.min}…${rightArmLimit.max}°, ноги и стопы до 1° при 1°/с.`
             : "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
-          : "Робот совместим. Для движения откройте сессию.") +
+          : this.caps.mode === MOTION_EDITOR_MODE ? "Редактор подключён. Все доступные суставы управляются в одной сессии." : "Робот совместим. Для движения откройте сессию.") +
           transportNote,
       );
       return;
@@ -579,13 +587,13 @@ export class LiveSession {
     ) {
       const caps = validateCapabilities(data);
       assert(
-        caps.mode === RIGHT_ARM_COMMISSIONING_MODE &&
+        [RIGHT_ARM_COMMISSIONING_MODE, MOTION_EDITOR_MODE].includes(caps.mode) &&
           caps.right_arm_initialized === true &&
           !caps.initialization_required,
         "Робот не подтвердил включение правой руки.",
       );
       this.caps = caps;
-      this.speed = 1;
+      this.speed = caps.mode === MOTION_EDITOR_MODE ? Math.min(5,...caps.joint_limits.map(j=>j.max_speed_dps)) : 1;
       this.deadline = null;
       this.lastTelemetry = {
         commanded_pose: this.caps.commanded_pose,
@@ -595,7 +603,7 @@ export class LiveSession {
       this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
       this.change(
         "ready",
-        "Правая рука включена. Сессия ещё не открыта; движение начнётся только при удержании команды.",
+        "Правая рука включена. Сессия ещё не открыта; движение начнётся после выбора цели.",
       );
       return;
     }
@@ -670,7 +678,7 @@ export class LiveSession {
       if (this.following && acknowledged.op === "pose" && this.target &&
           PROFILE.joints.every((joint) =>
             acknowledged.target?.[joint.id] === this.target[joint.id] &&
-            this.lastTelemetry.commanded_pose[joint.id] === this.target[joint.id])) {
+            Math.abs(this.lastTelemetry.commanded_pose[joint.id] - this.target[joint.id]) <= (this.caps.mode === MOTION_EDITOR_MODE ? 0.5 : 0))) {
         this.holding = false;
         this.following = false;
         this.target = null;
@@ -713,7 +721,7 @@ export class LiveSession {
   initializeRightArm(key) {
     assert(
       this.state === "init_required" &&
-        this.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE,
+        [RIGHT_ARM_COMMISSIONING_MODE, MOTION_EDITOR_MODE].includes(this.caps?.mode),
       "Правая рука не ждёт включения.",
     );
     assert(
@@ -764,6 +772,7 @@ export class LiveSession {
     );
     assert(!this.caps?.commissioning || value === 1,
       "При первичной проверке скорость фиксирована: 1°/с.");
+    assert(this.caps?.mode !== MOTION_EDITOR_MODE || value <= Math.min(10,...this.caps.joint_limits.map(j=>j.max_speed_dps)), "Скорость выше предела редактора.");
     this.speed = value;
     this.onChange(this.snapshot());
   }
@@ -774,6 +783,9 @@ export class LiveSession {
         pose[limit.id] >= limit.min && pose[limit.id] <= limit.max,
         `${PROFILE.joints.find((j) => j.id === limit.id).label}: цель вне проверенных пределов ${limit.min}…${limit.max}°.`,
       );
+    for (const joint of this.caps.mode === MOTION_EDITOR_MODE ? PROFILE.joints : [])
+      if (!this.caps.joint_limits.some(limit => limit.id === joint.id))
+        assert(pose[joint.id] === this.lastTelemetry.commanded_pose[joint.id], `${joint.label}: привод недоступен.`);
     this.validateCommissioningPose(pose, true);
     return pose;
   }

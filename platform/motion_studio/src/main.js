@@ -70,6 +70,7 @@ document.querySelector("#app").innerHTML = `
     <span class="version">ПРОТОТИП 01</span>
     <div class="top-spacer"></div>
     <span class="save-state" id="save-status" role="status">Сохранено в браузере</span>
+    <button id="export-original" class="button quiet" hidden>Исходная библиотека</button>
     <button id="import" class="button quiet">${icon("upload")}Импорт</button>
     <button id="export" class="button">${icon("download")}Экспорт JSON</button>
     <input type="file" id="file-input" accept=".json,application/json" hidden />
@@ -324,7 +325,9 @@ function renderPosition() {
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
     $("range-" + joint.id).value = view?.value ?? +pose[joint.id].toFixed(1);
-    $("number-" + joint.id).value = view?.command ?? +pose[joint.id].toFixed(1);
+    const number = $("number-" + joint.id);
+    if (!view?.numberEditable || (document.activeElement !== number && number.dataset.liveDraft === undefined))
+      number.value = view?.numberEditable ? view.value : (view?.command ?? +pose[joint.id].toFixed(1));
   }
 }
 function renderVersions() {
@@ -429,6 +432,7 @@ $("interpolation").onchange = () =>
     commit({ ...motion, interpolation: $("interpolation").value });
   });
 $("play").onclick = () => {
+  if (live?.editorMode) { live.play(); return; }
   live?.stop("Запущен отдельный 3D-предпросмотр.");
   if (time >= motion.duration_ms) seek(0);
   setPlaying(!playing);
@@ -471,9 +475,20 @@ for (const j of PROFILE.joints) {
     renderPosition();
   };
   range.onchange = () => { if (!live?.enabled) attempt(recordPose); };
+  number.oninput = () => { if (live?.editorMode) number.dataset.liveDraft = number.value; };
+  number.onkeydown = (event) => {
+    if (live?.editorMode && event.code === "Enter") { event.preventDefault(); number.onchange(); }
+  };
+  number.onblur = () => {
+    if (live?.editorMode && number.dataset.liveDraft !== undefined) number.onchange();
+  };
   number.onchange = () =>
     attempt(() => {
-      if (live?.enabled) { renderPosition(); return; }
+      if (live?.enabled) {
+        const value = number.dataset.liveDraft ?? number.value;
+        delete number.dataset.liveDraft;
+        live.setInspectorAngle(j.id, value); return;
+      }
       const value = Number(number.value);
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
@@ -546,6 +561,13 @@ $("export").onclick = () => {
     "Скачан проект движения. Загрузка в прошивку появится на следующем этапе.",
   );
 };
+$("export-original").hidden = !library.originalLibrary;
+$("export-original").onclick = () => {
+  const url = URL.createObjectURL(new Blob([library.originalLibrary], {type:"application/json"}));
+  const link = document.createElement("a");
+  link.href = url; link.download = "motion-library-before-arm55.json"; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 $("import").onclick = () => $("file-input").click();
 $("file-input").onchange = async () => {
   const file = $("file-input").files[0];
@@ -591,7 +613,7 @@ function updateLiveView() {
     range.min = number.min = view?.min ?? joint.min;
     range.max = number.max = view?.max ?? joint.max;
     range.disabled = view?.disabled ?? false;
-    number.disabled = Boolean(view);
+    number.disabled = view ? (!view.numberEditable || view.disabled) : false;
     const row = document.querySelector(`.joint-control[data-joint="${joint.id}"]`);
     const ends = row.querySelectorAll(".range-ends span");
     ends[0].textContent = view && !view.available ? "—" : `${range.min}°`;
@@ -684,6 +706,7 @@ function tick(now) {
 render();
 persist();
 if (library.error) notify(library.error, true);
+if (library.adjusted) notify("Предел опускания рук обновлён до 55°. Исходная библиотека сохранена отдельной копией.");
 animation = requestAnimationFrame(tick);
 registerPreviewTools(
   document.modelContext,

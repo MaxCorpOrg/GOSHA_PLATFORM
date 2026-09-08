@@ -1,6 +1,7 @@
 import {
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
+  MOTION_EDITOR_MODE,
   commissioningDeltaLimit,
   listUsbBridgePorts,
 } from "./live.js";
@@ -17,7 +18,7 @@ const currentCommandedPose = (state) =>
 
 export function canKeepIdleSessionOnBlur(session) {
   return session.state === "armed" &&
-    session.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE &&
+    [RIGHT_ARM_COMMISSIONING_MODE, MOTION_EDITOR_MODE].includes(session.caps?.mode) &&
     !session.holding && !session.following && !session.target &&
     session.pending?.op !== "pose";
 }
@@ -129,6 +130,13 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
   const joint = jointById(jointId);
   const limit = state.caps?.joint_limits.find((item) => item.id === jointId);
   const available = Boolean(limit) && !["disconnected", "fault"].includes(state.state);
+  if (state.caps?.mode === MOTION_EDITOR_MODE) {
+    const command = currentCommandedPose(state)?.[jointId] ?? 0;
+    return {min:limit?.min ?? joint.min,max:limit?.max ?? joint.max,command,
+      value:state.target?.[jointId] ?? command,available,numberEditable:true,
+      disabled:!available || state.state !== "armed",
+      reason:!available ? "Отключён в прошивке · настройка доступна в 3D" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : "Выберите угол · все суставы в одной сессии"};
+  }
   const view = available ? liveSliderViewModel(state, jointId, activeStep, activeSliderJoint) : null;
   const command = currentCommandedPose(state)?.[jointId] ?? 0;
   const ownView = view?.jointId === jointId;
@@ -370,6 +378,7 @@ export function mountLivePanel({
     stopping: "Останавливаем",
     fault: "Live недоступен",
   };
+  const isEditorMode = (state) => state.caps?.mode === MOTION_EDITOR_MODE;
   const isRightArmMode = (state) =>
     state.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE;
   const selectedUsbPort = () => byId("live-usb-port").value;
@@ -399,6 +408,7 @@ export function mountLivePanel({
       stepDirection,
     );
   const activeLockedJoint = (state) => {
+    if (isEditorMode(state)) return null;
     if (!isActiveSessionState(state)) return null;
     const active = activeJointIds(state);
     for (const id of [
@@ -436,7 +446,8 @@ export function mountLivePanel({
       activeSliderJoint,
     );
     picker.hidden = !view.visible;
-    details.hidden = !view.visible;
+    details.hidden = !view.visible || isEditorMode(state);
+    picker.querySelector(".live-step-title span").textContent = isEditorMode(state) ? "все в одной сессии" : "один за сессию";
     step.hidden = !view.visible;
     const jointButtons = byId("live-step-joints");
     // Keep the same buttons between telemetry updates so pointerdown/up and
@@ -461,7 +472,7 @@ export function mountLivePanel({
       byId("live-step-hold").disabled = true;
       return;
     }
-    const selected = view.jointId;
+    const selected = isEditorMode(state) ? selectedLiveJoint(state) : view.jointId;
     for (const button of jointButtons.children) {
       button.classList.toggle("selected", button.dataset.liveJoint === selected);
       button.disabled = ["arming", "initializing_right_arm", "stopping"].includes(state.state);
@@ -616,7 +627,7 @@ export function mountLivePanel({
     byId("live-init-right-arm").disabled =
       state.state !== "init_required" || !keyReady;
     byId("live-arm").hidden = rightArmInitState;
-    byId("live-arm").textContent = `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
+    byId("live-arm").textContent = isEditorMode(state) ? "Начать управление" : `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
     byId("live-arm").disabled = state.state !== "ready";
     byId("live-host").disabled = !canChangeTransport(state);
     byId("live-connect").textContent = ["disconnected", "fault"].includes(
@@ -632,11 +643,12 @@ export function mountLivePanel({
       (transport === "usb" &&
         ["disconnected", "fault"].includes(state.state) &&
         !selectedUsbPort());
-    byId("live-hold").textContent = isRightArmMode(state)
+    byId("live-hold").textContent = isEditorMode(state) ? "Перейти к позе на шкале" : isRightArmMode(state)
       ? "Текущая поза недоступна"
       : "Удерживать → текущая поза";
     byId("live-hold").disabled = state.state !== "armed" || isRightArmMode(state);
-    byId("live-hold-hint").textContent = !state.caps
+    byId("live-run").textContent = isEditorMode(state) ? "Воспроизвести движение" : "Удерживать → всё движение";
+    byId("live-hold-hint").textContent = isEditorMode(state) ? "Ползунки и числовые поля справа задают цели всем подключённым суставам. Одного открытия сессии достаточно." : !state.caps
       ? "Подключите робота, чтобы узнать доступный способ управления."
       : isRightArmMode(state)
         ? rightArmInitState
@@ -665,6 +677,7 @@ export function mountLivePanel({
     byId("live-speed-value").textContent = `${state.speed}°/с`;
     byId("live-speed").value = state.speed;
     byId("live-speed").disabled = Boolean(state.caps?.commissioning);
+    byId("live-speed").max = isEditorMode(state) ? Math.min(10,...state.caps.joint_limits.map(j=>j.max_speed_dps)) : 15;
     byId("live-latency").textContent =
       state.rtt === null ? "—" : `${state.rtt} мс`;
     const joint = getJoint();
@@ -696,7 +709,7 @@ export function mountLivePanel({
     byId("live-limits").replaceChildren();
     if (state.caps) {
       const label = document.createElement("h3");
-      label.textContent = isRightArmMode(state)
+      label.textContent = isEditorMode(state) ? "Пределы редактора" : isRightArmMode(state)
         ? "Ограничения правой руки"
         : state.caps.commissioning
           ? "Ограничения первого теста"
@@ -776,7 +789,8 @@ export function mountLivePanel({
           session.caps,
           session.speed,
       );
-      session.beginHold(getPose());
+      if (isEditorMode(session.snapshot()) && !run) session.moveTo(getPose());
+      else session.beginHold(getPose());
       running = run;
       if (run) onPlayback(true);
       render(session.snapshot());
@@ -834,24 +848,28 @@ export function mountLivePanel({
     ["live-run", true],
   ]) {
     const button = byId(id);
+    button.onclick = () => { if (isEditorMode(session.snapshot())) start(run); };
     button.onpointerdown = (e) => {
+      if (isEditorMode(session.snapshot())) return;
       if (e.button !== 0) return;
       e.preventDefault();
       button.setPointerCapture(e.pointerId);
       start(run);
     };
-    button.onpointerup = () => release("Кнопка отпущена.");
+    button.onpointerup = () => { if (!isEditorMode(session.snapshot())) release("Кнопка отпущена."); };
     button.onpointercancel = () => release("Удержание отменено.");
     button.onlostpointercapture = () => {
-      if (session.holding) release("Удержание завершено.");
+      if (!isEditorMode(session.snapshot()) && session.holding) release("Удержание завершено.");
     };
     button.onkeydown = (e) => {
+      if (isEditorMode(session.snapshot())) return;
       if (e.code === "Enter" && !e.repeat) {
         e.preventDefault();
         start(run);
       }
     };
     button.onkeyup = (e) => {
+      if (isEditorMode(session.snapshot())) return;
       if (e.code === "Enter") {
         e.preventDefault();
         release("Кнопка отпущена.");
@@ -973,7 +991,7 @@ export function mountLivePanel({
   document.addEventListener(
     "keyup",
     (e) => {
-      if (enabled && e.code === "Space" && !isRightArmMode(session.snapshot())) {
+      if (enabled && e.code === "Space" && !isRightArmMode(session.snapshot()) && !isEditorMode(session.snapshot())) {
         e.preventDefault();
         release("Пробел отпущен.");
       }
@@ -996,6 +1014,12 @@ export function mountLivePanel({
       return playbackScale;
     },
     endTimeline() {
+      if (isEditorMode(session.snapshot())) {
+        running = false;
+        onPlayback(false);
+        guarded(() => session.moveTo(getPose()));
+        return;
+      }
       running = false;
       onPlayback(false);
       if (session.state === "armed" && session.holding)
@@ -1021,7 +1045,8 @@ export function mountLivePanel({
       )
         return false;
       e.preventDefault();
-      if (!e.repeat && !isRightArmMode(session.snapshot())) start(false);
+      if (!e.repeat && isEditorMode(session.snapshot())) { if (running) release("Воспроизведение остановлено."); else start(true); }
+      else if (!e.repeat && !isRightArmMode(session.snapshot())) start(false);
       return true;
     },
     updateTarget() {
@@ -1032,6 +1057,16 @@ export function mountLivePanel({
     inspectorView(id) {
       return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint) : null;
     },
+    get editorMode() { return enabled && isEditorMode(session.snapshot()); },
+    setInspectorAngle(id, value) {
+      guarded(() => {
+        const limit = session.caps?.joint_limits.find(j=>j.id===id);
+        if (!limit || String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value)<limit.min || Number(value)>limit.max)
+          throw new Error("Введите угол в пределах выбранного сустава.");
+        moveInspectorTarget({value}, id);
+      });
+    },
+    play() { if (running) release("Воспроизведение остановлено."); else start(true); },
     requestJointSelection(id) {
       if (!enabled || id === getJoint()) return true;
       const state = session.snapshot();

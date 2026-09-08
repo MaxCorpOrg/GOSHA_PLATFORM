@@ -37,27 +37,27 @@ test("pose edits retain surrounding frames and never mutate the original motion"
 test("linear, smooth and hold interpolation honor exact keyframes and do not overshoot", () => {
   let motion = putPose(createMotion(), 1000, {
     ...zeroPose(),
-    arm_positive_x: 60,
+    arm_positive_x: 40,
   });
   for (const interpolation of ["linear", "smooth", "hold"]) {
     motion = { ...motion, interpolation };
     assert.equal(poseAt(motion, -100).arm_positive_x, 0);
-    assert.equal(poseAt(motion, 1000).arm_positive_x, 60);
-    assert.equal(poseAt(motion, 9000).arm_positive_x, 60);
+    assert.equal(poseAt(motion, 1000).arm_positive_x, 40);
+    assert.equal(poseAt(motion, 9000).arm_positive_x, 40);
     let previous = 0;
     for (let t = 0; t <= 1000; t++) {
       const angle = poseAt(motion, t).arm_positive_x;
-      assert.ok(angle >= previous && angle <= 60);
+      assert.ok(angle >= previous && angle <= 40);
       previous = angle;
     }
   }
   assert.equal(
     poseAt({ ...motion, interpolation: "linear" }, 250).arm_positive_x,
-    15,
+    10,
   );
   assert.equal(
     poseAt({ ...motion, interpolation: "smooth" }, 250).arm_positive_x,
-    9.375,
+    6.25,
   );
   assert.equal(
     poseAt({ ...motion, interpolation: "hold" }, 999).arm_positive_x,
@@ -158,4 +158,13 @@ test("rejects invalid imports instead of silently changing the motion", () => {
   }
   assert.throws(() => parseMotion("{broken"));
   assert.throws(() => parseMotion("x".repeat(MAX_FILE_BYTES + 1)));
+});
+
+test("both arms mirror the complete 70-up and 55-down endpoints", () => {
+  for (const pose of [{...zeroPose(),arm_negative_x:70,arm_positive_x:-70},{...zeroPose(),arm_negative_x:-55,arm_positive_x:55}]) {
+    assert.deepEqual(mirrorPose(pose),pose);
+    assert.deepEqual(mirrorPose(mirrorPose(pose)),pose);
+  }
+  assert.throws(()=>putPose(createMotion(),100,{...zeroPose(),arm_positive_x:56}));
+  assert.throws(()=>putPose(createMotion(),100,{...zeroPose(),arm_negative_x:-56}));
 });

@@ -45,6 +45,7 @@ function editor() {
           get value() { return value; },
           set value(next) { value = String(next); },
           style: {},
+          dataset: {},
           setAttribute() {},
         });
       }

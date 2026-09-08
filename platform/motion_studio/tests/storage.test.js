@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createStore, STORAGE_KEY } from "../src/storage.js";
+import { createStore, STORAGE_KEY, LEGACY_BACKUP_KEY } from "../src/storage.js";
 import { createMotion, putPose, zeroPose } from "../src/motion.js";
 
 const memory = () => {
@@ -107,4 +107,19 @@ test("schema-valid ids matching Object.prototype retain their library and revisi
     assert.equal(reopened.error, null);
     assert.deepEqual(reopened.revisions[id][0].motion, motion);
   }
+});
+
+test("narrowed arm limits migrate motions and revisions while preserving exact original library", () => {
+  const storage = memory();
+  const original = createMotion(); original.keyframes[0].pose.arm_positive_x=70;
+  original.keyframes[0].pose.arm_negative_x=-70;
+  const raw=JSON.stringify({schema_version:1,motions:[original],active_id:original.id,revisions:{[original.id]:[{saved_at:"2026-09-08T00:00:00Z",motion:original}]}});
+  storage.setItem(STORAGE_KEY,raw);
+  const store=createStore(storage), data=store.load();
+  assert.equal(data.error,null); assert.equal(data.adjusted,true);
+  assert.equal(data.motions[0].keyframes[0].pose.arm_positive_x,55);
+  assert.equal(data.revisions[original.id][0].motion.keyframes[0].pose.arm_negative_x,-55);
+  assert.equal(storage.getItem(LEGACY_BACKUP_KEY),raw);
+  assert.equal(store.save(data).ok,true);
+  assert.equal(createStore(storage).load().originalLibrary,raw);
 });

@@ -8,7 +8,7 @@ export const PROFILE = Object.freeze({
       id: "arm_negative_x",
       label: "Рука слева",
       short: "Рука слева",
-      min: -70,
+      min: -55,
       max: 70,
       pivot: [-51, 0, -14],
       axis: "y",
@@ -19,7 +19,7 @@ export const PROFILE = Object.freeze({
       label: "Рука справа",
       short: "Рука справа",
       min: -70,
-      max: 70,
+      max: 55,
       pivot: [51, 0, -14],
       axis: "y",
       meshes: ["arm_positive_x", "hand_positive_x"],
@@ -223,7 +223,7 @@ export function mirrorPose(pose) {
       const pair = j.id.includes("negative")
         ? j.id.replace("negative", "positive")
         : j.id.replace("positive", "negative");
-      return [j.id, -valid[pair]];
+      return [j.id, -valid[pair] || 0];
     }),
   );
 }
@@ -275,4 +275,21 @@ export function examples() {
       [4000, {}],
     ]),
   ];
+}
+
+// Narrow only the former preview arm bounds; all other schema validation stays strict.
+export function constrainLegacyArmMotion(value) {
+  const next = clone(value);
+  let changed = false;
+  for (const frame of Array.isArray(next?.keyframes) ? next.keyframes : []) {
+    for (const id of ["arm_negative_x", "arm_positive_x"]) {
+      const n = frame?.pose?.[id];
+      const joint = PROFILE.joints.find((item) => item.id === id);
+      if (Number.isFinite(n) && n >= -70 && n <= 70 && (n < joint.min || n > joint.max)) {
+        frame.pose[id] = Math.max(joint.min, Math.min(joint.max, n));
+        changed = true;
+      }
+    }
+  }
+  return {motion: validateMotion(next), changed};
 }

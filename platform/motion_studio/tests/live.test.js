@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIVE_PROTOCOL,
+  MOTION_EDITOR_MODE,
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
   RIGHT_ARM_INITIALIZATION_REASON,
@@ -1430,4 +1431,52 @@ test("only an idle right-arm commissioning session survives local window blur", 
   assert.equal(canKeepIdleSessionOnBlur(idle),true);
   for (const change of [{state:"arming"},{state:"stopping"},{caps:{mode:"commissioning"}},{holding:true},{following:true},{target:zeroPose()},{pending:{op:"pose"}}])
     assert.equal(canKeepIdleSessionOnBlur({...idle,...change}),false);
+});
+
+function editorCaps(initialized = true) {
+  return {...capabilities(),mode:MOTION_EDITOR_MODE,commissioning:false,calibrated:false,
+    motion_allowed:initialized,right_arm_initialized:initialized,
+    ...(initialized ? {} : {reason:RIGHT_ARM_INITIALIZATION_REASON}),
+    joint_limits:PROFILE.joints.filter(j=>j.id!=="arm_negative_x").map(j=>({id:j.id,min:j.min,max:j.max,max_speed_dps:10}))};
+}
+test("full editor declares uncalibrated owner limits separately from legacy commissioning", () => {
+  const caps=validateCapabilities(editorCaps());
+  assert.equal(caps.commissioning,false); assert.equal(caps.calibrated,false);
+  assert.equal(caps.initialization_required,false);
+  assert.equal(validateCapabilities(editorCaps(false)).initialization_required,true);
+  assert.throws(()=>validateCapabilities({...editorCaps(),calibrated:true}));
+  assert.throws(()=>validateCapabilities({...editorCaps(),commissioning:true}));
+  const tooFast=editorCaps();tooFast.joint_limits[0].max_speed_dps=11;
+  assert.throws(()=>validateCapabilities(tooFast));
+});
+test("editor moves several joints across full limits in one ARM and accepts the next joint without STOP", () => {
+  const h=harness(editorCaps), socket=h.arm();
+  const goal={...zeroPose(),arm_positive_x:55,leg_negative_x:-35,leg_positive_x:35,foot_negative_x:-30,foot_positive_x:30};
+  h.live.moveTo(goal);h.advance(100);assert.equal(socket.sent.at(-1).op,"pose");
+  assert.equal(socket.sent.at(-1).target.arm_positive_x,55);
+  h.ack(socket,goal);assert.equal(h.live.holding,false);assert.equal(h.live.state,"armed");
+  const next={...goal,arm_positive_x:-70,leg_negative_x:35};
+  h.live.moveTo(next);h.advance(100);h.ack(socket,next);
+  assert.equal(h.live.state,"armed");assert.equal(h.live.commissioningJoint,null);
+  assert.equal(socket.sent.filter(m=>m.op==="arm").length,1);
+  assert.equal(socket.sent.some(m=>m.op==="stop"),false);
+  assert.equal(h.live.speed,5);h.live.setSpeed(10);assert.throws(()=>h.live.setSpeed(11));
+});
+test("editor keeps all inspector targets editable while multiple joints are following", () => {
+  const state={state:"armed",caps:validateCapabilities(editorCaps()),holding:true,target:{...zeroPose(),arm_positive_x:55,leg_negative_x:35}};
+  for(const joint of PROFILE.joints.slice(1)) {
+    const view=liveInspectorJointViewModel(state,joint.id,null,"arm_positive_x");
+    assert.equal(view.disabled,false);assert.equal(view.numberEditable,true);
+    assert.equal(view.min,joint.min);assert.equal(view.max,joint.max);
+  }
+  assert.equal(liveInspectorJointViewModel(state,"arm_negative_x").disabled,true);
+});
+test("editor rejects a disconnected arm and resolves sub-degree endpoint at PWM resolution", () => {
+  const a=harness(editorCaps), sa=a.arm();
+  assert.throws(()=>a.live.moveTo({...zeroPose(),arm_negative_x:10}));
+  assert.equal(sa.sent.at(-1).op,"stop");
+  const h=harness(editorCaps),s=h.arm();
+  h.live.moveTo({...zeroPose(),arm_positive_x:12.5});h.advance(100);
+  h.ack(s,{...zeroPose(),arm_positive_x:13});
+  assert.equal(h.live.state,"armed");assert.equal(h.live.following,false);
 });
