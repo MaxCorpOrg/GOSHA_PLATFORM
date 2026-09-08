@@ -194,6 +194,10 @@ function seek(value) {
 function selectJoint(id) {
   if (!PROFILE.joints.some((j) => j.id === id))
     throw new Error("Неизвестный сустав.");
+  if (live?.canSelectJoint?.(id) === false) {
+    live.refresh();
+    return;
+  }
   selectedJoint = id;
   scene?.select(id);
   document
@@ -366,6 +370,7 @@ function addMotion(value) {
 }
 function recordPose() {
   setPlaying(false);
+  pose = validatePose(live?.recordPose?.(pose) ?? pose);
   const next = putPose(motion, time, pose);
   time = Math.round(time);
   commit(next, true);

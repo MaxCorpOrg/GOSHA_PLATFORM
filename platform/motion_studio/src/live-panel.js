@@ -9,6 +9,11 @@ import { PROFILE } from "./motion.js";
 const formatDegrees = (value) =>
   `${value > 0 ? "+" : ""}${Number(value.toFixed(1))}°`;
 const jointById = (id) => PROFILE.joints.find((joint) => joint.id === id);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const isActiveSessionState = (state) =>
+  state.state === "armed" || state.state === "stopping";
+const currentCommandedPose = (state) =>
+  state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
 
 export function liveStepSizeForJoint(caps, jointId) {
   if (!caps?.joint_limits.some((limit) => limit.id === jointId))
@@ -45,7 +50,81 @@ export function createLiveStepPlan(commandedPose, caps, jointId, direction) {
   };
 }
 
-export function liveStepViewModel(state, selectedJoint, direction, activeStep) {
+export function liveSafeIntervalForJoint(caps, jointId, baselinePose = null) {
+  const limit = caps?.joint_limits.find((item) => item.id === jointId);
+  if (!limit) throw new Error("Выберите доступный сустав Live.");
+  if (!caps.commissioning) return { min: limit.min, max: limit.max };
+  const extent = commissioningDeltaLimit(caps, jointId);
+  if (!extent) throw new Error("Выберите доступный сустав Live.");
+  const baseline =
+    Number.isFinite(baselinePose?.[jointId])
+      ? baselinePose[jointId]
+      : caps.commanded_pose[jointId];
+  return {
+    min: Math.max(limit.min, baseline - extent),
+    max: Math.min(limit.max, baseline + extent),
+  };
+}
+
+export function liveSliderViewModel(
+  state,
+  selectedJoint,
+  activeStep = null,
+  activeSliderJoint = null,
+) {
+  const active = state.caps?.joint_limits.map((limit) => limit.id) ?? [];
+  const visible =
+    Boolean(state.caps?.commissioning) &&
+    !state.caps.initialization_required &&
+    state.state !== "disconnected" &&
+    state.state !== "fault";
+  if (!visible || !active.length)
+    return { visible, active, disabled: true, locked: false };
+  const commandPose = currentCommandedPose(state);
+  const baselinePose = state.commissioning_start_pose ?? state.caps.commanded_pose;
+  const activeState = isActiveSessionState(state);
+  const stepLocked =
+    activeState && activeStep && active.includes(activeStep.jointId);
+  const sliderLocked =
+    activeState && activeSliderJoint && active.includes(activeSliderJoint);
+  const firmwareLocked =
+    activeState &&
+    state.commissioning_joint &&
+    active.includes(state.commissioning_joint);
+  const jointId =
+    (stepLocked && activeStep.jointId) ||
+    (sliderLocked && activeSliderJoint) ||
+    (firmwareLocked && state.commissioning_joint) ||
+    (active.includes(selectedJoint) ? selectedJoint : active[0]);
+  const interval = liveSafeIntervalForJoint(state.caps, jointId, baselinePose);
+  const command = commandPose[jointId];
+  const target =
+    sliderLocked && state.target ? state.target[jointId] : command;
+  return {
+    visible,
+    active,
+    jointId,
+    command,
+    target,
+    value: clamp(target, interval.min, interval.max),
+    min: interval.min,
+    max: interval.max,
+    locked: Boolean(stepLocked || sliderLocked || firmwareLocked),
+    disabled: state.state !== "armed" || Boolean(stepLocked),
+    hint:
+      state.state === "armed"
+        ? "Держите бегунок до нужного угла. Скорость прошивки 1°/с; отпускание отправит STOP."
+        : "Откройте сессию ARM: ползунок не двигает робота до подтверждения доступа.",
+  };
+}
+
+export function liveStepViewModel(
+  state,
+  selectedJoint,
+  direction,
+  activeStep,
+  activeSliderJoint = null,
+) {
   const active = state.caps?.joint_limits.map((limit) => limit.id) ?? [];
   const visible =
     Boolean(state.caps) &&
@@ -54,15 +133,29 @@ export function liveStepViewModel(state, selectedJoint, direction, activeStep) {
     state.state !== "fault";
   if (!visible || !active.length)
     return { visible, active, holdDisabled: true, locked: false };
-  const pose = state.telemetry?.commanded_pose ?? state.caps.commanded_pose;
+  const pose = currentCommandedPose(state);
   const plan =
     activeStep && active.includes(activeStep.jointId) ? activeStep : null;
+  const activeState = isActiveSessionState(state);
+  const sliderLocked =
+    activeState && activeSliderJoint && active.includes(activeSliderJoint);
   const jointId =
-    plan?.jointId ?? (active.includes(selectedJoint) ? selectedJoint : active[0]);
+    (plan && activeState && plan.jointId) ||
+    (sliderLocked && activeSliderJoint) ||
+    (state.commissioning_joint &&
+      activeState &&
+      active.includes(state.commissioning_joint) &&
+      state.commissioning_joint) ||
+    (plan?.jointId ?? (active.includes(selectedJoint) ? selectedJoint : active[0]));
   const shownDirection = plan?.direction ?? direction;
   const stepSize = plan?.stepSize ?? liveStepSizeForJoint(state.caps, jointId);
-  const locked = Boolean(plan && (state.holding || state.state === "stopping"));
+  const locked = Boolean(
+    (plan && activeState) ||
+      sliderLocked ||
+      (state.commissioning_joint && activeState),
+  );
   let target = plan?.target ?? null;
+  if (sliderLocked && state.target) target = state.target;
   let targetError = "";
   if (!target) {
     try {
@@ -81,7 +174,7 @@ export function liveStepViewModel(state, selectedJoint, direction, activeStep) {
     target,
     targetError,
     locked,
-    holdDisabled: state.state !== "armed" || !target,
+    holdDisabled: state.state !== "armed" || sliderLocked || !target,
   };
 }
 
@@ -174,6 +267,19 @@ export function mountLivePanel({
       <div class="live-step-actions"><button id="live-step-minus" class="button quiet" aria-pressed="true">−</button><button id="live-step-plus" class="button quiet" aria-pressed="false">+</button><button id="live-step-hold" class="button live-hold" disabled>Удерживать шаг</button></div>
       <small>Цель готовится без движения. Робот двигается только пока удерживается кнопка.</small>
     </div>
+    <div id="live-slider-block" class="live-slider-block" hidden>
+      <div class="live-step-title"><h3>Ползунок сустава</h3><span>держать</span></div>
+      <dl class="live-step-status">
+        <dt>Сустав</dt><dd id="live-slider-joint">—</dd>
+        <dt>Команда</dt><dd id="live-slider-command">—</dd>
+        <dt>Цель</dt><dd id="live-slider-target">—</dd>
+        <dt>Диапазон</dt><dd id="live-slider-interval">—</dd>
+      </dl>
+      <label class="live-slider-label">Цель <output id="live-slider-value">—</output></label>
+      <input id="live-slider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Цель выбранного сустава Live" />
+      <div class="range-ends"><span id="live-slider-min">—</span><span id="live-slider-max">—</span></div>
+      <small id="live-slider-hint">Откройте сессию ARM и держите бегунок; отпускание отправит STOP.</small>
+    </div>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
@@ -216,6 +322,9 @@ export function mountLivePanel({
     "Служба USB слушает только этот компьютер и показывает только USB 303a:1001.";
   let stepDirection = -1;
   let activeStep = null;
+  let activeSliderJoint = null;
+  let sliderPointerActive = false;
+  let sliderKeyboardActive = false;
   const abort = new AbortController();
   signal.addEventListener(
     "abort",
@@ -261,8 +370,6 @@ export function mountLivePanel({
     const current = getJoint();
     return active.includes(current) ? current : active[0] ?? current;
   };
-  const currentCommandedPose = (state) =>
-    state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
   const reusableStepPlan = (state) =>
     activeStep && activeJointIds(state).includes(activeStep.jointId)
       ? activeStep
@@ -275,6 +382,32 @@ export function mountLivePanel({
       selectedLiveJoint(state),
       stepDirection,
     );
+  const activeLockedJoint = (state) => {
+    if (!isActiveSessionState(state)) return null;
+    const active = activeJointIds(state);
+    for (const id of [
+      activeStep?.jointId,
+      activeSliderJoint,
+      state.commissioning_joint,
+    ])
+      if (active.includes(id)) return id;
+    return null;
+  };
+  const sliderTargetPose = (state, jointId, rawValue) => {
+    const interval = liveSafeIntervalForJoint(
+      state.caps,
+      jointId,
+      state.commissioning_start_pose ?? state.caps.commanded_pose,
+    );
+    const requested = Number(rawValue);
+    if (!Number.isFinite(requested))
+      throw new Error("Выберите угол ползунком Live.");
+    const value = clamp(requested, interval.min, interval.max);
+    return {
+      ...(state.target ?? currentCommandedPose(state)),
+      [jointId]: value,
+    };
+  };
   function renderStep(state) {
     const step = byId("live-step");
     const view = liveStepViewModel(
@@ -282,6 +415,7 @@ export function mountLivePanel({
       getJoint(),
       stepDirection,
       activeStep,
+      activeSliderJoint,
     );
     step.hidden = !view.visible;
     byId("live-step-joints").replaceChildren();
@@ -327,6 +461,44 @@ export function mountLivePanel({
     byId("live-step-minus").textContent = `−${view.stepSize}°`;
     byId("live-step-plus").textContent = `+${view.stepSize}°`;
     byId("live-step-hold").disabled = view.holdDisabled;
+  }
+  function renderSlider(state) {
+    const block = byId("live-slider-block");
+    const view = liveSliderViewModel(
+      state,
+      getJoint(),
+      activeStep,
+      activeSliderJoint,
+    );
+    block.hidden = !view.visible;
+    const slider = byId("live-slider");
+    if (!view.visible || !view.active.length) {
+      slider.disabled = true;
+      byId("live-slider-joint").textContent = "—";
+      byId("live-slider-command").textContent = "—";
+      byId("live-slider-target").textContent = "—";
+      byId("live-slider-interval").textContent = "—";
+      byId("live-slider-value").textContent = "—";
+      byId("live-slider-min").textContent = "—";
+      byId("live-slider-max").textContent = "—";
+      byId("live-slider-hint").textContent =
+        "Откройте сессию ARM и держите бегунок; отпускание отправит STOP.";
+      return;
+    }
+    slider.min = view.min;
+    slider.max = view.max;
+    slider.value = Number(view.value.toFixed(1));
+    slider.disabled = view.disabled;
+    byId("live-slider-joint").textContent = jointById(view.jointId).label;
+    byId("live-slider-command").textContent = formatDegrees(view.command);
+    byId("live-slider-target").textContent = formatDegrees(view.target);
+    byId("live-slider-interval").textContent =
+      `${formatDegrees(view.min)}…${formatDegrees(view.max)}`;
+    byId("live-slider-value").textContent = formatDegrees(view.value);
+    byId("live-slider-min").textContent = formatDegrees(view.min);
+    byId("live-slider-max").textContent = formatDegrees(view.max);
+    byId("live-slider-hint").textContent = view.hint;
+    block.classList.toggle("holding", activeSliderJoint === view.jointId);
   }
   function renderCommandLog(state) {
     const list = byId("live-command-log");
@@ -382,6 +554,12 @@ export function mountLivePanel({
   }
   function render(state) {
     connectionState = state;
+    if (!isActiveSessionState(state)) {
+      activeStep = null;
+      activeSliderJoint = null;
+      sliderPointerActive = false;
+      sliderKeyboardActive = false;
+    }
     if (pendingMode !== null && state.state === "disconnected") {
       applyMode(pendingMode);
       pendingMode = null;
@@ -463,7 +641,7 @@ export function mountLivePanel({
       : isRightArmMode(state)
         ? rightArmInitState
           ? "Сначала проверьте положение руки и включите её отдельной кнопкой. Шаги станут доступны после подтверждения включения."
-          : "Выберите сустав и знак шага, откройте сессию и удерживайте кнопку шага. Отпустите для остановки. Пробел не запускает движение; его отпускание также завершает сессию."
+          : `Выберите сустав, откройте сессию и держите ползунок до нужного угла при 1°/с. Шаги доступны кнопкой ±${rightArmStepSize(state)}°. Отпускание или STOP закрывают сессию.`
         : "Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.";
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
@@ -540,6 +718,7 @@ export function mountLivePanel({
     const initializing = ["arming", "initializing_right_arm"].includes(state.state);
     byId("live-key").disabled = initializing;
     renderStep(state);
+    renderSlider(state);
     renderCommandLog(state);
     const badge = document.querySelector(".preview-badge");
     badge.replaceChildren();
@@ -590,19 +769,25 @@ export function mountLivePanel({
         throw new Error(
           "В режиме правой руки используйте только пошаговый тест.",
         );
+      activeStep = null;
+      activeSliderJoint = null;
+      sliderPointerActive = false;
+      sliderKeyboardActive = false;
       if (run)
         playbackScale = livePlaybackScale(
           getMotion(),
           session.caps,
           session.speed,
-        );
-      session.hold(getPose());
+      );
+      session.beginHold(getPose());
       running = run;
       if (run) onPlayback(true);
       render(session.snapshot());
     });
   }
   function release(reason) {
+    sliderPointerActive = false;
+    sliderKeyboardActive = false;
     if (["arming", "initializing_right_arm"].includes(session.state))
       session.requestDisconnect();
     else session.release(reason);
@@ -688,6 +873,7 @@ export function mountLivePanel({
         getJoint(),
         stepDirection,
         activeStep,
+        activeSliderJoint,
       );
       if (view.locked) return;
       activeStep = null;
@@ -700,8 +886,11 @@ export function mountLivePanel({
     guarded(() => {
       const plan = buildStepPlan(session.snapshot());
       activeStep = plan;
+      activeSliderJoint = null;
+      sliderPointerActive = false;
+      sliderKeyboardActive = false;
       try {
-        session.hold(plan.target);
+        session.beginHold(plan.target);
       } catch (e) {
         activeStep = null;
         throw e;
@@ -733,7 +922,94 @@ export function mountLivePanel({
       release("Пошаговая кнопка отпущена.");
     }
   };
+  const liveSlider = byId("live-slider");
+  const sliderKeys = new Set([
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+  ]);
+  function startSliderHold(source) {
+    guarded(() => {
+      const view = liveSliderViewModel(
+        session.snapshot(),
+        getJoint(),
+        activeStep,
+        activeSliderJoint,
+      );
+      if (view.disabled) {
+        render(session.snapshot());
+        return;
+      }
+      activeStep = null;
+      activeSliderJoint = view.jointId;
+      sliderPointerActive = source === "pointer";
+      sliderKeyboardActive = source === "keyboard";
+      try {
+        session.beginHold(
+          sliderTargetPose(session.snapshot(), view.jointId, liveSlider.value),
+        );
+      } catch (e) {
+        activeSliderJoint = null;
+        sliderPointerActive = false;
+        sliderKeyboardActive = false;
+        throw e;
+      }
+      running = false;
+      onPlayback(false);
+      render(session.snapshot());
+    });
+  }
+  function updateSliderHold() {
+    guarded(() => {
+      if (
+        !activeSliderJoint ||
+        session.state !== "armed" ||
+        !session.holding
+      ) {
+        render(session.snapshot());
+        return;
+      }
+      session.updatePose(
+        sliderTargetPose(session.snapshot(), activeSliderJoint, liveSlider.value),
+      );
+      render(session.snapshot());
+    });
+  }
+  function releaseSlider(reason) {
+    if (!sliderPointerActive && !sliderKeyboardActive) {
+      render(session.snapshot());
+      return;
+    }
+    release(reason);
+    render(session.snapshot());
+  }
+  liveSlider.onpointerdown = (e) => {
+    if (e.button !== 0 || liveSlider.disabled) return;
+    liveSlider.setPointerCapture(e.pointerId);
+    startSliderHold("pointer");
+  };
+  liveSlider.oninput = updateSliderHold;
+  liveSlider.onchange = () => render(session.snapshot());
+  liveSlider.onpointerup = () => releaseSlider("Ползунок отпущен.");
+  liveSlider.onpointercancel = () => releaseSlider("Ползунок отменён.");
+  liveSlider.onlostpointercapture = () =>
+    releaseSlider("Ползунок отпущен.");
+  liveSlider.onblur = () => releaseSlider("Ползунок потерял фокус.");
+  liveSlider.onkeydown = (e) => {
+    if (!sliderKeys.has(e.code) || e.repeat || liveSlider.disabled) return;
+    startSliderHold("keyboard");
+  };
+  liveSlider.onkeyup = (e) => {
+    if (sliderKeys.has(e.code)) releaseSlider("Клавиша ползунка отпущена.");
+  };
   byId("live-stop").onclick = () => {
+    sliderPointerActive = false;
+    sliderKeyboardActive = false;
     running = false;
     onPlayback(false);
     if (["arming", "initializing_right_arm"].includes(session.state))
@@ -818,9 +1094,20 @@ export function mountLivePanel({
     },
     updateTarget() {
       if (session.holding && !isRightArmMode(session.snapshot()))
-        guarded(() => session.setTarget(getPose()));
+        guarded(() => session.updatePose(getPose()));
     },
     stop: (reason) => release(reason),
+    canSelectJoint(id) {
+      const locked = activeLockedJoint(session.snapshot());
+      return !locked || locked === id;
+    },
+    recordPose(fallback) {
+      return enabled &&
+        ["ready", "armed", "stopping"].includes(session.state) &&
+        session.lastTelemetry
+        ? session.lastTelemetry.commanded_pose
+        : fallback;
+    },
     displayPose(fallback) {
       return enabled &&
         ["ready", "armed", "stopping"].includes(session.state) &&

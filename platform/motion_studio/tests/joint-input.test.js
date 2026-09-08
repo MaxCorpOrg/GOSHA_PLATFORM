@@ -59,7 +59,9 @@ function editor() {
     enabled: false,
     snapshot: { state: "disconnected" },
     refresh: () => context.updateLiveView(),
+    canSelectJoint: () => true,
     displayPose: (pose) => pose,
+    recordPose: (pose) => pose,
     updateTarget() {},
   };
   context.notify = (message) => context.errors.push(message);
@@ -130,4 +132,23 @@ test("invalid numeric edits are rejected before a refresh can replace them", () 
     assert.deepEqual(ui.scenePose, zeroPose());
     assert.equal(number.value, "0");
   }
+});
+
+test("active Live joint locks editor selection until the session stops", () => {
+  const ui = editor();
+  ui.live.canSelectJoint = (id) => id === "arm_positive_x";
+  ui.selectJoint("arm_positive_x");
+  assert.equal(ui.selectedJoint, "arm_positive_x");
+  ui.selectJoint("leg_negative_x");
+  assert.equal(ui.selectedJoint, "arm_positive_x");
+});
+
+test("recording a pose can save the confirmed Live command explicitly", () => {
+  const ui = editor();
+  const commanded = { ...zeroPose(), arm_positive_x: -15 };
+  ui.live.recordPose = () => commanded;
+  ui.recordPose();
+  assert.equal(ui.commits.length, 1);
+  assert.equal(poseAt(ui.motion, 0).arm_positive_x, -15);
+  assert.deepEqual(ui.scenePose, commanded);
 });

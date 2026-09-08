@@ -379,6 +379,8 @@ export class LiveSession {
     this.lastSentAt = 0;
     this.rtt = null;
     this.closeAfterStop = false;
+    this.commissioningStartPose = null;
+    this.commissioningJoint = null;
     this.commandLog = [];
     this.transport = "wifi";
     this.socketErrorReason =
@@ -396,6 +398,11 @@ export class LiveSession {
       rtt: this.rtt,
       telemetry: this.lastTelemetry,
       speed: this.speed,
+      target: this.target ? { ...this.target } : null,
+      commissioning_start_pose: this.commissioningStartPose
+        ? { ...this.commissioningStartPose }
+        : null,
+      commissioning_joint: this.commissioningJoint,
       pending: Boolean(this.pending),
       commandLog: this.commandLog.map((entry) => ({ ...entry })),
     };
@@ -627,6 +634,8 @@ export class LiveSession {
       this.pending = null;
       this.sessionId = null;
       this.deadline = null;
+      this.commissioningStartPose = null;
+      this.commissioningJoint = null;
       if (this.closeAfterStop) {
         this.disconnect("Робот подтвердил остановку. Соединение закрыто.");
         return;
@@ -777,6 +786,17 @@ export class LiveSession {
     this.holding = true;
     this.onChange(this.snapshot());
   }
+  beginHold(pose) {
+    this.hold(pose);
+  }
+  updatePose(pose) {
+    assert(
+      this.state === "armed" && this.holding,
+      "Удерживайте ползунок или кнопку, чтобы менять цель Live.",
+    );
+    this.setTarget(pose);
+    this.onChange(this.snapshot());
+  }
   release(reason = "Разрешение движения отпущено.") {
     this.holding = false;
     if (this.state === "armed") this.stop(reason);
@@ -860,6 +880,8 @@ export class LiveSession {
     this.deadline = null;
     this.socket = null;
     this.closeAfterStop = false;
+    this.commissioningStartPose = null;
+    this.commissioningJoint = null;
     if (emitChange) this.appendLog("error", "fault", reason);
     if (socket?.readyState === 1 && sessionId) {
       try {
@@ -907,6 +929,8 @@ export class LiveSession {
     this.pending = null;
     this.holding = false;
     this.closeAfterStop = false;
+    this.commissioningStartPose = null;
+    this.commissioningJoint = null;
     this.change("disconnected", reason);
   }
 }

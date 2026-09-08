@@ -12,6 +12,8 @@ import {
 } from "../src/live.js";
 import {
   createLiveStepPlan,
+  liveSafeIntervalForJoint,
+  liveSliderViewModel,
   livePlaybackScale,
   liveStepSizeForJoint,
   liveStepViewModel,
@@ -92,13 +94,13 @@ function harness(caps = capabilities) {
     });
     return socket;
   };
-  const ack = (socket) =>
+  const ack = (socket, commanded_pose = zeroPose()) =>
     socket.receive({
       protocol: LIVE_PROTOCOL,
       op: "ack",
       session_id: live.sessionId,
       seq: live.pending.seq,
-      commanded_pose: zeroPose(),
+      commanded_pose,
       measured_pose: null,
       tilt: null,
     });
@@ -913,6 +915,163 @@ test("right-arm commissioning session delta follows the negotiated extent from t
   assert.equal(socket.sent.at(-1).target.arm_positive_x, -10);
   assert.throws(() => h.live.setTarget({ ...zeroPose(), arm_positive_x: -11 }));
   assert.equal(socket.sent.at(-1).op, "stop");
+});
+
+test("right-arm slider bounds come from the current negotiated extent and ARM baseline", () => {
+  const oldCaps = validateCapabilities(rightArmCaps(true, 5));
+  assert.deepEqual(
+    liveSafeIntervalForJoint(oldCaps, "arm_positive_x", zeroPose()),
+    { min: -5, max: 5 },
+  );
+  const oldView = liveSliderViewModel(
+    {
+      state: "armed",
+      caps: oldCaps,
+      holding: false,
+      telemetry: { commanded_pose: zeroPose() },
+      commissioning_start_pose: zeroPose(),
+    },
+    "arm_positive_x",
+  );
+  assert.equal(oldView.disabled, false);
+  assert.equal(oldView.min, -5);
+  assert.equal(oldView.max, 5);
+
+  const baseline = { ...zeroPose(), arm_positive_x: 5 };
+  const newCaps = validateCapabilities({
+    ...rightArmCaps(true, 15),
+    commanded_pose: baseline,
+  });
+  assert.deepEqual(
+    liveSafeIntervalForJoint(newCaps, "arm_positive_x", baseline),
+    { min: -10, max: 15 },
+  );
+  const newView = liveSliderViewModel(
+    {
+      state: "armed",
+      caps: newCaps,
+      holding: false,
+      telemetry: { commanded_pose: baseline },
+      commissioning_start_pose: baseline,
+    },
+    "arm_positive_x",
+  );
+  assert.equal(newView.min, -10);
+  assert.equal(newView.max, 15);
+
+  const waiting = liveSliderViewModel(
+    {
+      state: "init_required",
+      caps: validateCapabilities(rightArmCaps(false, 15)),
+      holding: false,
+      telemetry: { commanded_pose: zeroPose() },
+    },
+    "arm_positive_x",
+  );
+  assert.equal(waiting.visible, false);
+  assert.equal(waiting.disabled, true);
+});
+
+test("right-arm slider separates target from commanded pose and snaps back after release", () => {
+  const caps = validateCapabilities(rightArmCaps(true, 15));
+  const moving = liveSliderViewModel(
+    {
+      state: "armed",
+      caps,
+      holding: true,
+      telemetry: {
+        commanded_pose: { ...zeroPose(), arm_positive_x: -3 },
+      },
+      target: { ...zeroPose(), arm_positive_x: -15 },
+      commissioning_start_pose: zeroPose(),
+      commissioning_joint: "arm_positive_x",
+    },
+    "leg_negative_x",
+    null,
+    "arm_positive_x",
+  );
+  assert.equal(moving.jointId, "arm_positive_x");
+  assert.equal(moving.command, -3);
+  assert.equal(moving.target, -15);
+  assert.equal(moving.value, -15);
+  assert.equal(moving.locked, true);
+  assert.equal(moving.disabled, false);
+
+  const stopped = liveSliderViewModel(
+    {
+      state: "stopping",
+      caps,
+      holding: false,
+      telemetry: {
+        commanded_pose: { ...zeroPose(), arm_positive_x: -3 },
+      },
+      target: null,
+      commissioning_start_pose: zeroPose(),
+      commissioning_joint: "arm_positive_x",
+    },
+    "foot_positive_x",
+    null,
+    "arm_positive_x",
+  );
+  assert.equal(stopped.jointId, "arm_positive_x");
+  assert.equal(stopped.command, -3);
+  assert.equal(stopped.target, -3);
+  assert.equal(stopped.value, -3);
+  assert.equal(stopped.disabled, true);
+});
+
+test("right-arm slider hold updates the held target and releases through STOP", () => {
+  const h = harness(() => rightArmCaps(true, 15));
+  const socket = h.arm();
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "keepalive");
+  assert.equal(socket.sent.filter((message) => message.op === "pose").length, 0);
+  h.ack(socket);
+
+  h.live.beginHold(zeroPose());
+  h.live.updatePose({ ...zeroPose(), arm_positive_x: -15 });
+  assert.equal(h.live.snapshot().target.arm_positive_x, -15);
+  h.advance(50);
+  const pose = socket.sent.at(-1);
+  assert.equal(pose.op, "pose");
+  assert.equal(pose.speed_dps, 1);
+  assert.equal(pose.target.arm_positive_x, -15);
+  h.ack(socket, { ...zeroPose(), arm_positive_x: -3 });
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, -3);
+
+  const session_id = h.live.sessionId;
+  h.live.release("Ползунок отпущен.");
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(h.live.state, "stopping");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "stopped",
+    session_id,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -3 },
+    measured_pose: null,
+    tilt: null,
+  });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.snapshot().target, null);
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, -3);
+});
+
+test("old right-arm caps cannot be widened to a fifteen-degree slider target", () => {
+  const h = harness(() => rightArmCaps(true, 5));
+  const socket = h.arm();
+  h.live.beginHold(zeroPose());
+  assert.throws(() =>
+    h.live.updatePose({ ...zeroPose(), arm_positive_x: -15 }),
+  );
+  assert.equal(h.live.state, "stopping");
+  assert.equal(socket.sent.at(-1).op, "stop");
+  assert.equal(
+    socket.sent.some(
+      (message) =>
+        message.op === "pose" && message.target?.arm_positive_x === -15,
+    ),
+    false,
+  );
 });
 
 test("right-arm commissioning release sends STOP and keeps the final command explicit", () => {
