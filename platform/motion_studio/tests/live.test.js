@@ -13,6 +13,7 @@ import {
 import {
   createLiveStepPlan,
   livePlaybackScale,
+  liveStepSizeForJoint,
   liveStepViewModel,
   prepareLiveStepTarget,
 } from "../src/live-panel.js";
@@ -599,7 +600,7 @@ const commissioningCaps = () => ({
   })),
 });
 
-const rightArmCaps = (initialized = true) => ({
+const rightArmCaps = (initialized = true, rightExtent = 5) => ({
   ...capabilities(),
   mode: RIGHT_ARM_COMMISSIONING_MODE,
   calibrated: false,
@@ -608,7 +609,12 @@ const rightArmCaps = (initialized = true) => ({
   reason: initialized ? undefined : RIGHT_ARM_INITIALIZATION_REASON,
   right_arm_initialized: initialized,
   joint_limits: [
-    { id: "arm_positive_x", min: -5, max: 5, max_speed_dps: 1 },
+    {
+      id: "arm_positive_x",
+      min: -rightExtent,
+      max: rightExtent,
+      max_speed_dps: 1,
+    },
     ...PROFILE.joints.slice(2).map((j) => ({
       id: j.id, min: -1, max: 1, max_speed_dps: 1,
     })),
@@ -802,28 +808,35 @@ test("right-arm initialization cancel closes as unknown without retrying or posi
   }
 });
 
-test("right-arm commissioning capabilities require the exact five-joint envelope", () => {
-  const caps = validateCapabilities(rightArmCaps(true));
-  assert.equal(caps.mode, RIGHT_ARM_COMMISSIONING_MODE);
-  assert.equal(caps.commissioning, true);
-  assert.equal(caps.calibrated, false);
-  assert.equal(caps.right_arm_initialized, true);
-  assert.deepEqual(
-    caps.joint_limits.map((limit) => limit.id),
-    [
-      "arm_positive_x",
-      "leg_negative_x",
-      "leg_positive_x",
-      "foot_negative_x",
-      "foot_positive_x",
-    ],
-  );
+test("right-arm commissioning capabilities accept only symmetric five or fifteen degree arm envelopes", () => {
+  for (const extent of [5, 15]) {
+    const caps = validateCapabilities(rightArmCaps(true, extent));
+    assert.equal(caps.mode, RIGHT_ARM_COMMISSIONING_MODE);
+    assert.equal(caps.commissioning, true);
+    assert.equal(caps.calibrated, false);
+    assert.equal(caps.right_arm_initialized, true);
+    assert.equal(liveStepSizeForJoint(caps, "arm_positive_x"), extent);
+    assert.deepEqual(
+      caps.joint_limits.map((limit) => limit.id),
+      [
+        "arm_positive_x",
+        "leg_negative_x",
+        "leg_positive_x",
+        "foot_negative_x",
+        "foot_positive_x",
+      ],
+    );
+    const waiting = validateCapabilities(rightArmCaps(false, extent));
+    assert.equal(waiting.initialization_required, true);
+    assert.equal(waiting.right_arm_initialized, false);
+  }
   for (const mutate of [
     (c) => { c.right_arm_initialized = false; },
     (c) => { c.motion_allowed = false; c.reason = "no_motion_profile"; },
     (c) => { c.joint_limits[0].id = "arm_negative_x"; },
-    (c) => { c.joint_limits[0].min = -6; },
-    (c) => { c.joint_limits[0].max = 6; },
+    (c) => { c.joint_limits[0].min = -15; c.joint_limits[0].max = 5; },
+    (c) => { c.joint_limits[0].min = -10; c.joint_limits[0].max = 10; },
+    (c) => { c.joint_limits[0].min = -16; c.joint_limits[0].max = 16; },
     (c) => { c.joint_limits[0].max_speed_dps = 2; },
     (c) => { c.joint_limits.pop(); },
     (c) => { c.watchdog_ms = 500; },
@@ -832,6 +845,7 @@ test("right-arm commissioning capabilities require the exact five-joint envelope
     mutate(data);
     assert.throws(() => validateCapabilities(data));
   }
+  const caps = validateCapabilities(rightArmCaps(true));
   assert.throws(() => livePlaybackScale(createMotion(), caps, 1), /по одному суставу/);
 });
 
@@ -864,6 +878,41 @@ test("right-arm commissioning sends one five-degree arm step and blocks a second
   assert.throws(() => h.live.setTarget({ ...zeroPose(), leg_negative_x: 1 }));
   assert.equal(socket.sent.at(-1).op, "stop");
   assert.equal(socket.sent.filter((message) => message.op === "pose").length, 1);
+});
+
+test("right-arm commissioning uses the negotiated fifteen-degree extent without widening old caps", () => {
+  const caps = validateCapabilities(rightArmCaps(true, 15));
+  const plan = createLiveStepPlan(zeroPose(), caps, "arm_positive_x", -1);
+  assert.equal(plan.stepSize, 15);
+  assert.equal(plan.target.arm_positive_x, -15);
+  assert.equal(prepareLiveStepTarget(zeroPose(), caps, "arm_positive_x", 1).arm_positive_x, 15);
+
+  const wide = harness(() => rightArmCaps(true, 15));
+  const wideSocket = wide.arm();
+  wide.live.hold({ ...zeroPose(), arm_positive_x: -15 });
+  wide.advance(50);
+  assert.equal(wideSocket.sent.at(-1).op, "pose");
+  assert.equal(wideSocket.sent.at(-1).target.arm_positive_x, -15);
+
+  const old = harness(() => rightArmCaps(true, 5));
+  const oldSocket = old.arm();
+  assert.throws(() => old.live.hold({ ...zeroPose(), arm_positive_x: -15 }));
+  assert.equal(oldSocket.sent.at(-1).op, "stop");
+  assert.ok(oldSocket.sent.every((message) => message.op !== "pose"));
+});
+
+test("right-arm commissioning session delta follows the negotiated extent from the ARM baseline", () => {
+  const h = harness(() => ({
+    ...rightArmCaps(true, 15),
+    commanded_pose: { ...zeroPose(), arm_positive_x: 5 },
+  }));
+  const socket = h.arm();
+  h.live.hold({ ...zeroPose(), arm_positive_x: -10 });
+  h.advance(50);
+  assert.equal(socket.sent.at(-1).op, "pose");
+  assert.equal(socket.sent.at(-1).target.arm_positive_x, -10);
+  assert.throws(() => h.live.setTarget({ ...zeroPose(), arm_positive_x: -11 }));
+  assert.equal(socket.sent.at(-1).op, "stop");
 });
 
 test("right-arm commissioning release sends STOP and keeps the final command explicit", () => {
@@ -946,6 +995,37 @@ test("right-arm step display keeps the armed joint and absolute target through p
   assert.equal(stopping.target.arm_positive_x, -5);
   assert.equal(stopping.locked, true);
   assert.equal(stopping.holdDisabled, true);
+});
+
+test("right-arm step display shows the negotiated fifteen-degree target", () => {
+  const caps = validateCapabilities(rightArmCaps(true, 15));
+  const activeStep = createLiveStepPlan(
+    zeroPose(),
+    caps,
+    "arm_positive_x",
+    -1,
+  );
+  for (const value of [0, -5, -10, -15]) {
+    const view = liveStepViewModel(
+      {
+        state: "armed",
+        caps,
+        holding: true,
+        telemetry: {
+          commanded_pose: { ...zeroPose(), arm_positive_x: value },
+        },
+      },
+      "leg_negative_x",
+      1,
+      activeStep,
+    );
+    assert.equal(view.jointId, "arm_positive_x");
+    assert.equal(view.direction, -1);
+    assert.equal(view.stepSize, 15);
+    assert.equal(view.current, value);
+    assert.equal(view.target.arm_positive_x, -15);
+    assert.equal(view.locked, true);
+  }
 });
 
 test("right-arm held step keeps sending the fixed target until release follows STOP", () => {

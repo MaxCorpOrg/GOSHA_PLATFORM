@@ -1,6 +1,7 @@
 import {
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
+  commissioningDeltaLimit,
   listUsbBridgePorts,
 } from "./live.js";
 import { PROFILE } from "./motion.js";
@@ -12,8 +13,11 @@ const jointById = (id) => PROFILE.joints.find((joint) => joint.id === id);
 export function liveStepSizeForJoint(caps, jointId) {
   if (!caps?.joint_limits.some((limit) => limit.id === jointId))
     throw new Error("Выберите доступный сустав Live.");
-  if (caps.mode === RIGHT_ARM_COMMISSIONING_MODE && jointId === "arm_positive_x")
-    return 5;
+  if (caps.commissioning) {
+    const step = commissioningDeltaLimit(caps, jointId);
+    if (!step) throw new Error("Выберите доступный сустав Live.");
+    return step;
+  }
   return 1;
 }
 
@@ -248,6 +252,10 @@ export function mountLivePanel({
     ["disconnected", "fault"].includes(state.state);
   const activeJointIds = (state) =>
     state.caps?.joint_limits.map((limit) => limit.id) ?? [];
+  const rightArmStepSize = (state) =>
+    state.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE
+      ? liveStepSizeForJoint(state.caps, "arm_positive_x")
+      : null;
   const selectedLiveJoint = (state) => {
     const active = activeJointIds(state);
     const current = getJoint();
@@ -459,8 +467,9 @@ export function mountLivePanel({
         : "Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.";
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
+    const rightStep = rightArmStepSize(state);
     byId("live-commissioning-note").textContent = isRightArmMode(state)
-      ? "Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Направление модели ещё не подтверждено: отрицательный шаг соответствует старому примеру приветствия, но физику проверяет оператор."
+      ? `Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Текущий предел правой руки ${rightStep}°; направление модели проверяет оператор.`
       : "Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.";
     byId("live-copy-pose").hidden =
       !state.caps?.commissioning || state.caps.initialization_required;
@@ -520,7 +529,7 @@ export function mountLivePanel({
         const row = document.createElement("p");
         const note =
           isRightArmMode(state) && j.id === "arm_positive_x"
-            ? " · GPIO12, нейтраль 135°, первый шаг −5°"
+            ? ` · GPIO12, нейтраль 135°, шаг ${formatDegrees(-rightStep)}`
             : "";
         row.textContent = limit
           ? `${j.label}: ${limit.min}…${limit.max}° · до ${limit.max_speed_dps}°/с${note}`

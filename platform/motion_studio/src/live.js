@@ -6,6 +6,7 @@ export const USB_BRIDGE_WS_URL = "ws://127.0.0.1:5177/live";
 export const RIGHT_ARM_INITIALIZATION_REASON =
   "right_arm_initialization_required";
 export const RIGHT_ARM_COMMISSIONING_MODE = "commissioning_right_arm";
+export const RIGHT_ARM_COMMISSIONING_EXTENTS = Object.freeze([5, 15]);
 const LEG_COMMISSIONING_MODE = "commissioning";
 const LEG_COMMISSIONING_JOINTS = Object.freeze([
   "leg_negative_x",
@@ -33,11 +34,30 @@ function commissioningJointIds(mode) {
   return [];
 }
 
-function commissioningDeltaLimit(mode, jointId) {
-  if (mode === RIGHT_ARM_COMMISSIONING_MODE && jointId === "arm_positive_x")
-    return 5;
-  if (mode === RIGHT_ARM_COMMISSIONING_MODE) return 1;
-  if (mode === LEG_COMMISSIONING_MODE) return 1;
+function rightArmCommissioningExtent(limit) {
+  if (
+    limit?.id === "arm_positive_x" &&
+    RIGHT_ARM_COMMISSIONING_EXTENTS.includes(limit.max) &&
+    limit.min === -limit.max
+  )
+    return limit.max;
+  return null;
+}
+
+export function commissioningDeltaLimit(caps, jointId) {
+  const limit = caps?.joint_limits.find((item) => item.id === jointId);
+  if (!limit) return 0;
+  if (caps.mode === RIGHT_ARM_COMMISSIONING_MODE && jointId === "arm_positive_x")
+    return rightArmCommissioningExtent(limit) ?? 0;
+  if (
+    (caps.mode === RIGHT_ARM_COMMISSIONING_MODE ||
+      caps.mode === LEG_COMMISSIONING_MODE) &&
+    LEG_COMMISSIONING_JOINTS.includes(jointId) &&
+    limit.min === -1 &&
+    limit.max === 1 &&
+    limit.max_speed_dps === 1
+  )
+    return 1;
   return 0;
 }
 
@@ -47,16 +67,14 @@ function validateCommissioningLimits(mode, joint_limits, watchdog_ms) {
     watchdog_ms === 300 &&
       joint_limits.length === allowed.length &&
       joint_limits.every((limit) => {
-        const delta = commissioningDeltaLimit(mode, limit.id);
-        return (
-          allowed.includes(limit.id) &&
-          limit.min === -delta &&
-          limit.max === delta &&
-          limit.max_speed_dps === 1
-        );
+        if (!allowed.includes(limit.id) || limit.max_speed_dps !== 1)
+          return false;
+        if (mode === RIGHT_ARM_COMMISSIONING_MODE && limit.id === "arm_positive_x")
+          return rightArmCommissioningExtent(limit) !== null;
+        return limit.min === -1 && limit.max === 1;
       }),
     mode === RIGHT_ARM_COMMISSIONING_MODE
-      ? "Проверка правой руки допускает только правую руку ±5°, ноги и стопы ±1°, скорость 1°/с."
+      ? "Проверка правой руки допускает только правую руку ±5° или ±15°, ноги и стопы ±1°, скорость 1°/с."
       : "Первичная проверка допускает только ноги и стопы, ±1° и скорость 1°/с.",
   );
 }
@@ -525,6 +543,10 @@ export class LiveSession {
         );
         return;
       }
+      const rightArmExtent =
+        this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
+          ? commissioningDeltaLimit(this.caps, "arm_positive_x")
+          : null;
       const transportNote =
         this.transport === "usb"
           ? " USB отвечает через локальную службу."
@@ -533,7 +555,7 @@ export class LiveSession {
         "ready",
         (this.caps.commissioning
           ? this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
-            ? "Правая рука включена. Один выбранный сустав за сессию: правая рука до 5°, ноги и стопы до 1° при 1°/с."
+            ? `Правая рука включена. Один выбранный сустав за сессию: правая рука до ${rightArmExtent}°, ноги и стопы до 1° при 1°/с.`
             : "Первичная проверка: один сустав за сессию, ±1° при 1°/с. Привязка модели и механические пределы ещё не проверены."
           : "Робот совместим. Для движения откройте сессию.") +
           transportNote,
@@ -733,10 +755,10 @@ export class LiveSession {
     assert(changed.length <= 1 && changed.every((joint) =>
       this.caps.joint_limits.some((limit) => limit.id === joint.id) &&
       Math.abs(pose[joint.id] - this.commissioningStartPose[joint.id]) <=
-        commissioningDeltaLimit(this.caps.mode, joint.id) &&
+        commissioningDeltaLimit(this.caps, joint.id) &&
       (joint.id === this.commissioningJoint || (selectJoint && !this.commissioningJoint))),
     this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE
-      ? "Проверка правой руки: допустим один выбранный сустав, правая рука до 5°, ноги и стопы до 1°. Остальные должны сохранять начальные команды."
+      ? "Проверка правой руки: допустим один выбранный сустав, правая рука по текущему пределу, ноги и стопы до 1°. Остальные должны сохранять начальные команды."
       : "Первичная проверка: допустим шаг одного выбранного сустава до 1°. Остальные должны сохранять начальные команды.");
     if (selectJoint && changed.length) this.commissioningJoint = changed[0].id;
   }
