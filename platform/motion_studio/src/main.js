@@ -602,7 +602,7 @@ function updateLiveView() {
     note.textContent = view ? (view.available ? `Команда ${view.command}° · цель ${view.value}°. ${view.reason}` : view.reason) : "";
   }
   document.querySelector(".inspector-intro").textContent = live?.enabled
-    ? "Откройте сессию слева. Держите ползунок — робот идёт к цели; отпустите для STOP. Позу сохраняйте кнопкой под моделью."
+    ? "Откройте сессию слева и выберите угол. Робот плавно дойдёт до цели — удерживать мышь не нужно. STOP завершает сессию."
     : "Измените угол — поза запишется на текущей отметке времени.";
   document.querySelector(".calibration-note").textContent = live?.enabled
     ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."

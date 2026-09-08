@@ -368,9 +368,12 @@ export class LiveSession {
     this.generation = 0;
     this.state = "disconnected";
     this.reason = "";
+    this.stopReason = "";
     this.caps = null;
     this.socket = null;
     this.holding = false;
+    this.following = false;
+    this.needsFreshPoseClock = false;
     this.sessionId = null;
     this.pending = null;
     this.lastTelemetry = null;
@@ -378,6 +381,7 @@ export class LiveSession {
     this.target = null;
     this.seq = 0;
     this.lastSentAt = 0;
+    this.lastPoseAt = 0;
     this.rtt = null;
     this.closeAfterStop = false;
     this.commissioningStartPose = null;
@@ -396,6 +400,7 @@ export class LiveSession {
       transport: this.transport,
       caps: this.caps,
       holding: this.holding,
+      following: this.following,
       rtt: this.rtt,
       telemetry: this.lastTelemetry,
       speed: this.speed,
@@ -609,15 +614,17 @@ export class LiveSession {
         "Профиль робота изменился. Подключитесь заново.",
       );
       this.sessionId = data.session_id;
+      this.stopReason = "";
       this.deadline = null;
       this.seq = 0;
       this.pending = null;
       this.lastSentAt = this.now();
+      this.lastPoseAt = this.now();
       this.lastReplyAt = this.now();
       this.commissioningStartPose = { ...this.lastTelemetry.commanded_pose };
       this.commissioningJoint = null;
       this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
-      this.change("armed", "Сессия открыта. Удерживайте разрешение движения.");
+      this.change("armed", "Сессия открыта. Выберите угол ползунком справа.");
       return;
     }
     if (
@@ -629,6 +636,8 @@ export class LiveSession {
       this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
       this.onTelemetry(this.lastTelemetry);
       this.holding = false;
+      this.following = false;
+      this.needsFreshPoseClock = false;
       this.pending = null;
       this.sessionId = null;
       this.deadline = null;
@@ -640,7 +649,7 @@ export class LiveSession {
       }
       this.change(
         "ready",
-        "Робот подтвердил остановку. Для движения откройте новую сессию.",
+        `${this.stopReason || "Сессия закрыта."} Робот подтвердил остановку. Для движения откройте новую сессию.`,
       );
       return;
     }
@@ -650,11 +659,24 @@ export class LiveSession {
       data.session_id === this.sessionId
     ) {
       if (!this.pending || data.seq !== this.pending.seq) return;
+      const acknowledged = this.pending;
       this.lastTelemetry = this.validateTelemetry(data);
       this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
       this.rtt = Math.max(0, Math.round(this.now() - this.pending.sentAt));
       this.lastReplyAt = this.now();
       this.pending = null;
+      // Finish only an ACK for the latest target actually sent, never an old
+      // command that happens to pass through the newly requested position.
+      if (this.following && acknowledged.op === "pose" && this.target &&
+          PROFILE.joints.every((joint) =>
+            acknowledged.target?.[joint.id] === this.target[joint.id] &&
+            this.lastTelemetry.commanded_pose[joint.id] === this.target[joint.id])) {
+        this.holding = false;
+        this.following = false;
+        this.target = null;
+        this.needsFreshPoseClock = false;
+        this.reason = "Угол достигнут. Можно выбрать следующий угол; сессия открыта.";
+      }
       this.onTelemetry(this.lastTelemetry);
       this.onChange(this.snapshot());
     }
@@ -779,10 +801,22 @@ export class LiveSession {
     }
   }
   hold(pose) {
+    const starting = !this.holding;
     assert(this.state === "armed", "Откройте сессию Live.");
     this.setTarget(pose);
+    if (starting) this.needsFreshPoseClock = this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE;
+    this.following = false;
     this.holding = true;
     this.onChange(this.snapshot());
+  }
+  moveTo(pose) {
+    assert(this.state === "armed", "Откройте сессию Live.");
+    const starting = !this.holding;
+    this.setTarget(pose);
+    if (starting) this.needsFreshPoseClock = this.caps.mode === RIGHT_ARM_COMMISSIONING_MODE;
+    this.holding = true;
+    this.following = true;
+    this.change("armed", "Робот идёт к выбранному углу. STOP — остановить и закрыть сессию.");
   }
   beginHold(pose) {
     this.hold(pose);
@@ -826,16 +860,26 @@ export class LiveSession {
     const seq = ++this.seq;
     const op = this.holding && this.target ? "pose" : "keepalive";
     const message = { op, session_id: this.sessionId, seq };
+    let sentTarget = null;
     if (op === "pose") {
+      // Right-arm commissioning keepalive does not advance its motion clock.
+      // Re-prime it at the confirmed position after an idle gap, then wait for
+      // that ACK before dispatching the requested target. Never auto-arm.
+      const prime = this.needsFreshPoseClock && now - this.lastPoseAt > 100;
+      sentTarget = { ...(prime ? this.lastTelemetry.commanded_pose : this.target) };
       message.target = Object.fromEntries(
-        this.caps.joint_limits.map((j) => [j.id, this.target[j.id]]),
+        this.caps.joint_limits.map((j) => [j.id, sentTarget[j.id]]),
       );
       message.speed_dps = Math.min(
         this.speed,
         ...this.caps.joint_limits.map((joint) => joint.max_speed_dps),
       );
     }
-    this.pending = { seq, sentAt: now };
+    this.pending = { seq, sentAt: now, op, target: op === "pose" ? sentTarget : null };
+    if (op === "pose") {
+      this.lastPoseAt = now;
+      this.needsFreshPoseClock = false;
+    }
     this.lastSentAt = now;
     try {
       this.send(message);
@@ -844,7 +888,10 @@ export class LiveSession {
     }
   }
   stop(reason = "Остановка запрошена.") {
+    this.stopReason = reason;
     this.holding = false;
+    this.following = false;
+    this.needsFreshPoseClock = false;
     this.target = null;
     this.pending = null;
     if (this.state === "arming") {
@@ -872,6 +919,8 @@ export class LiveSession {
     const sessionId = this.sessionId;
     this.generation++;
     this.holding = false;
+    this.following = false;
+    this.needsFreshPoseClock = false;
     this.target = null;
     this.pending = null;
     this.sessionId = null;
@@ -926,6 +975,8 @@ export class LiveSession {
     this.target = null;
     this.pending = null;
     this.holding = false;
+    this.following = false;
+    this.needsFreshPoseClock = false;
     this.closeAfterStop = false;
     this.commissioningStartPose = null;
     this.commissioningJoint = null;

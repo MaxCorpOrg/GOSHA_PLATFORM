@@ -113,7 +113,7 @@ export function liveSliderViewModel(
     disabled: state.state !== "armed" || Boolean(stepLocked),
     hint:
       state.state === "armed"
-        ? "Держите бегунок до нужного угла. Скорость прошивки 1°/с; отпускание отправит STOP."
+        ? "Выберите угол. Робот плавно дойдёт до цели; удерживать мышь не нужно."
         : "Откройте сессию ARM: ползунок не двигает робота до подтверждения доступа.",
   };
 }
@@ -132,7 +132,7 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
     value: ownView ? view.value : command,
     disabled: !available || !ownView || view.disabled,
     available,
-    reason: !state.caps ? "Подключите робота" : !available ? "Недоступен" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "В сессии выбран другой сустав" : "Держите ползунок · отпустите для STOP",
+    reason: !state.caps ? "Подключите робота" : !available ? "Недоступен" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Для другого сустава: STOP → новая сессия" : "Выберите угол · удерживать не нужно",
   };
 }
 
@@ -333,8 +333,6 @@ export function mountLivePanel({
   let stepDirection = -1;
   let activeStep = null;
   let activeSliderJoint = null;
-  let sliderPointerActive = false;
-  let sliderKeyboardActive = false;
   const abort = new AbortController();
   signal.addEventListener(
     "abort",
@@ -532,11 +530,10 @@ export function mountLivePanel({
   }
   function render(state) {
     connectionState = state;
+    if (state.state === "armed" && !state.holding && !activeStep) activeSliderJoint = null;
     if (!isActiveSessionState(state)) {
       activeStep = null;
       activeSliderJoint = null;
-      sliderPointerActive = false;
-      sliderKeyboardActive = false;
     }
     if (pendingMode !== null && state.state === "disconnected") {
       applyMode(pendingMode);
@@ -624,7 +621,7 @@ export function mountLivePanel({
       : isRightArmMode(state)
         ? rightArmInitState
           ? "Сначала проверьте положение руки и включите её отдельной кнопкой. Шаги станут доступны после подтверждения включения."
-          : `Выберите сустав, откройте сессию и держите ползунок до нужного угла при 1°/с. Шаги доступны кнопкой ±${rightArmStepSize(state)}°. Отпускание или STOP закрывают сессию.`
+          : `Выберите угол ползунком справа. Робот дойдёт до него при 1°/с; сессия останется открытой. STOP закрывает сессию.`
         : "Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.";
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
@@ -753,8 +750,6 @@ export function mountLivePanel({
         );
       activeStep = null;
       activeSliderJoint = null;
-      sliderPointerActive = false;
-      sliderKeyboardActive = false;
       if (run)
         playbackScale = livePlaybackScale(
           getMotion(),
@@ -768,8 +763,6 @@ export function mountLivePanel({
     });
   }
   function release(reason) {
-    sliderPointerActive = false;
-    sliderKeyboardActive = false;
     if (["arming", "initializing_right_arm"].includes(session.state))
       session.requestDisconnect();
     else session.release(reason);
@@ -869,8 +862,6 @@ export function mountLivePanel({
       const plan = buildStepPlan(session.snapshot());
       activeStep = plan;
       activeSliderJoint = null;
-      sliderPointerActive = false;
-      sliderKeyboardActive = false;
       try {
         session.beginHold(plan.target);
       } catch (e) {
@@ -904,95 +895,31 @@ export function mountLivePanel({
       release("Пошаговая кнопка отпущена.");
     }
   };
-  const sliderKeys = new Set([
-    "ArrowLeft",
-    "ArrowRight",
-    "ArrowUp",
-    "ArrowDown",
-    "PageUp",
-    "PageDown",
-    "Home",
-    "End",
-  ]);
-  function startSliderHold(liveSlider, jointId, source) {
+  // Ordinary inspector controls set a destination. Pointer release/local blur
+  // are not emergency stops; window loss, cancel and explicit STOP still are.
+  function moveInspectorTarget(input, jointId) {
     guarded(() => {
-      const view = liveSliderViewModel(
-        session.snapshot(),
-        jointId,
-        activeStep,
-        activeSliderJoint,
-      );
-      if (view.disabled || view.jointId !== jointId) {
-        render(session.snapshot());
-        return;
-      }
-      const requestedValue = liveSlider.value;
+      const view = liveInspectorJointViewModel(session.snapshot(), jointId, activeStep, activeSliderJoint);
+      if (!enabled || view.disabled) { render(session.snapshot()); return; }
+      const requestedValue = input.value;
       onSelectJoint(jointId);
       activeStep = null;
-      activeSliderJoint = view.jointId;
-      sliderPointerActive = source === "pointer";
-      sliderKeyboardActive = source === "keyboard";
-      try {
-        session.beginHold(
-          sliderTargetPose(session.snapshot(), view.jointId, requestedValue),
-        );
-      } catch (e) {
-        activeSliderJoint = null;
-        sliderPointerActive = false;
-        sliderKeyboardActive = false;
-        throw e;
-      }
+      activeSliderJoint = jointId;
+      session.moveTo(sliderTargetPose(session.snapshot(), jointId, requestedValue));
       running = false;
       onPlayback(false);
-      render(session.snapshot());
     });
-  }
-  function updateSliderHold(liveSlider, jointId) {
-    guarded(() => {
-      if (
-        activeSliderJoint !== jointId ||
-        session.state !== "armed" ||
-        !session.holding
-      ) {
-        render(session.snapshot());
-        return;
-      }
-      session.updatePose(
-        sliderTargetPose(session.snapshot(), activeSliderJoint, liveSlider.value),
-      );
-      render(session.snapshot());
-    });
-  }
-  function releaseSlider(reason) {
-    if (!sliderPointerActive && !sliderKeyboardActive) {
-      render(session.snapshot());
-      return;
-    }
-    release(reason);
-    render(session.snapshot());
   }
   for (const joint of PROFILE.joints) {
     const input = document.getElementById(`range-${joint.id}`);
-    const listen = (event, handler) => input.addEventListener(event, handler, { signal: abort.signal });
-    listen("pointerdown", (e) => {
-      if (!enabled || e.button !== 0 || input.disabled) return;
-      input.setPointerCapture(e.pointerId);
-      startSliderHold(input, joint.id, "pointer");
-    });
-    listen("input", () => { if (enabled) updateSliderHold(input, joint.id); });
-    listen("pointerup", () => { if (enabled) releaseSlider("Ползунок отпущен."); });
-    listen("pointercancel", () => { if (enabled) releaseSlider("Ползунок отменён."); });
-    listen("lostpointercapture", () => { if (enabled) releaseSlider("Ползунок отпущен."); });
-    listen("blur", () => { if (enabled) releaseSlider("Ползунок потерял фокус."); });
-    listen("keydown", (e) => {
-      if (!enabled || !sliderKeys.has(e.code) || e.repeat || input.disabled) return;
-      startSliderHold(input, joint.id, "keyboard");
-    });
-    listen("keyup", (e) => { if (enabled && sliderKeys.has(e.code)) releaseSlider("Клавиша ползунка отпущена."); });
+    input.addEventListener("input", () => {
+      if (enabled) moveInspectorTarget(input, joint.id);
+    }, { signal: abort.signal });
+    input.addEventListener("pointercancel", () => {
+      if (enabled) release("Управление указателем отменено.");
+    }, { signal: abort.signal });
   }
   byId("live-stop").onclick = () => {
-    sliderPointerActive = false;
-    sliderKeyboardActive = false;
     running = false;
     onPlayback(false);
     if (["arming", "initializing_right_arm"].includes(session.state))

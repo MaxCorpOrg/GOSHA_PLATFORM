@@ -1353,3 +1353,72 @@ test("seventy-degree profile enforces actual bounds and session delta without wi
   const boundary = liveSafeIntervalForJoint(validateCapabilities(arm70Caps()),"arm_positive_x",{...zeroPose(),arm_positive_x:-70});
   assert.deepEqual(boundary,{min:-70,max:0});
 });
+
+
+test("ordinary move reaches its destination and keeps the same session open for the next move", () => {
+  const h=harness(()=>rightArmCaps(true,15)), s=h.arm();
+  for(let i=0;i<40;i++){h.advance(100);assert.equal(s.sent.at(-1).op,"keepalive");h.ack(s);}
+  h.live.moveTo({...zeroPose(),arm_positive_x:-5});
+  h.advance(100);
+  assert.equal(s.sent.at(-1).op,"pose");
+  assert.equal(s.sent.at(-1).target.arm_positive_x,0,"idle clock is reset at confirmed position");
+  const count=s.sent.length;
+  h.advance(50);assert.equal(s.sent.length,count,"anchor ACK must precede destination");
+  h.ack(s);
+  h.advance(50);assert.equal(s.sent.at(-1).target.arm_positive_x,-5);
+  h.ack(s,{...zeroPose(),arm_positive_x:-2});
+  h.advance(50);assert.equal(s.sent.at(-1).target.arm_positive_x,-5);
+  h.ack(s,{...zeroPose(),arm_positive_x:-5});
+  assert.equal(h.live.state,"armed");assert.equal(h.live.holding,false);
+  for(let i=0;i<40;i++){h.advance(100);assert.equal(s.sent.at(-1).op,"keepalive");h.ack(s,{...zeroPose(),arm_positive_x:-5});}
+  h.live.moveTo(zeroPose());h.advance(100);
+  assert.equal(s.sent.at(-1).target.arm_positive_x,-5);
+  h.ack(s,{...zeroPose(),arm_positive_x:-5});h.advance(50);
+  assert.equal(s.sent.at(-1).target.arm_positive_x,0);
+  h.ack(s);assert.equal(h.live.state,"armed");assert.equal(h.live.holding,false);
+  assert.equal(s.sent.filter(m=>m.op==="arm").length,1);
+  assert.equal(s.sent.some(m=>m.op==="stop"),false);
+});
+
+test("passing through a new target in an old ACK does not end the latest request", () => {
+  const h=harness(()=>rightArmCaps(true,15)),s=h.arm();
+  h.live.moveTo({...zeroPose(),arm_positive_x:-10});h.advance(50);
+  assert.equal(s.sent.at(-1).target.arm_positive_x,-10);
+  h.live.moveTo({...zeroPose(),arm_positive_x:-5});
+  h.ack(s,{...zeroPose(),arm_positive_x:-5});
+  assert.equal(h.live.holding,true);
+  h.advance(50);assert.equal(s.sent.at(-1).target.arm_positive_x,-5);
+  h.ack(s,{...zeroPose(),arm_positive_x:-5});
+  assert.equal(h.live.holding,false);assert.equal(h.live.state,"armed");
+});
+
+test("unacknowledged idle anchor fails closed without sending the destination", () => {
+  const h=harness(()=>rightArmCaps(true,15)),s=h.arm();
+  h.advance(200);h.ack(s);
+  h.live.moveTo({...zeroPose(),arm_positive_x:-15});h.advance(50);
+  assert.equal(s.sent.at(-1).target.arm_positive_x,0);
+  h.advance(300);assert.equal(h.live.state,"fault");
+  assert.equal(s.sent.some(m=>m.target?.arm_positive_x===-15),false);
+  assert.equal(s.sent.at(-1).op,"stop");
+});
+
+test("ordinary move still requires manual ARM and explicit STOP cancels all further motion", () => {
+  const h=harness(()=>rightArmCaps(true,15)),s=h.ready();
+  assert.throws(()=>h.live.moveTo({...zeroPose(),arm_positive_x:-5}));
+  assert.equal(s.sent.length,1);
+  const a=harness(()=>rightArmCaps(true,15)),sock=a.arm();
+  a.live.moveTo({...zeroPose(),arm_positive_x:-5});a.advance(50);a.ack(sock);
+  a.live.stop();const n=sock.sent.length;a.advance(100);
+  assert.equal(sock.sent.length,n);assert.equal(sock.sent.at(-1).op,"stop");
+  assert.equal(a.live.following,false);
+});
+
+
+test("STOP acknowledgement keeps the actual reason visible to the operator", () => {
+  const h=harness(()=>rightArmCaps(true,15)),s=h.arm();
+  const session_id=h.live.sessionId;
+  h.live.stop("Окно потеряло фокус.");
+  s.receive({protocol:LIVE_PROTOCOL,op:"stopped",session_id,commanded_pose:zeroPose(),measured_pose:null,tilt:null});
+  assert.equal(h.live.state,"ready");
+  assert.match(h.live.reason,/Окно потеряло фокус/);
+});
