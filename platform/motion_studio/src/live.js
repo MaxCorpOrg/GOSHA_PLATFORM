@@ -683,7 +683,7 @@ export class LiveSession {
         this.following = false;
         this.target = null;
         this.needsFreshPoseClock = false;
-        this.reason = "Угол достигнут. Можно выбрать следующий угол; сессия открыта.";
+        this.reason = "Целевая команда подтверждена. Фактический угол не измеряется; сессия открыта.";
       }
       this.onTelemetry(this.lastTelemetry);
       this.onChange(this.snapshot());
