@@ -326,7 +326,7 @@ function renderPosition() {
     const view = live?.inspectorView(joint.id);
     $("range-" + joint.id).value = view?.value ?? +pose[joint.id].toFixed(1);
     const number = $("number-" + joint.id);
-    if (!view?.numberEditable || (document.activeElement !== number && number.dataset.liveDraft === undefined))
+    if (!view?.numberEditable || view.disabled || (document.activeElement !== number && number.dataset.liveDraft === undefined))
       number.value = view?.numberEditable ? +view.value.toFixed(1) : (view?.command ?? +pose[joint.id].toFixed(1));
   }
 }
@@ -614,6 +614,7 @@ function updateLiveView() {
     range.max = number.max = view?.max ?? joint.max;
     range.disabled = view?.disabled ?? false;
     number.disabled = view ? (!view.numberEditable || view.disabled) : false;
+    if (view?.disabled) delete number.dataset.liveDraft;
     const row = document.querySelector(`.joint-control[data-joint="${joint.id}"]`);
     const ends = row.querySelectorAll(".range-ends span");
     ends[0].textContent = view && !view.available ? "—" : `${range.min}°`;

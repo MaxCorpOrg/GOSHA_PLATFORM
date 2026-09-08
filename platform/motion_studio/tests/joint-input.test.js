@@ -168,3 +168,21 @@ test("Live inspector render keeps target separate and never records on input rel
   assert.equal(ui.commits.length,0);
   assert.equal(ui.pose.arm_positive_x,0);
 });
+
+test("editor numeric draft survives telemetry and commits on blur; STOP clears an unfinished draft", () => {
+  const ui=editor(), sent=[];
+  ui.live.enabled=true;ui.live.editorMode=true;
+  let disabled=false;
+  ui.live.inspectorView=()=>({min:-70,max:55,disabled,available:true,numberEditable:true,command:0,value:0,reason:""});
+  ui.live.setInspectorAngle=(id,value)=>sent.push([id,value]);
+  const number=ui.$("number-arm_positive_x");
+  ui.document.activeElement=number;
+  number.value="55";number.oninput();
+  ui.document.activeElement=null;ui.updateLiveView();
+  assert.equal(number.value,"55");number.onblur();
+  assert.deepEqual(sent,[["arm_positive_x","55"]]);
+  ui.document.activeElement=number;
+  number.value="42";number.oninput();disabled=true;ui.updateLiveView();
+  assert.equal(number.dataset.liveDraft,undefined);assert.equal(number.value,"0");
+  number.onblur();assert.equal(sent.length,1);
+});
