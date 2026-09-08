@@ -62,6 +62,25 @@
   gap: 10px;
   padding-bottom: 8px;
 }
+.live-panel.live-connected {
+  gap: 8px;
+}
+.live-panel.live-connected .live-heading,
+.live-panel.live-connected .live-transport,
+.live-panel.live-connected .live-usb-controls,
+.live-panel.live-connected #live-wifi-controls {
+  display: none;
+}
+.live-panel.live-connected .live-primary {
+  gap: 6px;
+}
+.live-panel.live-connected .live-reason {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.live-panel.live-connected #live-connect {
+  min-height: 32px;
+}
 .live-heading h2 {
   margin: 6px 0 0;
 }
@@ -189,6 +208,7 @@
   line-height: 1.55;
   color: #aab6c6;
 }
+.live-joint-picker,
 .live-step {
   display: flex;
   flex-direction: column;
@@ -196,6 +216,19 @@
   padding: 10px 0;
   border-top: 1px solid #303b48;
   border-bottom: 1px solid #303b48;
+}
+.live-joint-picker[hidden],
+.live-step[hidden],
+.live-step-details[hidden] {
+  display: none;
+}
+.live-joint-picker {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.live-step-details .live-step {
+  padding: 8px 0 0;
+  border: 0;
 }
 .live-step-title {
   display: flex;

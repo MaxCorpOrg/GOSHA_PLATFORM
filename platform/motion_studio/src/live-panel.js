@@ -255,17 +255,9 @@ export function mountLivePanel({
       <button id="live-connect" class="button">Подключить по USB</button>
       <div id="live-auth" hidden><label class="live-field">Ключ Live<input id="live-key" type="password" autocomplete="off" placeholder="16+ символов" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
     </div>
-    <div id="live-step" class="live-step" hidden>
-      <div class="live-step-title"><h3>Пошаговый тест</h3><span>удержание</span></div>
+    <div id="live-joint-picker" class="live-joint-picker" hidden>
+      <div class="live-step-title"><h3>Сустав</h3><span>один за сессию</span></div>
       <div id="live-step-joints" class="live-step-joints"></div>
-      <dl class="live-step-status">
-        <dt>Сустав</dt><dd id="live-step-joint">—</dd>
-        <dt>Команда</dt><dd id="live-step-current">—</dd>
-        <dt>Цель</dt><dd id="live-step-target">—</dd>
-        <dt>Шаг</dt><dd id="live-step-size">—</dd>
-      </dl>
-      <div class="live-step-actions"><button id="live-step-minus" class="button quiet" aria-pressed="true">−</button><button id="live-step-plus" class="button quiet" aria-pressed="false">+</button><button id="live-step-hold" class="button live-hold" disabled>Удерживать шаг</button></div>
-      <small>Цель готовится без движения. Робот двигается только пока удерживается кнопка.</small>
     </div>
     <div id="live-slider-block" class="live-slider-block" hidden>
       <div class="live-step-title"><h3>Ползунок сустава</h3><span>держать</span></div>
@@ -280,6 +272,19 @@ export function mountLivePanel({
       <div class="range-ends"><span id="live-slider-min">—</span><span id="live-slider-max">—</span></div>
       <small id="live-slider-hint">Откройте сессию ARM и держите бегунок; отпускание отправит STOP.</small>
     </div>
+    <details id="live-step-details" class="live-details live-step-details" hidden>
+      <summary id="live-step-summary">Пошаговый тест ±</summary>
+      <div id="live-step" class="live-step">
+        <dl class="live-step-status">
+          <dt>Сустав</dt><dd id="live-step-joint">—</dd>
+          <dt>Команда</dt><dd id="live-step-current">—</dd>
+          <dt>Цель</dt><dd id="live-step-target">—</dd>
+          <dt>Шаг</dt><dd id="live-step-size">—</dd>
+        </dl>
+        <div class="live-step-actions"><button id="live-step-minus" class="button quiet" aria-pressed="true">−</button><button id="live-step-plus" class="button quiet" aria-pressed="false">+</button><button id="live-step-hold" class="button live-hold" disabled>Удерживать шаг</button></div>
+        <small>Цель готовится без движения. Робот двигается только пока удерживается кнопка.</small>
+      </div>
+    </details>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
@@ -410,6 +415,8 @@ export function mountLivePanel({
   };
   function renderStep(state) {
     const step = byId("live-step");
+    const picker = byId("live-joint-picker");
+    const details = byId("live-step-details");
     const view = liveStepViewModel(
       state,
       getJoint(),
@@ -417,6 +424,8 @@ export function mountLivePanel({
       activeStep,
       activeSliderJoint,
     );
+    picker.hidden = !view.visible;
+    details.hidden = !view.visible;
     step.hidden = !view.visible;
     byId("live-step-joints").replaceChildren();
     if (!view.visible || !view.active.length) {
@@ -454,6 +463,8 @@ export function mountLivePanel({
     byId("live-step-target").title = view.targetError;
     byId("live-step-size").textContent =
       `${view.direction > 0 ? "+" : "−"}${view.stepSize}°`;
+    byId("live-step-summary").textContent =
+      `Пошаговый тест ±${view.stepSize}°`;
     byId("live-step-minus").setAttribute("aria-pressed", view.direction === -1);
     byId("live-step-plus").setAttribute("aria-pressed", view.direction === 1);
     byId("live-step-minus").disabled = view.locked;
@@ -572,6 +583,11 @@ export function mountLivePanel({
         onPlayback(false);
       }
     }
+    panel.classList.toggle(
+      "live-connected",
+      Boolean(state.caps) &&
+        !["disconnected", "connecting", "fault"].includes(state.state),
+    );
     workspace?.classList.toggle("live-workspace", enabled);
     workspace?.classList.toggle(
       "live-right-arm-workspace",
