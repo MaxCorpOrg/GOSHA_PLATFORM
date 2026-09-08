@@ -792,7 +792,7 @@ export function mountLivePanel({
       if (isEditorMode(session.snapshot()) && !run) session.moveTo(getPose());
       else session.beginHold(getPose());
       running = run;
-      if (run) onPlayback(true);
+      if (run) { session.reason = "Воспроизводим движение. STOP — остановить."; onPlayback(true); }
       render(session.snapshot());
     });
   }
