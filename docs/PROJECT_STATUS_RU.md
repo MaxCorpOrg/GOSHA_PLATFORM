@@ -1,5 +1,19 @@
 # PROJECT STATUS
 
+## Live UX: ползунок без удержания, 8 сентября 2026
+
+Source 6dff046: moveTo доводит цель до последнего ACK, сохраняет ARMED
+с keepalive; новая цель после idle >100 ms сначала подтверждает anchor.
+Pointer release/local blur обычного ползунка не STOP. Явный STOP, Esc,
+window loss и ошибки завершают сессию с видимой причиной.
+75/75 tests, Vite build, independent exact-source review PASS (0/0/0).
+Реальный UI USB тест: один ARM, drag 0→−3, release, ACK -3/ARMED, пауза,
+drag→0, в журнале anchor POSE -3/ACK -3 перед POSE 0, ACK 0/ARMED.
+Явный STOP/STOPPED завершил сессию. Right initialized, все команды 0°.
+Физическое наблюдение владельцем этого короткого теста не подтверждалось.
+Installed ±15 app неизменен; [-70,+15] candidate не установлен, нет свежего
+допуска опоры для reset. Не повторять аппаратные сценарии автоматически.
+
 ## Собранный кандидат, ожидает установки
 
 Из точного Firmwareddd9397 после source review PASS собран app3 644 160байт,
