@@ -11,6 +11,7 @@ import {
   validateCapabilities,
 } from "../src/live.js";
 import {
+  canKeepIdleSessionOnBlur,
   createLiveStepPlan,
   liveSafeIntervalForJoint,
   liveSliderViewModel,
@@ -1421,4 +1422,12 @@ test("STOP acknowledgement keeps the actual reason visible to the operator", () 
   s.receive({protocol:LIVE_PROTOCOL,op:"stopped",session_id,commanded_pose:zeroPose(),measured_pose:null,tilt:null});
   assert.equal(h.live.state,"ready");
   assert.match(h.live.reason,/Окно потеряло фокус/);
+});
+
+
+test("only an idle right-arm commissioning session survives local window blur", () => {
+  const idle = {state:"armed",caps:{mode:RIGHT_ARM_COMMISSIONING_MODE},holding:false,following:false,target:null,pending:{op:"keepalive"}};
+  assert.equal(canKeepIdleSessionOnBlur(idle),true);
+  for (const change of [{state:"arming"},{state:"stopping"},{caps:{mode:"commissioning"}},{holding:true},{following:true},{target:zeroPose()},{pending:{op:"pose"}}])
+    assert.equal(canKeepIdleSessionOnBlur({...idle,...change}),false);
 });

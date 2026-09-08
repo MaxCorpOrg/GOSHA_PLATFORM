@@ -15,6 +15,13 @@ const isActiveSessionState = (state) =>
 const currentCommandedPose = (state) =>
   state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
 
+export function canKeepIdleSessionOnBlur(session) {
+  return session.state === "armed" &&
+    session.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE &&
+    !session.holding && !session.following && !session.target &&
+    session.pending?.op !== "pose";
+}
+
 export function liveStepSizeForJoint(caps, jointId) {
   if (!caps?.joint_limits.some((limit) => limit.id === jointId))
     throw new Error("Выберите доступный сустав Live.");
@@ -132,7 +139,7 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
     value: ownView ? view.value : command,
     disabled: !available || !ownView || view.disabled,
     available,
-    reason: !state.caps ? "Подключите робота" : !available ? (!limit ? "Отключён в прошивке · настройка доступна в 3D" : "Нет связи с роботом") : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Для другого сустава: STOP → новая сессия" : "Выберите угол · удерживать не нужно",
+    reason: !state.caps ? "Подключите робота" : !available ? (!limit ? "Отключён в прошивке · настройка доступна в 3D" : "Нет связи с роботом") : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Нажмите название сустава для переключения" : "Выберите угол · удерживать не нужно",
   };
 }
 
@@ -322,6 +329,7 @@ export function mountLivePanel({
   const byId = (id) => document.getElementById(id);
   let enabled = false;
   let pendingMode = null;
+  let pendingJoint = null;
   let running = false;
   let playbackScale = 1;
   let connectionState;
@@ -430,7 +438,20 @@ export function mountLivePanel({
     picker.hidden = !view.visible;
     details.hidden = !view.visible;
     step.hidden = !view.visible;
-    byId("live-step-joints").replaceChildren();
+    const jointButtons = byId("live-step-joints");
+    // Keep the same buttons between telemetry updates so pointerdown/up and
+    // keyboard focus are not lost while ACKs arrive.
+    if ([...jointButtons.children].map((button) => button.dataset.liveJoint).join() !== view.active.join()) {
+      jointButtons.replaceChildren(...view.active.map((id) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "text-button";
+        button.textContent = jointById(id).short;
+        button.dataset.liveJoint = id;
+        button.onclick = () => onSelectJoint(id);
+        return button;
+      }));
+    }
     if (!view.visible || !view.active.length) {
       activeStep = null;
       byId("live-step-joint").textContent = "—";
@@ -441,21 +462,11 @@ export function mountLivePanel({
       return;
     }
     const selected = view.jointId;
-    for (const id of view.active) {
-      const joint = jointById(id);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "text-button";
-      button.textContent = joint.short;
-      button.dataset.liveJoint = id;
-      button.classList.toggle("selected", id === selected);
-      button.disabled = view.locked;
-      button.onclick = () => {
-        if (view.locked) return;
-        activeStep = null;
-        onSelectJoint(id);
-      };
-      byId("live-step-joints").append(button);
+    for (const button of jointButtons.children) {
+      button.classList.toggle("selected", button.dataset.liveJoint === selected);
+      button.disabled = ["arming", "initializing_right_arm", "stopping"].includes(state.state);
+      button.title = view.locked && button.dataset.liveJoint !== selected
+        ? "Остановить текущую сессию и выбрать этот сустав" : "Выбрать сустав";
     }
     const targetText = view.target
       ? formatDegrees(view.target[selected])
@@ -530,6 +541,14 @@ export function mountLivePanel({
   }
   function render(state) {
     connectionState = state;
+    if (["fault", "disconnected"].includes(state.state)) pendingJoint = null;
+    if (pendingJoint && state.state === "ready") {
+      const id = pendingJoint;
+      pendingJoint = null;
+      session.reason = `Выбран сустав: ${jointById(id).label}. Откройте его сессию кнопкой слева.`;
+      onSelectJoint(id);
+      return;
+    }
     if (state.state === "armed" && !state.holding && !activeStep) activeSliderJoint = null;
     if (!isActiveSessionState(state)) {
       activeStep = null;
@@ -597,6 +616,7 @@ export function mountLivePanel({
     byId("live-init-right-arm").disabled =
       state.state !== "init_required" || !keyReady;
     byId("live-arm").hidden = rightArmInitState;
+    byId("live-arm").textContent = `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
     byId("live-arm").disabled = state.state !== "ready";
     byId("live-host").disabled = !canChangeTransport(state);
     byId("live-connect").textContent = ["disconnected", "fault"].includes(
@@ -920,6 +940,7 @@ export function mountLivePanel({
     }, { signal: abort.signal });
   }
   byId("live-stop").onclick = () => {
+    pendingJoint = null;
     running = false;
     onPlayback(false);
     if (["arming", "initializing_right_arm"].includes(session.state))
@@ -941,7 +962,8 @@ export function mountLivePanel({
     () => {
       if (["arming", "initializing_right_arm"].includes(session.state))
         session.requestDisconnect();
-      else release("Окно потеряло фокус.");
+      else if (!canKeepIdleSessionOnBlur(session))
+        release("Окно потеряло фокус.");
     },
     { signal: abort.signal },
   );
@@ -951,7 +973,7 @@ export function mountLivePanel({
   document.addEventListener(
     "keyup",
     (e) => {
-      if (enabled && e.code === "Space") {
+      if (enabled && e.code === "Space" && !isRightArmMode(session.snapshot())) {
         e.preventDefault();
         release("Пробел отпущен.");
       }
@@ -1010,9 +1032,24 @@ export function mountLivePanel({
     inspectorView(id) {
       return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint) : null;
     },
-    canSelectJoint(id) {
-      const locked = activeLockedJoint(session.snapshot());
-      return !locked || locked === id;
+    requestJointSelection(id) {
+      if (!enabled || id === getJoint()) return true;
+      const state = session.snapshot();
+      if (!activeJointIds(state).includes(id)) {
+        notify("Этот сустав отключён в прошивке. Его модель можно настроить в режиме 3D.", true);
+        return false;
+      }
+      if (["arming", "initializing_right_arm", "stopping"].includes(state.state)) return false;
+      const locked = activeLockedJoint(state);
+      if (locked && locked !== id) {
+        pendingJoint = id;
+        session.stop(`Переключаем сустав: ${jointById(id).label}.`);
+        running = false;
+        onPlayback(false);
+        return false;
+      }
+      activeStep = null;
+      return true;
     },
     recordPose(fallback) {
       return enabled &&

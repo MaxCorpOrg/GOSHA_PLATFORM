@@ -59,7 +59,7 @@ function editor() {
     enabled: false,
     snapshot: { state: "disconnected" },
     refresh: () => context.updateLiveView(),
-    canSelectJoint: () => true,
+    requestJointSelection: () => true,
     displayPose: (pose) => pose,
     recordPose: (pose) => pose,
     inspectorView: () => null,
@@ -137,7 +137,7 @@ test("invalid numeric edits are rejected before a refresh can replace them", () 
 
 test("active Live joint locks editor selection until the session stops", () => {
   const ui = editor();
-  ui.live.canSelectJoint = (id) => id === "arm_positive_x";
+  ui.live.requestJointSelection = (id) => id === "arm_positive_x";
   ui.selectJoint("arm_positive_x");
   assert.equal(ui.selectedJoint, "arm_positive_x");
   ui.selectJoint("leg_negative_x");

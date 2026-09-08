@@ -194,7 +194,7 @@ function seek(value) {
 function selectJoint(id) {
   if (!PROFILE.joints.some((j) => j.id === id))
     throw new Error("Неизвестный сустав.");
-  if (live?.canSelectJoint?.(id) === false) {
+  if (live?.requestJointSelection?.(id) === false) {
     live.refresh();
     return;
   }
