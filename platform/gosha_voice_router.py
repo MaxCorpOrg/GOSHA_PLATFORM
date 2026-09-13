@@ -235,21 +235,34 @@ class RobotLiveBridge:
 
     async def output_loop(self):
         silent_frames = 0
+        deferred_pcm = None
+        defer_started = None
         while True:
             tick = time.monotonic()
-            try:
-                pcm = self.output.get_nowait()
-            except asyncio.QueueEmpty:
-                if self.output_tail and tick - self.last_output_received >= 0.2:
-                    pcm = bytes(self.output_tail).ljust(PCM_BYTES, b"\0")
-                    self.output_tail.clear()
-                else:
-                    pcm = SILENCE
-            if not self.realtime and not self.speaking and tick - self.last_user_audio < 0.35:
-                # A Live backchannel must not turn off a half-duplex robot's microphone mid-utterance.
-                await asyncio.sleep(PERIOD)
-                continue
-            if audible(pcm):
+            if deferred_pcm is not None:
+                pcm, deferred_pcm = deferred_pcm, None
+            else:
+                try:
+                    pcm = self.output.get_nowait()
+                except asyncio.QueueEmpty:
+                    if self.output_tail and tick - self.last_output_received >= 0.2:
+                        pcm = bytes(self.output_tail).ljust(PCM_BYTES, b"\0")
+                        self.output_tail.clear()
+                    else:
+                        pcm = SILENCE
+            is_audible = audible(pcm)
+            if is_audible and not self.realtime and not self.speaking and tick - self.last_user_audio < 0.35:
+                # RMS also detects room noise. Give overlapping input a bounded
+                # grace period; preserve the first output frame instead of dropping
+                # every answer while the microphone continues sending background.
+                if defer_started is None:
+                    defer_started = tick
+                if tick - defer_started < 0.35:
+                    deferred_pcm = pcm
+                    await asyncio.sleep(PERIOD)
+                    continue
+            defer_started = None
+            if is_audible:
                 self.audio_flow["output_audible"] += 1
                 silent_frames = 0
                 self.last_activity = time.monotonic()

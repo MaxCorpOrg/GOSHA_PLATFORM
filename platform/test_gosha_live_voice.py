@@ -350,6 +350,39 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             codec.close()
             await ws.close()
 
+    async def test_background_microphone_does_not_erase_spoken_answer(self):
+        ws = await self.open_robot()
+        live = FakeLive.instances[0]
+        codec = OpusCodec()
+        background = struct.pack("<%dh" % SAMPLES, *[
+            int(300 * math.sin(i * 2 * math.pi * 440 / 16000)) for i in range(SAMPLES)])
+        async def microphone():
+            while True:
+                await ws.send(codec.encode(background))
+                await asyncio.sleep(0.06)
+        sender = asyncio.create_task(microphone())
+        try:
+            async with asyncio.timeout(1):
+                while not any(audible(pcm) for _, pcm in live.audio):
+                    await asyncio.sleep(0.02)
+            await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE * 8).decode()})
+            self.assertEqual(json.loads(await asyncio.wait_for(ws.recv(), 2))["state"], "start")
+            heard = 0
+            async with asyncio.timeout(3):
+                while True:
+                    frame = await ws.recv()
+                    if isinstance(frame, bytes):
+                        heard += int(audible(codec.decode(frame)))
+                    elif json.loads(frame).get("state") == "stop":
+                        break
+            self.assertGreaterEqual(heard, 8, "The beginning of the answer must not be discarded")
+            await ws.send(json.dumps({"type": "goodbye"}))
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+            codec.close()
+            await ws.close()
+
     async def test_abort_retires_previous_session(self):
         ws = await self.open_robot()
         try:
