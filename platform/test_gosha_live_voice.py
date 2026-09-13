@@ -296,6 +296,36 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             codec.close()
             await ws.close()
 
+    async def test_continuous_silence_releases_speaking_and_accepts_microphone(self):
+        ws = await self.open_robot()
+        live = FakeLive.instances[0]
+        codec = OpusCodec()
+        await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE + SILENCE * 20).decode()})
+        async def continuous_silence():
+            while True:
+                await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(SILENCE).decode()})
+                await asyncio.sleep(0.06)
+        producer = asyncio.create_task(continuous_silence())
+        try:
+            self.assertEqual(json.loads(await asyncio.wait_for(ws.recv(), 2))["state"], "start")
+            async with asyncio.timeout(2):
+                while True:
+                    frame = await ws.recv()
+                    if isinstance(frame, str) and json.loads(frame).get("state") == "stop":
+                        break
+            self.assertFalse(self.bridges[0].output.empty())
+            self.assertFalse(self.bridges[0].speaking)
+            await ws.send(codec.encode(TONE))
+            async with asyncio.timeout(1):
+                while not any(audible(pcm) for _, pcm in live.audio):
+                    await asyncio.sleep(0.02)
+            await ws.send(json.dumps({"type": "goodbye"}))
+        finally:
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
+            codec.close()
+            await ws.close()
+
     async def test_abort_retires_previous_session(self):
         ws = await self.open_robot()
         try:

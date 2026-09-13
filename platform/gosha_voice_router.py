@@ -232,8 +232,10 @@ class RobotLiveBridge:
             if self.speaking and self.accept_output:
                 await self.robot.send(pack_audio(self.codec.encode(pcm), self.version))
             await asyncio.sleep(max(0, tick + PERIOD - time.monotonic()))
-            if self.speaking and silent_frames >= 12 and self.output.empty() and not self.output_tail:
-                # Local playback quiet window; this is NOT an OpenAI speech-complete event.
+            if self.speaking and silent_frames >= 12:
+                # Live keeps streaming silence. Waiting for an empty queue can pin the
+                # half-duplex robot in Speaking forever. Use consumed quiet frames;
+                # later audible frames will start a new playback segment normally.
                 await self.stop_speech()
 
     async def retire(self, session, reader):
