@@ -296,6 +296,30 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             codec.close()
             await ws.close()
 
+    async def test_installed_firmware_extended_audio_hello(self):
+        # Protocol::AddAudioParams in the installed firmware announces hardware
+        # rates as well as the unchanged 16 kHz Opus wire contract.
+        params = {**AUDIO_PARAMS, "input_sample_rate": 16000,
+                  "uplink_sample_rate": 16000, "output_sample_rate": 24000}
+        async with connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/") as ws:
+            await ws.send(json.dumps({"type": "hello", "version": 1,
+                                     "features": {"mcp": True}, "transport": "websocket",
+                                     "audio_params": params}))
+            hello = json.loads(await asyncio.wait_for(ws.recv(), 2))
+            self.assertEqual(hello["audio_params"], AUDIO_PARAMS)
+            self.assertEqual(len(FakeLive.instances), 1)
+            await ws.send(json.dumps({"type": "goodbye"}))
+
+    async def test_incompatible_uplink_is_rejected_before_api(self):
+        class HelloSocket:
+            async def recv(self):
+                return json.dumps({"type": "hello", "version": 1, "transport": "websocket",
+                                   "audio_params": {**AUDIO_PARAMS, "uplink_sample_rate": 24000}})
+        bridge = RobotLiveBridge(HelloSocket(), session_config({}, PROVIDER), "unit-only", session_factory=FakeLive)
+        with self.assertRaisesRegex(ValueError, "unsupported_robot_audio"):
+            await bridge.run()
+        self.assertFalse(FakeLive.instances)
+
     async def test_continuous_silence_releases_speaking_and_accepts_microphone(self):
         ws = await self.open_robot()
         live = FakeLive.instances[0]

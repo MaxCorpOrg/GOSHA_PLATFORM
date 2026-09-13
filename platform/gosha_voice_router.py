@@ -90,8 +90,17 @@ class RobotLiveBridge:
         if hello.get("type") != "hello" or hello.get("transport") != "websocket":
             raise ValueError("invalid_robot_hello")
         self.version = hello.get("version", 1)
-        if self.version not in (1, 2, 3) or hello.get("audio_params") != AUDIO_PARAMS:
+        params = hello.get("audio_params")
+        # Current firmware also announces hardware input/output rates. They are
+        # metadata: its encoded uplink remains 16 kHz and playback resamples the
+        # negotiated downlink. Validate wire fields without rejecting extensions.
+        if (type(self.version) is not int or self.version not in (1, 2, 3)
+                or not isinstance(params, dict)
+                or any(isinstance(params.get(field), bool) or params.get(field) != value
+                       for field, value in AUDIO_PARAMS.items())
+                or params.get("uplink_sample_rate", AUDIO_PARAMS["sample_rate"]) != AUDIO_PARAMS["sample_rate"]):
             raise ValueError("unsupported_robot_audio")
+        LOG.info("robot_hello_accepted version=%s", self.version)
 
     def remember(self, role, delta):
         if not isinstance(delta, str) or not delta:
