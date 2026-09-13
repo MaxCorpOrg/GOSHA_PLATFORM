@@ -80,6 +80,15 @@ class RobotLiveBridge:
         self.last_output_received = 0.0
         self.dropped_input_frames = 0
         self.last_user_audio = 0.0
+        self.audio_flow = dict.fromkeys(("robot_frames", "decoded_frames", "decoded_audible",
+                                        "input_sent", "input_sent_audible", "listen_starts", "listen_stops",
+                                        "ignored_not_listening", "ignored_speaking", "transcript_events",
+                                        "backend_completed", "output_audible", "tts_starts", "tts_stops"), 0)
+        self.last_flow_log = self.started_at
+
+    def log_audio_flow(self):
+        # Fixed numeric counters only: never audio, text, identity or credentials.
+        LOG.info("live_audio_flow %s", json.dumps(self.audio_flow, sort_keys=True))
 
     async def send_json(self, kind, **fields):
         await self.robot.send(json.dumps({"type": kind, "session_id": self.session_id, **fields}, ensure_ascii=False))
@@ -130,25 +139,32 @@ class RobotLiveBridge:
         try:
             async for raw in self.robot:
                 if isinstance(raw, bytes):
+                    self.audio_flow["robot_frames"] += 1
                     if self.listening and (self.realtime or not self.speaking):
                         pcm = self.codec.decode(unpack_audio(raw, self.version))
+                        self.audio_flow["decoded_frames"] += 1
                         if audible(pcm):
+                            self.audio_flow["decoded_audible"] += 1
                             self.last_activity = time.monotonic()
                             self.last_user_audio = self.last_activity
                         if self.input.full():
                             self.input.get_nowait()
                             self.dropped_input_frames += 1
                         self.input.put_nowait(pcm)
+                    else:
+                        self.audio_flow["ignored_not_listening" if not self.listening else "ignored_speaking"] += 1
                     continue
                 message = json.loads(raw)
                 kind = message.get("type")
                 if kind == "listen":
                     state = message.get("state")
                     if state == "start":
+                        self.audio_flow["listen_starts"] += 1
                         self.realtime = message.get("mode") == "realtime"
                         self.listening = True
                         self.last_activity = time.monotonic()
                     elif state == "stop":
+                        self.audio_flow["listen_stops"] += 1
                         self.listening = False
                     # Wake-word 'detect' text isn't sent as a fabricated user utterance.
                 elif kind == "abort":
@@ -174,6 +190,11 @@ class RobotLiveBridge:
             except asyncio.QueueEmpty:
                 pcm = SILENCE
             await session.send_audio(pcm)
+            self.audio_flow["input_sent"] += 1
+            self.audio_flow["input_sent_audible"] += int(audible(pcm))
+            if os.environ.get("GOSHA_VOICE_DIAGNOSTICS") == "1" and now - self.last_flow_log >= 5:
+                self.log_audio_flow()
+                self.last_flow_log = now
             # Never send catch-up bursts after network stalls. Fill half-duplex gaps with silence.
             await asyncio.sleep(max(0, now + PERIOD - time.monotonic()))
 
@@ -195,9 +216,12 @@ class RobotLiveBridge:
                 role = "user" if kind == "session.input_transcript.delta" else "assistant"
                 self.remember(role, event.get("delta", ""))
                 if role == "user":
+                    self.audio_flow["transcript_events"] += 1
                     self.last_activity = time.monotonic()
             elif kind == "response.event":
                 backend = event.get("event", {})
+                if backend.get("type") == "response.completed":
+                    self.audio_flow["backend_completed"] += 1
                 if backend.get("type") in {"response.failed", "response.incomplete", "error"}:
                     raise RuntimeError("live_reasoning_failed")
             elif kind == "session.closed":
@@ -206,6 +230,7 @@ class RobotLiveBridge:
     async def stop_speech(self):
         if self.speaking:
             self.speaking = False
+            self.audio_flow["tts_stops"] += 1
             await self.send_json("tts", state="stop")
 
     async def output_loop(self):
@@ -225,10 +250,12 @@ class RobotLiveBridge:
                 await asyncio.sleep(PERIOD)
                 continue
             if audible(pcm):
+                self.audio_flow["output_audible"] += 1
                 silent_frames = 0
                 self.last_activity = time.monotonic()
                 if not self.speaking:
                     self.speaking = True
+                    self.audio_flow["tts_starts"] += 1
                     await self.send_json("tts", state="start")
                     # Firmware schedules Speaking on its main task before it can accept binary audio.
                     await asyncio.sleep(PERIOD)
@@ -310,6 +337,7 @@ class RobotLiveBridge:
             if retirees:
                 await asyncio.gather(*retirees, return_exceptions=True)
             self.codec.close()
+            self.log_audio_flow()
             if self.dropped_input_frames:
                 LOG.info("live_input_dropped frames=%s", self.dropped_input_frames)
 
