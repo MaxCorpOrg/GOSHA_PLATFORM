@@ -346,6 +346,11 @@ class RobotLiveBridge:
                 if not self.speaking:
                     self.speaking = True
                     self.audio_flow["tts_starts"] += 1
+                    if self.duplex:
+                        # Firmware resets its Opus decoder on every Speaking
+                        # transition. Mirror that reset in the echo reference.
+                        self.reference_codec.close()
+                        self.reference_codec = OpusCodec()
                     await self.send_json("tts", state="start")
                     # Firmware schedules Speaking on its main task before it can accept binary audio.
                     await asyncio.sleep(PERIOD)
