@@ -2,7 +2,8 @@
 
 > Новый программный кандидат GPT-Live-1 с GPT-5.5, отдельной голосовой службой
 > и полями `voice_engine` / `live_voice` / `live_reasoning_effort` описан в
-> [GOSHA_GPT_LIVE_RU.md](GOSHA_GPT_LIVE_RU.md). На рабочем сервере ещё не включён.
+> [GOSHA_GPT_LIVE_RU.md](GOSHA_GPT_LIVE_RU.md). Голосовой ответ принят на роботе.
+> Продолжение функций и одновременной речи: [GOSHA_LIVE_TOOLS_DUPLEX_RU.md](GOSHA_LIVE_TOOLS_DUPLEX_RU.md).
 
 Главная карта входа в текущий контур `Гоша`.
 

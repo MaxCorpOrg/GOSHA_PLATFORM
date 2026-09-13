@@ -37,7 +37,7 @@ jobs:
         run: |
           python -m pip install -r platform/requirements.txt
           sudo apt-get update -qq
-          sudo apt-get install -y libopus0
+          sudo apt-get install -y libopus0 libspeexdsp1
 
       - name: Run repository validation
         env:

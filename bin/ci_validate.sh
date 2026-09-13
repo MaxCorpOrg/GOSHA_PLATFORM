@@ -154,5 +154,8 @@ python3 platform/check_gosha_mobile_contract.py --help >/dev/null
 
 echo "[13/13] Проверка GPT-Live, Opus и локальных WebSocket"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_voice.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_tools.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_echo.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_motion.py
 
 echo "Проверка репозитория завершена успешно."

@@ -23,7 +23,7 @@ from websockets.legacy.server import serve
 import gosha_agent_store as providers
 import gosha_assistant_store as assistants
 import selfhost_xiaozhi_common as claims
-from gosha_live_audio import AUDIO_PARAMS, PCM_BYTES, SILENCE, SAMPLES, OpusCodec, audible, pack_audio, unpack_audio
+from gosha_live_audio import AUDIO_PARAMS, PCM_BYTES, SILENCE, SAMPLES, OpusCodec, audible, audio_timestamp, pack_audio, unpack_audio
 from gosha_live_protocol import LIVE_URL, LiveSession, session_config
 from gosha_voice_router import RobotLiveBridge, VoiceRouter, authenticate
 
@@ -215,6 +215,7 @@ class FakeLive:
         self.config, self.key = config, key
         self.queue = asyncio.Queue()
         self.audio = []
+        self.sent = []
         self.finalized = asyncio.Event()
         self.usage = None
         self.ws = self
@@ -225,6 +226,9 @@ class FakeLive:
 
     async def send_audio(self, pcm):
         self.audio.append((time.monotonic(), pcm))
+
+    async def send(self, kind, **fields):
+        self.sent.append({"type": kind, **fields})
 
     async def events(self):
         while True:
@@ -294,6 +298,84 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(live.finalized.is_set())
         finally:
             codec.close()
+
+    async def test_device_mcp_discovery_and_backend_call_share_audio_socket(self):
+        ws = await connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/")
+        await ws.send(json.dumps({"type": "hello", "version": 1, "transport": "websocket",
+                                  "features": {"mcp": True}, "audio_params": AUDIO_PARAMS}))
+        self.assertEqual(json.loads(await ws.recv())["type"], "hello")
+        await ws.send(json.dumps({"type": "listen", "state": "start", "mode": "auto"}))
+        init = json.loads(await ws.recv())["payload"]
+        await ws.send(json.dumps({"type": "mcp", "payload": {"jsonrpc": "2.0", "id": init["id"], "result": {"capabilities": {"tools": {}}}}}))
+        self.assertEqual(json.loads(await ws.recv())["payload"]["method"], "notifications/initialized")
+        listing = json.loads(await ws.recv())["payload"]
+        await ws.send(json.dumps({"type": "mcp", "payload": {"jsonrpc": "2.0", "id": listing["id"],
+                                  "result": {"tools": [{"name": "self.battery.get_level"}]}}}))
+        live = FakeLive.instances[0]
+        async with asyncio.timeout(1):
+            while not any(e["type"] == "session.update" for e in live.sent):
+                await asyncio.sleep(0.01)
+        update = next(e for e in live.sent if e["type"] == "session.update")
+        self.assertEqual(update["session"]["delegation"]["responses"]["tools"][0]["name"], "robot_battery")
+        for event in ({"type": "response.created", "response": {"id": "r1"}},
+                      {"type": "response.output_item.done", "item": {"type": "function_call", "name": "robot_battery", "arguments": "{}", "call_id": "c1"}},
+                      {"type": "response.completed", "response": {"id": "r1", "output": []}}):
+            await live.queue.put({"type": "response.event", "delegation_id": "d1", "event": event})
+        call = json.loads(await asyncio.wait_for(ws.recv(), 1))["payload"]
+        self.assertEqual(call["params"], {"name": "self.battery.get_level", "arguments": {}})
+        codec = OpusCodec()
+        try:
+            await ws.send(codec.encode(TONE))
+            await asyncio.sleep(0.1)
+            self.assertTrue(any(audible(pcm) for _, pcm in live.audio))
+            await ws.send(json.dumps({"type": "mcp", "payload": {"jsonrpc": "2.0", "id": call["id"],
+                                      "result": {"content": [{"type": "text", "text": "42"}], "isError": False}}}))
+            async with asyncio.timeout(1):
+                while not any(e["type"] == "response.create" for e in live.sent):
+                    await asyncio.sleep(0.01)
+            result = next(e for e in live.sent if e["type"] == "response.item.create")["item"]
+            self.assertEqual(result["call_id"], "c1")
+            self.assertEqual(json.loads(result["output"])["status"], "confirmed")
+        finally:
+            codec.close()
+            await ws.close()
+
+    async def test_negotiated_duplex_keeps_microphone_during_playback(self):
+        with patch.dict(os.environ, {"GOSHA_VOICE_ENABLE_DUPLEX": "1"}):
+            ws = await connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/")
+            await ws.send(json.dumps({"type": "hello", "version": 2, "transport": "websocket",
+                                      "features": {"live_duplex": True}, "audio_params": AUDIO_PARAMS}))
+            hello = json.loads(await ws.recv())
+            self.assertEqual(hello["features"], {"live_duplex": True, "aec": "server"})
+            await ws.send(json.dumps({"type": "listen", "state": "start", "mode": "realtime"}))
+            live = FakeLive.instances[0]
+            await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE * 8).decode()})
+            self.assertEqual(json.loads(await asyncio.wait_for(ws.recv(), 1))["state"], "start")
+            downlink = await asyncio.wait_for(ws.recv(), 1)
+            stamp = audio_timestamp(downlink, 2)
+            self.assertGreater(stamp, 0)
+            bridge = self.bridges[0]
+            self.assertTrue(bridge.speaking)
+            codec = OpusCodec()
+            try:
+                await ws.send(pack_audio(codec.encode(TONE), 2, stamp))
+                await asyncio.sleep(0.15)
+                self.assertGreater(bridge.audio_flow["decoded_frames"], 0)
+                self.assertEqual(bridge.audio_flow["ignored_speaking"], 0)
+                self.assertEqual(bridge.echo.counts["aligned"], 1)
+                self.assertTrue(any(audible(pcm) for _, pcm in live.audio))
+            finally:
+                codec.close()
+                await ws.close()
+
+    async def test_duplex_requires_explicit_server_enable_and_timestamp_wire(self):
+        for version, enabled in ((1, "1"), (2, "0")):
+            with patch.dict(os.environ, {"GOSHA_VOICE_ENABLE_DUPLEX": enabled}):
+                ws = await connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/")
+                await ws.send(json.dumps({"type": "hello", "version": version, "transport": "websocket",
+                                          "features": {"live_duplex": True}, "audio_params": AUDIO_PARAMS}))
+                self.assertFalse(json.loads(await ws.recv())["features"]["live_duplex"])
+                await ws.close()
             await ws.close()
 
     async def test_installed_firmware_extended_audio_hello(self):

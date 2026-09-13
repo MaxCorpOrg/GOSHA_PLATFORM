@@ -4752,7 +4752,7 @@
       if (config?.assistant_profile?.voice_engine === "openai_live") {
         return `
           <div class="status-stack"><span class="pill">Память текущего разговора</span></div>
-          <div class="workspace-section-note">GPT-Live использует текущий разговор и инструкции ассистента. Сохранённая память, база знаний и MCP пока не подключены к этому голосовому движку.</div>
+          <div class="workspace-section-note">GPT-Live использует текущий разговор и инструкции ассистента. Доступные функции устройства подключаются во время разговора; движения и перебивание требуют поддержки прошивки. Сохранённая память, база знаний и внешние сервисы MCP пока не подключены.</div>
         `;
       }
       const memory = robot.memory || {};

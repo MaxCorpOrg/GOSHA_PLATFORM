@@ -33,11 +33,17 @@ def unpack_audio(packet, version):
     return packet
 
 
-def pack_audio(packet, version):
+def audio_timestamp(packet, version):
+    # Validate the entire header before inspecting the optional timestamp.
+    unpack_audio(packet, version)
+    return struct.unpack("!I", packet[8:12])[0] if version == 2 else 0
+
+
+def pack_audio(packet, version, timestamp=0):
     if version == 1:
         return packet
     if version == 2:
-        return struct.pack("!HHIII", 2, 0, 0, 0, len(packet)) + packet
+        return struct.pack("!HHIII", 2, 0, 0, timestamp, len(packet)) + packet
     if version == 3:
         return struct.pack("!BBH", 0, 0, len(packet)) + packet
     raise ValueError("unsupported_protocol")
