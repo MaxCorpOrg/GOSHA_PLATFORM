@@ -1,5 +1,9 @@
 # Инструкция по развёртыванию GOSHA на сервере
 
+> Новый программный кандидат GPT-Live-1 с GPT-5.5, отдельной голосовой службой
+> и полями `voice_engine` / `live_voice` / `live_reasoning_effort` описан в
+> [GOSHA_GPT_LIVE_RU.md](GOSHA_GPT_LIVE_RU.md). На рабочем сервере ещё не включён.
+
 ## Цель
 
 Поднять отдельный подготовительный контур `GOSHA_PLATFORM` на сервере в `<SERVER_PLATFORM_ROOT>`, не ломая живой `AI_ROBOT`.

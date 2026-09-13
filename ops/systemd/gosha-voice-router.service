@@ -1,0 +1,25 @@
+[Unit]
+Description=GOSHA per-assistant GPT-Live voice router
+After=network-online.target gosha-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/gosha_platform/app/platform
+Environment=APP_ROOT=/opt/gosha_platform/runtime/app_root
+EnvironmentFile=-/opt/gosha_platform/runtime/env/providers.env
+EnvironmentFile=/opt/gosha_platform/runtime/env/voice-router.env
+ExecStart=/opt/gosha_platform/voice-venv/bin/python /opt/gosha_platform/app/platform/gosha_voice_router.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+KillSignal=SIGINT
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gosha_platform/runtime/app_root
+
+[Install]
+WantedBy=multi-user.target

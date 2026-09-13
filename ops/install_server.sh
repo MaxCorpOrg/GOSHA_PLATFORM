@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# GPT-Live staging is opt-in and doesn't change the existing public voice route.
+if [[ "${1:-}" == "--voice-router-stage" && $# == 1 ]]; then
+  exec bash "$(dirname "${BASH_SOURCE[0]}")/install_voice_router.sh" --stage
+fi
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
   exit 1

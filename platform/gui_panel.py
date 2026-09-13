@@ -1556,8 +1556,12 @@ def upsert_assistant_profile(payload):
     profile_id = str(payload.get("profile_id", "") or "").strip()
     if not agent_store.safe_profile_id(profile_id):
         raise ValueError("invalid profile_id")
+    previous = assistant_store.get_assistant_profile(profile_id) or {}
     profile = assistant_store.save_assistant_profile(profile_id, payload)
-    apply_result = refresh_backend_runtime(f"assistant_profile:{profile_id}")
+    if profile.get("voice_engine") == "openai_live" or previous.get("voice_engine") == "openai_live":
+        apply_result = {"ok": True, "activation": "next_voice_connection", "runtime_verified": False, "service_state": "not_checked"}
+    else:
+        apply_result = refresh_backend_runtime(f"assistant_profile:{profile_id}")
     return {
         "ok": True,
         "profile": assistant_store.public_assistant_profile(profile),
@@ -1689,13 +1693,18 @@ def save_robot_assistant_config(robot_id, payload):
     if not safe_robot_id(robot_id):
         raise ValueError("invalid robot_id")
     require_robot_dir(robot_id)
+    previous = assistant_store.effective_robot_assistant_config(robot_id)
     binding = assistant_store.save_robot_binding(robot_id, payload if isinstance(payload, dict) else {})
-    apply_result = refresh_backend_runtime(f"robot_assistant_config:{robot_id}")
+    current = assistant_store.effective_robot_assistant_config(robot_id)
+    if any((item.get("assistant_profile") or {}).get("voice_engine") == "openai_live" for item in (previous, current)):
+        apply_result = {"ok": True, "activation": "next_voice_connection", "runtime_verified": False, "service_state": "not_checked"}
+    else:
+        apply_result = refresh_backend_runtime(f"robot_assistant_config:{robot_id}")
     return {
         "ok": True,
         "gateway": agent_gateway_status(),
         "binding": binding,
-        "config": assistant_store.effective_robot_assistant_config(robot_id),
+        "config": current,
         "apply": apply_result,
     }
 

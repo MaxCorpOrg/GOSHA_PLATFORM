@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import gosha_agent_store as provider_store
+from gosha_live_protocol import EFFORTS as LIVE_EFFORTS, VOICES as LIVE_VOICES
 
 
 APP_ROOT = Path(os.environ.get("APP_ROOT", "/opt/gosha_platform/runtime/app_root")).resolve()
@@ -277,6 +278,9 @@ def default_assistant_profile(profile_id=""):
         "provider_profile_id": "",
         "model_override": "",
         "voice_profile_id": "",
+        "voice_engine": "chained",
+        "live_voice": "marin",
+        "live_reasoning_effort": "medium",
         "memory_profile_id": "",
         "mcp_bundle_id": "",
         "knowledge_profile_id": "",
@@ -421,6 +425,13 @@ def normalize_assistant_profile(profile_id, raw):
     base["provider_profile_id"] = _text(_value(payload, "provider_profile_id", "active_profile_id", default=""))
     base["model_override"] = _text(_value(payload, "model_override", "model", default=""))
     base["voice_profile_id"] = _text(_value(payload, "voice_profile_id", default=""))
+    base["voice_engine"] = _text(payload.get("voice_engine", "chained"))
+    base["live_voice"] = _text(payload.get("live_voice", "marin"))
+    base["live_reasoning_effort"] = _text(payload.get("live_reasoning_effort", "medium"))
+    if base["voice_engine"] not in {"chained", "openai_live"}:
+        raise ValueError("unsupported voice_engine")
+    if base["live_voice"] not in LIVE_VOICES or base["live_reasoning_effort"] not in LIVE_EFFORTS:
+        raise ValueError("invalid GPT-Live voice or reasoning effort")
     base["memory_profile_id"] = _text(_value(payload, "memory_profile_id", default=""))
     base["mcp_bundle_id"] = _text(_value(payload, "mcp_bundle_id", default=""))
     base["knowledge_profile_id"] = _text(_value(payload, "knowledge_profile_id", default=""))
@@ -1054,6 +1065,13 @@ def effective_robot_assistant_config(robot_id):
         "voice_profile": voice_view,
         "tts_engine_profile": tts_engine_view,
         "tts_runtime": tts_runtime,
+        "voice_runtime": {
+            "engine": (assistant_view or {}).get("voice_engine", "chained"),
+            "model": "gpt-live-1" if (assistant_view or {}).get("voice_engine") == "openai_live" else "",
+            "reasoning_model": "gpt-5.5" if (assistant_view or {}).get("voice_engine") == "openai_live" else "",
+            "voice": (assistant_view or {}).get("live_voice", "marin"),
+            "activation": "next_voice_connection",
+        },
         "memory_profile": memory_view,
         "mcp_bundle": mcp_view,
         "knowledge_profile": knowledge_view,

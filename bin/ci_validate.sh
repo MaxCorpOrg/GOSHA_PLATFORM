@@ -14,7 +14,7 @@ require_file() {
   [[ -f "$path" ]] || fail "не найден обязательный файл: $path"
 }
 
-echo "[1/12] Проверка ключевых файлов"
+echo "[1/13] Проверка ключевых файлов"
 required_paths=(
   ".github/workflows/repo-validation.yml"
   "bin/ci_validate.sh"
@@ -76,7 +76,7 @@ if "branches:" in pull_request_block:
     raise SystemExit(1)
 PY
 
-echo "[2/12] Проверка синтаксиса shell-файлов"
+echo "[2/13] Проверка синтаксиса shell-файлов"
 mapfile -d '' tracked_files < <(git ls-files -z -- bin ops platform | sort -z)
 shell_files=()
 python_files=()
@@ -99,7 +99,7 @@ for path in "${shell_files[@]}"; do
   bash -n "$path"
 done
 
-echo "[3/12] Проверка Python AST для platform/ops"
+echo "[3/13] Проверка Python AST для platform/ops"
 if ((${#python_files[@]} == 0)); then
   fail "не найдены отслеживаемые Python-файлы в platform/ops"
 fi
@@ -125,31 +125,34 @@ if failed:
     raise SystemExit(1)
 PY
 
-echo "[4/12] Проверка live-probe opt-in панели"
+echo "[4/13] Проверка live-probe opt-in панели"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_panel_live_probe_opt_in.py
 
-echo "[5/12] Проверка диагностики edge-hub"
+echo "[5/13] Проверка диагностики edge-hub"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_edge_hub_transport_diagnostics.py
 
-echo "[6/12] Проверка runtime-event хранилища"
+echo "[6/13] Проверка runtime-event хранилища"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_runtime_events.py
 
-echo "[7/12] Проверка runtime-event HTTP контракта"
+echo "[7/13] Проверка runtime-event HTTP контракта"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_runtime_event_http_contract.py
 
-echo "[8/12] Проверка self-host runtime-event конфигурации"
+echo "[8/13] Проверка self-host runtime-event конфигурации"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_selfhost_runtime_events.py
 
-echo "[9/12] Проверка onboarding edge hub URL"
+echo "[9/13] Проверка onboarding edge hub URL"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_mobile_onboarding_edge_hub_url.py
 
-echo "[10/12] Проверка onboarding device claim fence"
+echo "[10/13] Проверка onboarding device claim fence"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_mobile_onboarding_device_claim_fence.py
 
-echo "[11/12] Проверка рендера аудиоконтракта backend"
+echo "[11/13] Проверка рендера аудиоконтракта backend"
 PYTHONDONTWRITEBYTECODE=1 python3 -B ops/test_render_backend_audio_contract.py
 
-echo "[12/12] Проверка CLI контракта mobile API"
+echo "[12/13] Проверка CLI контракта mobile API"
 python3 platform/check_gosha_mobile_contract.py --help >/dev/null
+
+echo "[13/13] Проверка GPT-Live, Opus и локальных WebSocket"
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_voice.py
 
 echo "Проверка репозитория завершена успешно."

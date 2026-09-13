@@ -2121,6 +2121,19 @@
                 <label for="assistantModelOverride">Переопределение модели</label>
                 <input id="assistantModelOverride" type="text" placeholder="Оставьте пустым, чтобы брать модель поставщика" />
               </div>
+            <div class="field">
+              <label for="assistantVoiceEngine">Голосовой движок</label>
+              <select id="assistantVoiceEngine"><option value="chained" selected>Текущий ASR → модель → TTS</option><option value="openai_live" >GPT-Live-1 + GPT-5.5</option></select>
+            </div>
+            <div class="field">
+              <label for="assistantLiveVoice">Голос GPT-Live</label>
+              <select id="assistantLiveVoice"><option value="marin" selected>Marin</option><option value="quartz" >Quartz</option><option value="ripple" >Ripple</option><option value="vesper" >Vesper</option><option value="willow" >Willow</option><option value="stone" >Stone</option><option value="gleam" >Gleam</option><option value="meridian" >Meridian</option><option value="bossa" >Bossa</option><option value="tempo" >Tempo</option><option value="beacon" >Beacon</option><option value="delta" >Delta</option><option value="cinder" >Cinder</option></select>
+            </div>
+            <div class="field">
+              <label for="assistantLiveReasoningEffort">Глубина рассуждений GPT-5.5</label>
+              <select id="assistantLiveReasoningEffort"><option value="low" >Быстро</option><option value="medium" selected>Обычно</option><option value="high" >Подробно</option><option value="xhigh" >Максимально</option></select>
+            </div>
+            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI с моделью gpt-5.5. Применение — со следующего разговора после настройки голосового сервера.</div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label for="assistantSystemPromptV1">Системный промпт</label>
                 <textarea id="assistantSystemPromptV1" placeholder="Главная инструкция для ассистента"></textarea>
@@ -3754,6 +3767,9 @@
       document.getElementById("assistantRoleDescription").value = "";
       document.getElementById("assistantSystemPromptV1").value = "";
       document.getElementById("assistantModelOverride").value = "";
+      document.getElementById("assistantLiveReasoningEffort").value = "medium";
+      document.getElementById("assistantLiveVoice").value = "marin";
+      document.getElementById("assistantVoiceEngine").value = "chained";
       document.getElementById("assistantEnabled").checked = true;
       document.getElementById("assistantIsDefault").checked = false;
       fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], "ru-RU", "Выберите язык");
@@ -3810,6 +3826,9 @@
       document.getElementById("assistantRoleDescription").value = profile.role_description || "";
       document.getElementById("assistantSystemPromptV1").value = profile.system_prompt || "";
       document.getElementById("assistantModelOverride").value = profile.model_override || "";
+      document.getElementById("assistantLiveReasoningEffort").value = profile.live_reasoning_effort || "medium";
+      document.getElementById("assistantLiveVoice").value = profile.live_voice || "marin";
+      document.getElementById("assistantVoiceEngine").value = profile.voice_engine || "chained";
       document.getElementById("assistantEnabled").checked = profile.enabled !== false;
       document.getElementById("assistantIsDefault").checked = !!profile.is_default;
       fillValueCatalogSelect("assistantLanguage", currentAssistantCatalogs.dialogue_languages || [], profile.dialogue_language || "ru-RU", "Выберите язык");
@@ -4138,6 +4157,9 @@
         dialogue_language: document.getElementById("assistantLanguage").value || "ru-RU",
         provider_profile_id: document.getElementById("assistantProviderProfileId").value || "",
         model_override: document.getElementById("assistantModelOverride").value.trim(),
+        live_reasoning_effort: document.getElementById("assistantLiveReasoningEffort").value,
+        live_voice: document.getElementById("assistantLiveVoice").value,
+        voice_engine: document.getElementById("assistantVoiceEngine").value,
         voice_profile_id: document.getElementById("assistantVoiceProfileId").value || "",
         memory_profile_id: document.getElementById("assistantMemoryProfileId").value || "",
         mcp_bundle_id: document.getElementById("assistantMcpBundleId").value || "",
@@ -4155,6 +4177,10 @@
       loadAssistantProfileIntoFormV1(profileId);
       await reloadRobots();
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`Ассистент ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -4188,6 +4214,10 @@
       await reloadAssistantControlCatalog(true);
       loadTtsEngineProfileIntoFormV1(profileId);
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`Движок TTS ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -4221,6 +4251,10 @@
       await reloadAssistantControlCatalog(true);
       loadVoiceProfileIntoFormV1(profileId);
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`Голос ${profileId} сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -4397,6 +4431,10 @@
       fillRobotAssistantConfigForm((res.data || {}).config || {});
       await reloadRobots();
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`${robotDisplayNameById(robotId)}: конфигурация ассистента сохранена, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -4685,6 +4723,9 @@
       const ttsEngine = config?.tts_engine_profile || null;
       const voice = config?.voice_profile || null;
       const ttsRuntime = config?.tts_runtime || {};
+      if (assistant?.voice_engine === "openai_live") {
+        return `<div class="status-stack"><span class="pill">Голос: GPT-Live-1</span><span class="pill">Мышление: GPT-5.5</span><span class="pill">${escapeHtml(assistant.live_voice || "marin")}</span></div><div class="workspace-section-note">Выбран для следующего разговора. Требуется настроенный голосовой сервер; сохранённый профиль сам по себе не подтверждает соединение с OpenAI.</div>`;
+      }
       const effectiveModel = assistant?.model_override || provider?.model || "";
       const toneBits = [];
       if (voice?.speech_rate != null) toneBits.push(`темп ${Number(voice.speech_rate).toFixed(1)}`);
@@ -4708,6 +4749,12 @@
     }
 
     function renderWorkspaceMemoryToolsSnapshot(robot, config) {
+      if (config?.assistant_profile?.voice_engine === "openai_live") {
+        return `
+          <div class="status-stack"><span class="pill">Память текущего разговора</span></div>
+          <div class="workspace-section-note">GPT-Live использует текущий разговор и инструкции ассистента. Сохранённая память, база знаний и MCP пока не подключены к этому голосовому движку.</div>
+        `;
+      }
       const memory = robot.memory || {};
       const memoryProfile = config?.memory_profile || null;
       const mcpBundle = config?.mcp_bundle || null;
@@ -4858,6 +4905,19 @@
               <label for="workspaceAssistantModelOverride">${fieldLabelHtml("Модель", "model-override")}</label>
               <input id="workspaceAssistantModelOverride" type="text" value="${escapeHtml(profile.model_override || "")}" placeholder="Оставьте пустым, чтобы брать модель поставщика" />
             </div>
+            <div class="field">
+              <label for="workspaceAssistantVoiceEngine">Голосовой движок</label>
+              <select id="workspaceAssistantVoiceEngine"><option value="chained" ${(profile.voice_engine || "chained") === "chained" ? "selected" : ""}>Текущий ASR → модель → TTS</option><option value="openai_live" ${(profile.voice_engine || "chained") === "openai_live" ? "selected" : ""}>GPT-Live-1 + GPT-5.5</option></select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantLiveVoice">Голос GPT-Live</label>
+              <select id="workspaceAssistantLiveVoice"><option value="marin" ${(profile.live_voice || "marin") === "marin" ? "selected" : ""}>Marin</option><option value="quartz" ${(profile.live_voice || "marin") === "quartz" ? "selected" : ""}>Quartz</option><option value="ripple" ${(profile.live_voice || "marin") === "ripple" ? "selected" : ""}>Ripple</option><option value="vesper" ${(profile.live_voice || "marin") === "vesper" ? "selected" : ""}>Vesper</option><option value="willow" ${(profile.live_voice || "marin") === "willow" ? "selected" : ""}>Willow</option><option value="stone" ${(profile.live_voice || "marin") === "stone" ? "selected" : ""}>Stone</option><option value="gleam" ${(profile.live_voice || "marin") === "gleam" ? "selected" : ""}>Gleam</option><option value="meridian" ${(profile.live_voice || "marin") === "meridian" ? "selected" : ""}>Meridian</option><option value="bossa" ${(profile.live_voice || "marin") === "bossa" ? "selected" : ""}>Bossa</option><option value="tempo" ${(profile.live_voice || "marin") === "tempo" ? "selected" : ""}>Tempo</option><option value="beacon" ${(profile.live_voice || "marin") === "beacon" ? "selected" : ""}>Beacon</option><option value="delta" ${(profile.live_voice || "marin") === "delta" ? "selected" : ""}>Delta</option><option value="cinder" ${(profile.live_voice || "marin") === "cinder" ? "selected" : ""}>Cinder</option></select>
+            </div>
+            <div class="field">
+              <label for="workspaceAssistantLiveReasoningEffort">Глубина рассуждений GPT-5.5</label>
+              <select id="workspaceAssistantLiveReasoningEffort"><option value="low" ${(profile.live_reasoning_effort || "medium") === "low" ? "selected" : ""}>Быстро</option><option value="medium" ${(profile.live_reasoning_effort || "medium") === "medium" ? "selected" : ""}>Обычно</option><option value="high" ${(profile.live_reasoning_effort || "medium") === "high" ? "selected" : ""}>Подробно</option><option value="xhigh" ${(profile.live_reasoning_effort || "medium") === "xhigh" ? "selected" : ""}>Максимально</option></select>
+            </div>
+            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI с моделью gpt-5.5. Применение — со следующего разговора после настройки голосового сервера.</div>
             <div class="field">
               <label for="workspaceAssistantVoiceProfileId">${fieldLabelHtml("Голос по умолчанию", "voice-profile")}</label>
               <select id="workspaceAssistantVoiceProfileId">${profileSelectOptionsHtml(currentVoiceProfilesV1, profile.voice_profile_id || "", "Без голоса")}</select>
@@ -5337,6 +5397,10 @@
       await loadRobotWorkspaceConfig(robotWorkspaceId, true);
       renderRobotWorkspace();
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`${robotDisplayNameById(robotWorkspaceId)}: конфигурация сохранена, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -5360,6 +5424,9 @@
         dialogue_language: document.getElementById("workspaceAssistantLanguage")?.value || "ru-RU",
         provider_profile_id: document.getElementById("workspaceAssistantProviderProfileId")?.value || "",
         model_override: document.getElementById("workspaceAssistantModelOverride")?.value.trim() || "",
+        live_reasoning_effort: document.getElementById("workspaceAssistantLiveReasoningEffort")?.value || "medium",
+        live_voice: document.getElementById("workspaceAssistantLiveVoice")?.value || "marin",
+        voice_engine: document.getElementById("workspaceAssistantVoiceEngine")?.value || "chained",
         voice_profile_id: document.getElementById("workspaceAssistantVoiceProfileId")?.value || "",
         memory_profile_id: document.getElementById("workspaceAssistantMemoryProfileId")?.value || "",
         mcp_bundle_id: document.getElementById("workspaceAssistantMcpBundleId")?.value || "",
@@ -5377,6 +5444,10 @@
       await loadRobotWorkspaceConfig(robotWorkspaceId, true);
       renderRobotWorkspace();
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`${robotDisplayNameById(robotWorkspaceId)}: личность сохранена, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
@@ -5412,6 +5483,10 @@
       await loadRobotWorkspaceConfig(robotWorkspaceId, true);
       renderRobotWorkspace();
       const apply = res.apply || null;
+      if (apply?.activation === "next_voice_connection") {
+        notify("Настройки сохранены для следующего разговора", "ok");
+        return;
+      }
       if (apply && !apply.ok) {
         notify(`${robotDisplayNameById(robotWorkspaceId)}: голос сохранён, но голосовой контур не обновился: ${apply.stderr || apply.error || "неизвестная ошибка"}`, "warn");
         return;
