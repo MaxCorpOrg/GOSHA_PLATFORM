@@ -82,7 +82,11 @@ class MotionDevice:
     def check_profile(self, caps, *, require_ready=True):
         if not self.credentials or caps.get("calibration_id") != self.credentials["calibration_id"]:
             raise ValueError("motion_calibration_mismatch")
-        if caps.get("op") != "capabilities" or caps.get("calibrated") is not True:
+        # Firmware's calibrated flag means the separate "verified" profile.
+        # The accepted Motion Studio profile is motion_editor and reports false,
+        # including after initialization. Bind to its exact calibration ID above.
+        if (caps.get("op") != "capabilities" or caps.get("mode") != "motion_editor"
+                or caps.get("commissioning") is not False):
             raise ValueError("motion_capabilities_invalid")
         limits = caps.get("joint_limits")
         if not isinstance(limits, list) or {item.get("id") for item in limits if isinstance(item, dict)} != JOINTS:
@@ -96,6 +100,13 @@ class MotionDevice:
             raise ValueError("right_arm_initialization_required")
         if require_ready and caps.get("servo_degrees", {}).get("right_hand") != 135:
             raise ValueError("motion_right_arm_neutral_mismatch")
+        if not require_ready and caps.get("right_arm_initialized") is not True:
+            if (caps.get("right_arm_initialized") is not False
+                    or caps.get("right_arm_available") is not True
+                    or caps.get("initialization_required") is not True
+                    or caps.get("initialization_op") != "initialize_right_arm"
+                    or caps.get("reason") != "right_arm_initialization_required"):
+                raise ValueError("right_arm_initialization_unavailable")
         if caps.get("active_motion") is not None:
             raise ValueError("motion_already_active")
         pose = caps.get("commanded_pose")

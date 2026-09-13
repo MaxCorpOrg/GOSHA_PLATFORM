@@ -11,8 +11,11 @@ from unittest.mock import patch
 from gosha_live_motion import JOINTS, MotionDevice, credentials_for
 
 KEY = {"access_key": "unit-test-only-motion-key", "calibration_id": "a" * 64}
-CAPS = {"op": "capabilities", "calibration_id": KEY["calibration_id"], "calibrated": True,
+CAPS = {"op": "capabilities", "calibration_id": KEY["calibration_id"], "calibrated": False,
+        "mode": "motion_editor", "commissioning": False,
         "motion_allowed": True, "right_arm_initialized": True, "active_motion": None,
+        "right_arm_available": True, "initialization_required": False,
+        "initialization_op": "initialize_right_arm", "reason": "ok",
         "commanded_pose": dict.fromkeys(JOINTS, 0), "servo_degrees": {"right_hand": 135},
         "watchdog_ms": 300, "max_rate_hz": 20,
         "joint_limits": [{"id": joint, "min": -30, "max": 30, "max_speed_dps": 10} for joint in JOINTS]}
@@ -30,7 +33,8 @@ class SimulatedMotion(MotionDevice):
         if op == "hello":
             return copy.deepcopy(self.caps)
         if op == "initialize_right_arm":
-            self.caps.update(motion_allowed=True, right_arm_initialized=True)
+            self.caps.update(motion_allowed=True, right_arm_initialized=True,
+                             initialization_required=False, reason="ok", servo_degrees={"right_hand": 135})
             return copy.deepcopy(self.caps)
         if op == "arm":
             return {"op": "armed", "session_id": "simulated-session"}
@@ -66,10 +70,31 @@ class MotionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_initialization_is_a_separate_explicit_operation(self):
         device = SimulatedMotion()
-        device.caps.update(right_arm_initialized=False, motion_allowed=False)
+        device.caps.update(right_arm_initialized=False, motion_allowed=False,
+                           initialization_required=True, reason="right_arm_initialization_required",
+                           servo_degrees={"right_hand": 90})
         self.assertEqual((await device.call("robot_enable_right_arm"))["status"], "confirmed")
         self.assertEqual([op for _, op, _ in device.sent], ["hello", "initialize_right_arm"])
         self.assertEqual(device.sent[-1][2], KEY)
+
+    async def test_unknown_profiles_and_failed_initialization_never_initialize(self):
+        changes = [{"mode": "verified"}, {"mode": "commissioning"}, {"commissioning": True},
+                   {"calibration_id": "b" * 64}, {"right_arm_available": False},
+                   {"initialization_required": False}, {"initialization_op": "other"},
+                   {"reason": "right_arm_initialization_failed"}]
+        for change in changes:
+            device = SimulatedMotion()
+            device.caps.update(right_arm_initialized=False, motion_allowed=False,
+                               initialization_required=True, reason="right_arm_initialization_required")
+            device.caps.update(change)
+            self.assertEqual((await device.call("robot_enable_right_arm"))["status"], "rejected")
+            self.assertEqual([op for _, op, _ in device.sent], ["hello"])
+
+    async def test_already_initialized_arm_still_requires_neutral(self):
+        device = SimulatedMotion()
+        device.caps.update(servo_degrees={"right_hand": 90})
+        self.assertEqual((await device.call("robot_enable_right_arm"))["status"], "rejected")
+        self.assertEqual([op for _, op, _ in device.sent], ["hello"])
 
     async def test_wave_holds_both_targets_returns_zero_then_stops(self):
         device = SimulatedMotion()
