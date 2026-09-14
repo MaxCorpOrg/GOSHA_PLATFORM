@@ -26,6 +26,7 @@ from gosha_live_tools import DeviceTools, LiveToolRunner
 
 LOG = logging.getLogger("gosha.voice")
 PERIOD = FRAME_MS / 1000
+IDLE_FAREWELL = "Ну всё, я пока отключаю голос. Если что — зови: «Гоша»!"
 
 
 def authenticate(headers):
@@ -61,7 +62,7 @@ async def stop_tasks(tasks):
 
 
 class RobotLiveBridge:
-    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=0):
+    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=120):
         self.robot, self.config, self.key = robot, config, key
         self.session_factory = session_factory
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
@@ -70,6 +71,10 @@ class RobotLiveBridge:
         self.robot_keepalive_seconds = 30
         self.last_robot_keepalive = time.monotonic()
         self.stop_reason = "transport_closed"
+        self.idle_farewell = None
+        self.farewell_timeout_seconds = 20
+        self.farewell_quiet_seconds = 1.8
+        self.user_turn_generation = 0
         self.codec = None
         self.version = 1
         self.mcp_supported = False
@@ -200,8 +205,9 @@ class RobotLiveBridge:
                         self.audio_flow["decoded_frames"] += 1
                         if audible(pcm):
                             self.audio_flow["decoded_audible"] += 1
-                            self.last_activity = time.monotonic()
-                            self.last_user_audio = self.last_activity
+                            # RMS also sees fans/room noise. Only recognized user
+                            # speech resets the idle clock; RMS still gates playback.
+                            self.last_user_audio = time.monotonic()
                         if self.input.full():
                             self.input.get_nowait()
                             self.dropped_input_frames += 1
@@ -223,6 +229,8 @@ class RobotLiveBridge:
                         self.listening = False
                     # Wake-word 'detect' text isn't sent as a fabricated user utterance.
                 elif kind == "abort":
+                    self.user_turn_generation += 1
+                    self.idle_farewell = None
                     self.accept_output = False
                     while not self.input.empty():
                         self.input.get_nowait()
@@ -236,15 +244,56 @@ class RobotLiveBridge:
         finally:
             self.stopped.set()
 
+    async def check_idle(self, session, now):
+        farewell = self.idle_farewell
+        if farewell is not None:
+            if self.user_turn_generation != farewell["user_generation"]:
+                self.idle_farewell = None
+                await session.send("session.instructions.append", delegation_id=None,
+                                   content="Пользователь снова заговорил. Отмени предыдущее прощание из-за тишины. "
+                                   "Голосовой режим остаётся включённым; слушай и отвечай на новый запрос.")
+                LOG.info("live_idle_farewell cancelled=user_speech")
+                return False
+            if now - farewell["started"] >= self.farewell_timeout_seconds:
+                self.stop_reason = "idle_farewell_unconfirmed"
+                self.stopped.set()
+                return True
+            if farewell["acknowledged"] and not farewell["prompted"]:
+                farewell["prompted"] = True
+                await session.send("session.commentary.append", delegation_id=None,
+                                   content="Произнеси короткое прощание сейчас по только что переданной инструкции.")
+            if (farewell["audible"] and not self.speaking
+                    and now - farewell["last_audible"] >= self.farewell_quiet_seconds):
+                self.stop_reason = "idle_farewell_finished"
+                self.stopped.set()
+                return True
+            return False
+        if (self.idle_seconds <= 0 or now - self.last_activity < self.idle_seconds
+                or self.speaking or self.device_tools.pending
+                or self.device_tools.movement_keeps_session_alive(now)):
+            return False
+        event_id = uuid.uuid4().hex
+        self.idle_farewell = {"event_id": event_id, "started": now,
+                             "user_generation": self.user_turn_generation,
+                             "acknowledged": False, "prompted": False,
+                             "audible": False, "last_audible": now}
+        await session.send("session.instructions.append", event_id=event_id, delegation_id=None,
+                           content="Пользователь молчит две минуты. Сейчас один раз тепло и чуть шутливо скажи по-русски: "
+                           + IDLE_FAREWELL + " Затем молчи: приложение завершит только голосовой разговор. "
+                           "Не вызывай функции и не заявляй, что выключается питание робота. "
+                           "Если пользователь заговорит, отмени прощание и продолжай разговор.")
+        LOG.info("live_idle_farewell started=true")
+        return False
+
     async def input_loop(self, session):
         while True:
             now = time.monotonic()
-            idle_expired = (self.idle_seconds > 0 and now - self.last_activity >= self.idle_seconds
-                            and not self.device_tools.movement_keeps_session_alive(now))
             duration_expired = self.max_seconds > 0 and now - self.started_at >= self.max_seconds
-            if duration_expired or idle_expired:
-                self.stop_reason = "configured_duration_limit" if duration_expired else "configured_idle_limit"
+            if duration_expired:
+                self.stop_reason = "configured_duration_limit"
                 self.stopped.set()
+                return
+            if await self.check_idle(session, now):
                 return
             if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
                 # Firmware's application-level receive watchdog is 120 s. A WS
@@ -271,7 +320,10 @@ class RobotLiveBridge:
             kind = event.get("type")
             if not self.accept_output:
                 continue
-            if kind == "session.output_audio.delta":
+            if kind == "session.instructions.appended":
+                if self.idle_farewell and event.get("client_event_id") == self.idle_farewell["event_id"]:
+                    self.idle_farewell["acknowledged"] = True
+            elif kind == "session.output_audio.delta":
                 pcm = base64.b64decode(event["delta"], validate=True)
                 if len(pcm) % 2 or len(pcm) > PCM_BYTES * 500:
                     raise ValueError("invalid_live_audio")
@@ -285,7 +337,9 @@ class RobotLiveBridge:
                 self.remember(role, event.get("delta", ""))
                 if role == "user":
                     self.audio_flow["transcript_events"] += 1
-                    self.last_activity = time.monotonic()
+                    if isinstance(event.get("delta"), str) and event["delta"].strip():
+                        self.last_activity = time.monotonic()
+                        self.user_turn_generation += 1
             elif kind == "response.event":
                 backend = event.get("event", {})
                 if tool_runner is not None:
@@ -352,6 +406,9 @@ class RobotLiveBridge:
                 self.audio_flow["output_audible"] += 1
                 silent_frames = 0
                 self.last_activity = time.monotonic()
+                if self.idle_farewell is not None:
+                    self.idle_farewell["audible"] = True
+                    self.idle_farewell["last_audible"] = self.last_activity
                 if not self.speaking:
                     self.speaking = True
                     self.audio_flow["tts_starts"] += 1

@@ -297,6 +297,9 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         hello = json.loads(await asyncio.wait_for(ws.recv(), 2))
         self.assertEqual(hello["audio_params"], AUDIO_PARAMS)
         await ws.send(json.dumps({"type": "listen", "state": "start", "mode": "auto"}))
+        async with asyncio.timeout(1):
+            while not self.bridges[-1].listening:
+                await asyncio.sleep(0.005)
         return ws
 
     async def test_local_socket_audio_pacing_and_speech_stop(self):
@@ -559,23 +562,38 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             while not live.finalized.is_set():
                 await asyncio.sleep(0.01)
 
-    async def test_idle_voice_connection_closes(self):
+    async def test_idle_voice_connection_says_goodbye_before_closing(self):
         ws = await self.open_robot()
         live = FakeLive.instances[0]
-        self.bridges[0].idle_seconds = 0.1
+        bridge = self.bridges[0]
+        bridge.idle_seconds = 0.1
+        bridge.farewell_quiet_seconds = 0.2
         await asyncio.sleep(0.3)
+        self.assertFalse(live.finalized.is_set())
+        request = next(e for e in live.sent if e["type"] == "session.instructions.append")
+        self.assertIn("Гоша", request["content"])
+        self.assertFalse(any(e["type"] == "response.create" for e in live.sent))
+        await live.queue.put({"type": "session.instructions.appended", "client_event_id": request["event_id"]})
+        await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE * 4).decode()})
+        async with asyncio.timeout(3):
+            while not live.finalized.is_set():
+                await asyncio.sleep(0.01)
+        self.assertEqual(bridge.stop_reason, "idle_farewell_finished")
+        self.assertEqual(bridge.audio_flow["tts_starts"], 1)
+        self.assertEqual(bridge.audio_flow["tts_stops"], 1)
         self.assertTrue(live.finalized.is_set())
         await ws.close()
 
-    async def test_default_conversation_survives_old_deadlines_and_closes_on_goodbye(self):
+    async def test_active_conversation_has_no_total_limit_and_closes_on_goodbye(self):
         self.bridge_options = {}
         ws = await self.open_robot()
         live = FakeLive.instances[0]
         bridge = self.bridges[0]
         # Move only the session timestamps, not the asyncio clock or WS timers.
-        # This crosses both former limits without a five-minute unit-test sleep.
+        # Total age crosses the former duration limit; last turn is under 120 s.
         bridge.started_at -= 600
-        bridge.last_activity -= 180
+        bridge.last_activity -= 60
+        self.assertEqual(bridge.idle_seconds, 120)
         await asyncio.sleep(0.25)
         self.assertTrue(self.tasks)
         self.assertFalse(live.finalized.is_set())
@@ -586,6 +604,54 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.01)
         self.assertEqual(bridge.stop_reason, "robot_goodbye")
         await ws.close()
+
+    async def test_farewell_ack_is_not_playback_and_missing_audio_has_bounded_wait(self):
+        ws = await self.open_robot()
+        bridge, live = self.bridges[0], FakeLive.instances[0]
+        bridge.last_activity -= 180
+        await asyncio.sleep(0.15)
+        request = next(e for e in live.sent if e["type"] == "session.instructions.append")
+        await live.queue.put({"type": "session.instructions.appended", "client_event_id": request["event_id"]})
+        await asyncio.sleep(0.15)
+        self.assertFalse(live.finalized.is_set())
+        self.assertTrue(any(e["type"] == "session.commentary.append" for e in live.sent))
+        bridge.idle_farewell["started"] -= 21
+        async with asyncio.timeout(2):
+            while not live.finalized.is_set():
+                await asyncio.sleep(0.01)
+        self.assertEqual(bridge.stop_reason, "idle_farewell_unconfirmed")
+        await ws.close()
+
+    async def test_user_speech_cancels_farewell_and_keeps_conversation(self):
+        ws = await self.open_robot()
+        bridge, live = self.bridges[0], FakeLive.instances[0]
+        bridge.last_activity -= 180
+        await asyncio.sleep(0.15)
+        self.assertIsNotNone(bridge.idle_farewell)
+        await live.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE * 12).decode()})
+        async with asyncio.timeout(1):
+            while not bridge.speaking:
+                await asyncio.sleep(0.01)
+        await live.queue.put({"type": "session.input_transcript.delta", "delta": "Подожди, ещё вопрос"})
+        await asyncio.sleep(0.3)
+        self.assertIsNone(bridge.idle_farewell)
+        self.assertFalse(live.finalized.is_set())
+        self.assertTrue(any("Отмени предыдущее прощание" in e.get("content", "") for e in live.sent))
+        await ws.close()
+
+    async def test_microphone_noise_does_not_extend_idle_clock(self):
+        ws = await self.open_robot()
+        bridge = self.bridges[0]
+        codec = OpusCodec()
+        try:
+            bridge.last_activity -= 180
+            await ws.send(codec.encode(TONE))
+            await asyncio.sleep(0.2)
+            self.assertGreater(bridge.audio_flow["decoded_audible"], 0)
+            self.assertIsNotNone(bridge.idle_farewell)
+        finally:
+            codec.close()
+            await ws.close()
 
     async def test_mcp_keepalive_does_not_call_tools_or_change_speech_state(self):
         ws = await self.open_robot()
@@ -638,6 +704,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         live = FakeLive.instances[0]
         bridge = self.bridges[0]
         bridge.idle_seconds = 0.1
+        bridge.farewell_timeout_seconds = 0.1
         bridge.device_tools.movement_may_be_running = True
         bridge.device_tools.movement_busy_until = time.monotonic() + 1
         await asyncio.sleep(0.3)
