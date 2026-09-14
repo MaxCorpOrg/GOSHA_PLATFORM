@@ -1,9 +1,10 @@
 """Function execution contracts, with a simulated device and provider only."""
 import asyncio
 import json
+import time
 import unittest
 
-from gosha_live_tools import DeviceTools, LiveToolRunner, OPERATIONS
+from gosha_live_tools import DeviceTools, LiveToolRunner, OPERATIONS, MOVEMENT_OPERATIONS
 
 
 class ToolTests(unittest.IsolatedAsyncioTestCase):
@@ -34,6 +35,78 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(self.device.available), {"robot_device_status", "robot_set_volume"})
         self.assertTrue(self.device.ready.is_set())
         self.assertTrue(all(tool["strict"] for tool in self.device.definitions()))
+
+    async def test_runtime_catalog_replaces_editor_tools(self):
+        task = asyncio.create_task(self.device.discover())
+        await self.reply({"protocolVersion": "2024-11-05"})
+        await self.replies.get()
+        await self.reply({"tools": [{"name": spec["native"]} for spec in MOVEMENT_OPERATIONS.values()]
+                                   + [{"name": "self.otto.action"}, {"name": "self.otto.servo_sequences"}]})
+        await task
+        self.assertEqual(set(self.device.available), set(MOVEMENT_OPERATIONS))
+        self.assertNotIn("robot_enable_right_arm", self.device.available)
+        self.assertNotIn("robot_wave_right_hand", self.device.available)
+
+    async def test_named_play_sends_one_mcp_call_without_servo_commands(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        call = asyncio.create_task(self.device.call("robot_play_movement", '{"motion_id":"builtin/hand_wave"}'))
+        request = await self.replies.get()
+        self.assertEqual(request["method"], "tools/call")
+        self.assertEqual(request["params"]["name"], "self.motion.play")
+        args = request["params"]["arguments"]
+        self.assertEqual(set(args), {"motion_id", "request_id"})
+        self.assertEqual(len(args["request_id"]), 32)
+        self.device.receive({"jsonrpc": "2.0", "id": request["id"], "result": {
+            "content": [{"type": "text", "text": json.dumps({"status": "in_progress", "completion_confirmed": False})}]}})
+        result = await call
+        self.assertEqual(result["status"], "in_progress")
+        self.assertFalse(result["device_result"]["completion_confirmed"])
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][0], "mcp")
+
+    async def test_model_cannot_supply_request_id_or_raw_positions(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        for args in [{"motion_id": "builtin/hand_wave", "request_id": "old"},
+                     {"motion_id": "builtin/hand_wave", "angle": 70}, {"motion_id": ""},
+                     {"motion_id": "x" * 129}]:
+            self.assertEqual((await self.device.call("robot_play_movement", json.dumps(args)))["status"], "rejected")
+        self.assertEqual(self.sent, [])
+
+    async def test_catalog_read_does_not_prepare_or_start_drives(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        call = asyncio.create_task(self.device.call("robot_list_movements", '{}'))
+        request = await self.reply({"content": [{"type": "text", "text": '{"status":"confirmed","movements":[]}'}]})
+        self.assertEqual(request["params"], {"name": "self.motion.list", "arguments": {}})
+        self.assertEqual((await call)["status"], "confirmed")
+        self.assertFalse(self.device.movement_may_be_running)
+        self.assertEqual(len(self.sent), 1)
+
+    async def test_device_movement_failure_is_not_a_success(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        call = asyncio.create_task(self.device.call("robot_play_movement", '{"motion_id":"builtin/hand_wave"}'))
+        await self.reply({"content": [{"type": "text", "text": '{"status":"rejected","reason":"editor_busy"}'}]})
+        result = await call
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["device_result"]["reason"], "editor_busy")
+        self.assertEqual(self.device.counts["failed"], 1)
+        self.assertEqual(self.device.counts["confirmed"], 0)
+
+    async def test_local_movement_extends_idle_wait_with_a_finite_deadline(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        call = asyncio.create_task(self.device.call("robot_play_movement", '{"motion_id":"stored/long"}'))
+        await self.reply({"content": [{"type": "text", "text": '{"status":"in_progress","duration_ms":120000}'}]})
+        await call
+        self.assertTrue(self.device.movement_keeps_session_alive(time.monotonic() + 100))
+        self.assertFalse(self.device.movement_keeps_session_alive(time.monotonic() + 151))
+        deadline = self.device.movement_busy_until
+        status = asyncio.create_task(self.device.call("robot_motion_status", '{}'))
+        await self.reply({"content": [{"type": "text", "text": '{"status":"in_progress","duration_ms":120000}'}]})
+        await status
+        self.assertEqual(self.device.movement_busy_until, deadline)
+        status = asyncio.create_task(self.device.call("robot_motion_status", '{}'))
+        await self.reply({"content": [{"type": "text", "text": '{"status":"finished"}'}]})
+        await status
+        self.assertFalse(self.device.movement_keeps_session_alive(time.monotonic()))
 
     async def test_discovery_timeout_does_not_offer_unconfirmed_functions(self):
         await self.device.discover()

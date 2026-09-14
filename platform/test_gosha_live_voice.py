@@ -542,6 +542,20 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(live.finalized.is_set())
         await ws.close()
 
+    async def test_quiet_connection_waits_for_local_movement_but_not_forever(self):
+        ws = await self.open_robot()
+        live = FakeLive.instances[0]
+        bridge = self.bridges[0]
+        bridge.idle_seconds = 0.1
+        bridge.device_tools.movement_may_be_running = True
+        bridge.device_tools.movement_busy_until = time.monotonic() + 1
+        await asyncio.sleep(0.3)
+        self.assertFalse(live.finalized.is_set())
+        bridge.device_tools.movement_may_be_running = False
+        await asyncio.sleep(0.3)
+        self.assertTrue(live.finalized.is_set())
+        await ws.close()
+
 
 class ProbeTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_requests_voice_separately_from_reasoning(self):

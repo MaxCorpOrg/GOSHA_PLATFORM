@@ -21,7 +21,6 @@ import gosha_assistant_store as assistants
 import selfhost_xiaozhi_common as claims
 from gosha_live_audio import AUDIO_PARAMS, FRAME_MS, PCM_BYTES, SILENCE, OpusCodec, audible, audio_timestamp, pack_audio, unpack_audio
 from gosha_live_echo import EchoCanceller
-from gosha_live_motion import MotionDevice, credentials_for
 from gosha_live_protocol import LiveSession, session_config
 from gosha_live_tools import DeviceTools, LiveToolRunner
 
@@ -62,7 +61,7 @@ async def stop_tasks(tasks):
 
 
 class RobotLiveBridge:
-    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=300, idle_seconds=60, motion_credentials=None):
+    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=300, idle_seconds=60):
         self.robot, self.config, self.key = robot, config, key
         self.session_factory = session_factory
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
@@ -70,8 +69,6 @@ class RobotLiveBridge:
         self.version = 1
         self.mcp_supported = False
         self.device_tools = DeviceTools(self.send_json)
-        self.motion = MotionDevice(self.send_json, motion_credentials)
-        self.motion_supported = False
         self.duplex = False
         self.echo = self.reference_codec = None
         self.playback_timestamp = 0
@@ -123,7 +120,6 @@ class RobotLiveBridge:
         self.mcp_supported = isinstance(hello.get("features"), dict) and hello["features"].get("mcp") is True
         features = hello.get("features") or {}
         if isinstance(features, dict):
-            self.motion_supported = features.get("motion_live") is True
             if features.get("live_duplex") is True and self.version == 2 and os.environ.get("GOSHA_VOICE_ENABLE_DUPLEX") == "1":
                 try:
                     self.echo = EchoCanceller()
@@ -164,11 +160,6 @@ class RobotLiveBridge:
                 "сессии (не повторять без нового явного поручения; unknown означает отсутствие подтверждения): "
                 + json.dumps(list(self.device_tools.journal), ensure_ascii=False),
             }]})
-        if self.motion.state != "idle":
-            history.append({"type": "message", "role": "developer", "content": [{
-                "type": "input_text", "text": "Состояние предыдущего движения: " + self.motion.state
-                + ". Не повторяй его автоматически; это не новое поручение.",
-            }]})
         responses = {**self.config["delegation"]["responses"], "tools": self.device_tools.definitions()}
         responses["tool_choice"] = "auto" if responses["tools"] else "none"
         return {**self.config, "input": history, "delegation": {"type": "responses", "responses": responses}}
@@ -178,9 +169,7 @@ class RobotLiveBridge:
         if tool_runner.disabled:
             await self.stopped.wait()
             return
-        if self.motion_supported:
-            self.device_tools.attach_motion(self.motion)
-        if not self.mcp_supported and not self.motion_supported:
+        if not self.mcp_supported:
             await self.stopped.wait()
             return
         definitions = self.device_tools.definitions()
@@ -237,15 +226,15 @@ class RobotLiveBridge:
                     return
                 elif kind == "mcp" and self.mcp_supported:
                     self.device_tools.receive(message.get("payload"))
-                elif kind == "motion_live" and self.motion_supported:
-                    self.motion.receive(message.get("payload"))
         finally:
             self.stopped.set()
 
     async def input_loop(self, session):
         while True:
             now = time.monotonic()
-            if now - self.started_at >= self.max_seconds or now - self.last_activity >= self.idle_seconds:
+            idle_expired = (now - self.last_activity >= self.idle_seconds
+                            and not self.device_tools.movement_keeps_session_alive(now))
+            if now - self.started_at >= self.max_seconds or idle_expired:
                 self.stopped.set()
                 return
             try:
@@ -420,7 +409,7 @@ class RobotLiveBridge:
                 finally:
                     self.accept_output = False
                     await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher])
-                    await self.motion.stop()
+                    await self.device_tools.stop_movement()
                     with contextlib.suppress(Exception):
                         await self.stop_speech()
                     self.output_tail.clear()
@@ -438,7 +427,7 @@ class RobotLiveBridge:
                     break
                 # Explicit abort starts a fresh provider session; stale responses cannot resume.
         finally:
-            await self.motion.close()
+            await self.device_tools.stop_movement()
             if robot_reader:
                 await stop_tasks([robot_reader])
             if discovery:
@@ -516,12 +505,7 @@ class VoiceRouter:
             robot_id = claim["robot_id"]
             self.active.add(robot_id)
             config, key = settings
-            try:
-                motion_credentials = credentials_for(robot_id)
-            except (ValueError, OSError):
-                LOG.info("live_motion unavailable=credentials_invalid")
-                motion_credentials = None
-            await self.bridge_factory(robot, config, key, motion_credentials=motion_credentials).run()
+            await self.bridge_factory(robot, config, key).run()
             await robot.close(1000, "voice_session_ended")
         except Exception as exc:
             # Exception messages, URLs, device IDs, transcripts and keys never enter logs.
