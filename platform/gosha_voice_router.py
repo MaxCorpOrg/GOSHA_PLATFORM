@@ -61,10 +61,15 @@ async def stop_tasks(tasks):
 
 
 class RobotLiveBridge:
-    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=300, idle_seconds=60):
+    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=0):
         self.robot, self.config, self.key = robot, config, key
         self.session_factory = session_factory
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
+        # Zero disables automatic conversation cutoff. Network failure detection
+        # and explicit client close remain independent of these optional limits.
+        self.robot_keepalive_seconds = 30
+        self.last_robot_keepalive = time.monotonic()
+        self.stop_reason = "transport_closed"
         self.codec = None
         self.version = 1
         self.mcp_supported = False
@@ -81,6 +86,7 @@ class RobotLiveBridge:
         self.realtime = False
         self.started_at = self.last_activity = time.monotonic()
         self.restart = asyncio.Event()
+        self.restart_times = deque(maxlen=5)
         self.stopped = asyncio.Event()
         self.history = deque(maxlen=16)
         self.accept_output = True
@@ -223,6 +229,7 @@ class RobotLiveBridge:
                     self.restart.set()
                     self.last_activity = time.monotonic()
                 elif kind == "goodbye":
+                    self.stop_reason = "robot_goodbye"
                     return
                 elif kind == "mcp" and self.mcp_supported:
                     self.device_tools.receive(message.get("payload"))
@@ -232,11 +239,20 @@ class RobotLiveBridge:
     async def input_loop(self, session):
         while True:
             now = time.monotonic()
-            idle_expired = (now - self.last_activity >= self.idle_seconds
+            idle_expired = (self.idle_seconds > 0 and now - self.last_activity >= self.idle_seconds
                             and not self.device_tools.movement_keeps_session_alive(now))
-            if now - self.started_at >= self.max_seconds or idle_expired:
+            duration_expired = self.max_seconds > 0 and now - self.started_at >= self.max_seconds
+            if duration_expired or idle_expired:
+                self.stop_reason = "configured_duration_limit" if duration_expired else "configured_idle_limit"
                 self.stopped.set()
                 return
+            if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
+                # Firmware's application-level receive watchdog is 120 s. A WS
+                # ping doesn't refresh it. Its MCP parser ignores notifications,
+                # so this refreshes transport activity without tools or audio/UI.
+                await self.send_json("mcp", payload={"jsonrpc": "2.0",
+                                                     "method": "notifications/gosha/keepalive", "params": {}})
+                self.last_robot_keepalive = now
             try:
                 pcm = self.input.get_nowait()
             except asyncio.QueueEmpty:
@@ -282,6 +298,10 @@ class RobotLiveBridge:
                 if backend.get("type") in {"response.failed", "response.incomplete", "error"}:
                     raise RuntimeError("live_reasoning_failed")
             elif kind == "session.closed":
+                reason = event.get("reason")
+                self.stop_reason = "provider_" + reason if reason in {
+                    "expired", "content", "remote_hangup", "connection_lost", "close_requested",
+                } else "provider_closed"
                 return
 
     async def stop_speech(self):
@@ -375,7 +395,6 @@ class RobotLiveBridge:
         try:
             await self.hello()
             initial = True
-            restart_count = 0
             while not self.stopped.is_set():
                 self.restart.clear()
                 session = self.session_factory(self.fresh_config(), self.key)
@@ -422,8 +441,9 @@ class RobotLiveBridge:
                     drain.add_done_callback(retirees.discard)
                 if not self.restart.is_set():
                     break
-                restart_count += 1
-                if restart_count >= 5:
+                self.restart_times.append(time.monotonic())
+                if len(self.restart_times) == 5 and self.restart_times[-1] - self.restart_times[0] < 10:
+                    self.stop_reason = "rapid_interruption_restarts"
                     break
                 # Explicit abort starts a fresh provider session; stale responses cannot resume.
         finally:
@@ -442,6 +462,8 @@ class RobotLiveBridge:
                 LOG.info("live_echo_flow %s", json.dumps(self.echo.counts, sort_keys=True))
                 self.echo.close()
             self.log_audio_flow()
+            LOG.info("voice_conversation_ended reason=%s elapsed_seconds=%.1f",
+                     self.stop_reason, time.monotonic() - self.started_at)
             if self.dropped_input_frames:
                 LOG.info("live_input_dropped frames=%s", self.dropped_input_frames)
 

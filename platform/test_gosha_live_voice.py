@@ -274,10 +274,11 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         FakeLive.instances = []
         self.bridges = []
         self.tasks = set()
+        self.bridge_options = {"idle_seconds": 3}
         async def handler(ws, path):
             task = asyncio.current_task()
             self.tasks.add(task)
-            bridge = RobotLiveBridge(ws, session_config({}, PROVIDER), "unit-only", session_factory=FakeLive, idle_seconds=3)
+            bridge = RobotLiveBridge(ws, session_config({}, PROVIDER), "unit-only", session_factory=FakeLive, **self.bridge_options)
             self.bridges.append(bridge)
             try:
                 await bridge.run()
@@ -564,6 +565,72 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.bridges[0].idle_seconds = 0.1
         await asyncio.sleep(0.3)
         self.assertTrue(live.finalized.is_set())
+        await ws.close()
+
+    async def test_default_conversation_survives_old_deadlines_and_closes_on_goodbye(self):
+        self.bridge_options = {}
+        ws = await self.open_robot()
+        live = FakeLive.instances[0]
+        bridge = self.bridges[0]
+        # Move only the session timestamps, not the asyncio clock or WS timers.
+        # This crosses both former limits without a five-minute unit-test sleep.
+        bridge.started_at -= 600
+        bridge.last_activity -= 180
+        await asyncio.sleep(0.25)
+        self.assertTrue(self.tasks)
+        self.assertFalse(live.finalized.is_set())
+        self.assertGreater(len(live.audio), 1)
+        await ws.send(json.dumps({"type": "goodbye"}))
+        async with asyncio.timeout(2):
+            while not live.finalized.is_set():
+                await asyncio.sleep(0.01)
+        self.assertEqual(bridge.stop_reason, "robot_goodbye")
+        await ws.close()
+
+    async def test_mcp_keepalive_does_not_call_tools_or_change_speech_state(self):
+        ws = await self.open_robot()
+        bridge = self.bridges[0]
+        bridge.mcp_supported = True
+        bridge.last_robot_keepalive -= 31
+        message = json.loads(await asyncio.wait_for(ws.recv(), 1))
+        self.assertEqual(message["type"], "mcp")
+        self.assertEqual(message["payload"], {"jsonrpc": "2.0", "method": "notifications/gosha/keepalive", "params": {}})
+        self.assertFalse(bridge.speaking)
+        self.assertTrue(bridge.listening)
+        self.assertEqual(bridge.device_tools.counts["requested"], 0)
+        self.assertFalse(bridge.device_tools.pending)
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws.recv(), 0.15)  # No heartbeat burst.
+        await ws.close()
+
+    async def test_normal_interruptions_do_not_exhaust_lifetime_restart_count(self):
+        self.bridge_options = {}
+        ws = await self.open_robot()
+        bridge = self.bridges[0]
+        for index in range(6):
+            # Model pauses between ordinary interruptions without real-time waiting.
+            for offset in range(len(bridge.restart_times)):
+                bridge.restart_times[offset] -= 20
+            await ws.send(json.dumps({"type": "abort"}))
+            async with asyncio.timeout(2):
+                while len(FakeLive.instances) < index + 2:
+                    await asyncio.sleep(0.01)
+        self.assertTrue(self.tasks)
+        await ws.close()
+
+    async def test_rapid_restart_loop_is_still_bounded(self):
+        ws = await self.open_robot()
+        for index in range(4):
+            await ws.send(json.dumps({"type": "abort"}))
+            async with asyncio.timeout(2):
+                while len(FakeLive.instances) < index + 2:
+                    await asyncio.sleep(0.01)
+        await ws.send(json.dumps({"type": "abort"}))
+        async with asyncio.timeout(2):
+            while self.tasks:
+                await asyncio.sleep(0.01)
+        self.assertEqual(self.bridges[0].stop_reason, "rapid_interruption_restarts")
+        self.assertEqual(len(FakeLive.instances), 5)
         await ws.close()
 
     async def test_quiet_connection_waits_for_local_movement_but_not_forever(self):
