@@ -44,6 +44,7 @@ class DeviceTools:
         self.next_id = 1
         self.available = {}
         self.ready = asyncio.Event()
+        self.discovery_stage = "not_started"
         self.journal = deque(maxlen=12)  # Memory only; informs replacement sessions.
         self.counts = dict.fromkeys(("discovered", "requested", "confirmed", "failed", "unknown"), 0)
         self.movement_may_be_running = False
@@ -74,36 +75,51 @@ class DeviceTools:
             elif isinstance(payload.get("result"), dict):
                 future.set_result(payload["result"])
 
-    async def discover(self):
+    async def discover(self, *, retry_delays=(1, 2)):
+        """Retry metadata only; a lost response must never retry a physical action."""
         try:
-            await self.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
-                                         "clientInfo": {"name": "gosha-live", "version": "1"}})
-            await self.send_json("mcp", payload={"jsonrpc": "2.0", "method": "notifications/initialized"})
-            names, cursors, params = set(), set(), {}
-            for _ in range(16):
-                result = await self.rpc("tools/list", params)
-                entries = result.get("tools")
-                if not isinstance(entries, list) or len(entries) > 128:
-                    raise ValueError("device_tools_invalid")
-                names.update(tool["name"] for tool in entries
-                             if isinstance(tool, dict) and isinstance(tool.get("name"), str))
-                cursor = result.get("nextCursor")
-                if not cursor:
-                    self.available = {name: spec for name, spec in OPERATIONS.items() if spec["native"] in names}
-                    self.available.update({name: spec for name, spec in MOVEMENT_OPERATIONS.items() if spec["native"] in names})
-                    self.counts["discovered"] = len(self.available)
-                    LOG.info("live_device_tools count=%s", len(self.available))
+            for attempt in range(len(retry_delays) + 1):
+                try:
+                    await self._discover_once()
+                    LOG.info("live_device_tools count=%s attempt=%s", len(self.available), attempt + 1)
                     return
-                if not isinstance(cursor, str) or len(cursor) > 256 or cursor in cursors:
-                    raise ValueError("device_tools_cursor_invalid")
-                cursors.add(cursor)
-                params = {"cursor": cursor}
-            raise ValueError("device_tools_page_limit")
-        except (Exception, asyncio.CancelledError):
-            self.available = {}
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self.available = {}
+                    LOG.info("live_device_discovery_failed stage=%s attempt=%s category=%s",
+                             self.discovery_stage, attempt + 1, type(exc).__name__)
+                    if attempt < len(retry_delays):
+                        await asyncio.sleep(retry_delays[attempt])
             LOG.info("live_device_tools unavailable=true")
         finally:
             self.ready.set()
+
+    async def _discover_once(self):
+        self.discovery_stage = "initialize"
+        await self.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                     "clientInfo": {"name": "gosha-live", "version": "1"}})
+        await self.send_json("mcp", payload={"jsonrpc": "2.0", "method": "notifications/initialized"})
+        names, cursors, params = set(), set(), {}
+        for _ in range(16):
+            self.discovery_stage = "tools_list"
+            result = await self.rpc("tools/list", params)
+            entries = result.get("tools")
+            if not isinstance(entries, list) or len(entries) > 128:
+                raise ValueError("device_tools_invalid")
+            names.update(tool["name"] for tool in entries
+                         if isinstance(tool, dict) and isinstance(tool.get("name"), str))
+            cursor = result.get("nextCursor")
+            if not cursor:
+                self.available = {name: spec for name, spec in OPERATIONS.items() if spec["native"] in names}
+                self.available.update({name: spec for name, spec in MOVEMENT_OPERATIONS.items() if spec["native"] in names})
+                self.counts["discovered"] = len(self.available)
+                return
+            if not isinstance(cursor, str) or len(cursor) > 256 or cursor in cursors:
+                raise ValueError("device_tools_cursor_invalid")
+            cursors.add(cursor)
+            params = {"cursor": cursor}
+        raise ValueError("device_tools_page_limit")
 
     def definitions(self):
         return [{"type": "function", "name": name, "description": spec["description"],
@@ -179,6 +195,10 @@ class DeviceTools:
             if isinstance(exc, asyncio.CancelledError):
                 raise
             return {"status": "unknown", "reason": "device_result_not_confirmed", "retry": False}
+        finally:
+            # Operation is selected from our allowlist; never log model arguments,
+            # native payloads, transcripts, credentials or device identifiers.
+            LOG.info("live_device_call operation=%s status=%s", name, record["status"])
 
     def movement_keeps_session_alive(self, now):
         return self.movement_may_be_running and now < self.movement_busy_until

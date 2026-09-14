@@ -93,6 +93,7 @@ class RobotLiveBridge:
         self.restart = asyncio.Event()
         self.restart_times = deque(maxlen=5)
         self.stopped = asyncio.Event()
+        self.robot_listening_ready = asyncio.Event()
         self.history = deque(maxlen=16)
         self.accept_output = True
         self.last_output_received = 0.0
@@ -193,6 +194,18 @@ class RobotLiveBridge:
                            + ". Любые просьбы об управлении передавай backend; не имитируй результат словами.")
         await self.stopped.wait()
 
+    async def discover_tools(self):
+        # Firmware creates its voice owner after receiving server hello. An MCP
+        # reply queued before that transition can be discarded by its generation
+        # fence. listen:start confirms that channel setup has finished.
+        try:
+            await asyncio.wait_for(self.robot_listening_ready.wait(), 10)
+        except asyncio.TimeoutError:
+            LOG.info("live_device_discovery_failed stage=wait_listen attempt=0 category=TimeoutError")
+            self.device_tools.ready.set()
+            return
+        await self.device_tools.discover()
+
     async def read_robot(self):
         try:
             async for raw in self.robot:
@@ -223,6 +236,7 @@ class RobotLiveBridge:
                         self.audio_flow["listen_starts"] += 1
                         self.realtime = message.get("mode") == "realtime"
                         self.listening = True
+                        self.robot_listening_ready.set()
                         self.last_activity = time.monotonic()
                     elif state == "stop":
                         self.audio_flow["listen_stops"] += 1
@@ -462,7 +476,7 @@ class RobotLiveBridge:
                                          features={"live_duplex": self.duplex, "aec": "server" if self.duplex else "off"})
                     robot_reader = asyncio.create_task(self.read_robot())
                     if self.mcp_supported:
-                        discovery = asyncio.create_task(self.device_tools.discover())
+                        discovery = asyncio.create_task(self.discover_tools())
                     else:
                         self.device_tools.ready.set()
                     initial = False

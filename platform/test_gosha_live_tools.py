@@ -109,10 +109,68 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.device.movement_keeps_session_alive(time.monotonic()))
 
     async def test_discovery_timeout_does_not_offer_unconfirmed_functions(self):
-        await self.device.discover()
+        await self.device.discover(retry_delays=(0, 0))
         self.assertTrue(self.device.ready.is_set())
         self.assertEqual(self.device.definitions(), [])
         self.assertEqual(self.device.pending, {})
+        self.assertEqual([fields["payload"]["method"] for _, fields in self.sent], ["initialize"] * 3)
+
+    async def test_lost_initialize_recovers_and_late_reply_cannot_complete_new_request(self):
+        task = asyncio.create_task(self.device.discover(retry_delays=(0, 0)))
+        lost = await self.replies.get()
+        retry = await asyncio.wait_for(self.replies.get(), 1)
+        self.assertEqual(retry["method"], "initialize")
+        self.assertNotEqual(lost["id"], retry["id"])
+        self.device.receive({"jsonrpc": "2.0", "id": lost["id"], "result": {}})
+        await asyncio.sleep(0)
+        self.assertTrue(self.replies.empty())
+        self.assertFalse(self.device.ready.is_set())
+        self.device.receive({"jsonrpc": "2.0", "id": retry["id"], "result": {}})
+        self.assertEqual((await self.replies.get())["method"], "notifications/initialized")
+        await self.reply({"tools": [{"name": spec["native"]} for spec in MOVEMENT_OPERATIONS.values()]})
+        await task
+        self.assertEqual(set(self.device.available), set(MOVEMENT_OPERATIONS))
+        self.assertTrue(self.device.ready.is_set())
+        self.assertEqual(self.device.pending, {})
+        self.assertNotIn("tools/call", [fields["payload"]["method"] for _, fields in self.sent])
+
+    async def test_lost_listing_page_restarts_catalog_without_publishing_partial_tools(self):
+        task = asyncio.create_task(self.device.discover(retry_delays=(0,)))
+        await self.reply({})
+        await self.replies.get()
+        await self.reply({"tools": [{"name": "self.battery.get_level"}], "nextCursor": "page2"})
+        lost = await self.replies.get()
+        self.assertEqual(lost["params"], {"cursor": "page2"})
+        self.assertEqual(self.device.definitions(), [])
+        retry = await self.reply({})
+        self.assertEqual(retry["method"], "initialize")
+        await self.replies.get()
+        listing = await self.reply({"tools": [{"name": "self.motion.list"}]})
+        self.assertEqual(listing["params"], {})
+        await task
+        self.assertEqual(set(self.device.available), {"robot_list_movements"})
+        self.assertEqual(self.device.counts["discovered"], 1)
+        self.assertEqual(self.device.pending, {})
+
+    async def test_cancelled_discovery_does_not_retry_after_connection_closes(self):
+        task = asyncio.create_task(self.device.discover(retry_delays=(1, 2)))
+        await self.replies.get()
+        async with asyncio.timeout(1):
+            while self.device.pending:
+                await asyncio.sleep(0.01)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.device.pending, {})
+
+    async def test_lost_movement_ack_is_never_retried(self):
+        self.device.available = dict(MOVEMENT_OPERATIONS)
+        result = await self.device.call("robot_play_movement", '{"motion_id":"builtin/hand_wave"}')
+        self.assertEqual(result["status"], "unknown")
+        self.assertFalse(result["retry"])
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][1]["payload"]["params"]["name"], "self.motion.play")
 
     async def test_invalid_or_unavailable_call_never_reaches_device(self):
         self.device.available = dict(OPERATIONS)

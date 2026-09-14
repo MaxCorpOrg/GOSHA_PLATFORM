@@ -332,8 +332,18 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         await ws.send(json.dumps({"type": "hello", "version": 1, "transport": "websocket",
                                   "features": {"mcp": True}, "audio_params": AUDIO_PARAMS}))
         self.assertEqual(json.loads(await ws.recv())["type"], "hello")
+        # The firmware creates its voice-motion owner after hello. An earlier
+        # MCP response can be invalidated by that generation change.
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws.recv(), 0.1)
+        self.bridges[-1].device_tools.timeout = 0.1
         await ws.send(json.dumps({"type": "listen", "state": "start", "mode": "auto"}))
-        init = json.loads(await ws.recv())["payload"]
+        lost_init = json.loads(await ws.recv())["payload"]
+        # Lose the first metadata response, as can happen during device setup.
+        # Discovery must recover on this same audio socket and publish tools.
+        init = json.loads(await asyncio.wait_for(ws.recv(), 2))["payload"]
+        self.assertEqual(init["method"], "initialize")
+        self.assertNotEqual(init["id"], lost_init["id"])
         await ws.send(json.dumps({"type": "mcp", "payload": {"jsonrpc": "2.0", "id": init["id"], "result": {"capabilities": {"tools": {}}}}}))
         self.assertEqual(json.loads(await ws.recv())["payload"]["method"], "notifications/initialized")
         listing = json.loads(await ws.recv())["payload"]
@@ -345,6 +355,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.01)
         update = next(e for e in live.sent if e["type"] == "session.update")
         self.assertEqual(update["session"]["delegation"]["responses"]["tools"][0]["name"], "robot_battery")
+        self.bridges[-1].device_tools.timeout = 1  # Normal call includes an audio pacing check below.
         for event in ({"type": "response.created", "response": {"id": "r1"}},
                       {"type": "response.output_item.done", "item": {"type": "function_call", "name": "robot_battery", "arguments": "{}", "call_id": "c1"}},
                       {"type": "response.completed", "response": {"id": "r1", "output": []}}):
