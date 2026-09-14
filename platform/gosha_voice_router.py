@@ -26,6 +26,7 @@ from gosha_live_tools import DeviceTools, LiveToolRunner
 
 LOG = logging.getLogger("gosha.voice")
 PERIOD = FRAME_MS / 1000
+LISTEN_READY_WARNING_SECONDS = 10
 IDLE_FAREWELL = "Ну всё, я пока отключаю голос. Если что — зови: «Гоша»!"
 
 
@@ -199,11 +200,12 @@ class RobotLiveBridge:
         # reply queued before that transition can be discarded by its generation
         # fence. listen:start confirms that channel setup has finished.
         try:
-            await asyncio.wait_for(self.robot_listening_ready.wait(), 10)
+            await asyncio.wait_for(self.robot_listening_ready.wait(), LISTEN_READY_WARNING_SECONDS)
         except asyncio.TimeoutError:
-            LOG.info("live_device_discovery_failed stage=wait_listen attempt=0 category=TimeoutError")
-            self.device_tools.ready.set()
-            return
+            # A slow startup is not a completed empty catalog. Keep waiting for
+            # readiness; run() cancels this task when the conversation closes.
+            LOG.info("live_device_discovery_waiting stage=wait_listen")
+            await self.robot_listening_ready.wait()
         await self.device_tools.discover()
 
     async def read_robot(self):

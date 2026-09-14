@@ -379,6 +379,54 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             codec.close()
             await ws.close()
 
+    async def test_late_listen_start_still_discovers_and_publishes_tools(self):
+        with patch("gosha_voice_router.LISTEN_READY_WARNING_SECONDS", 0.02):
+            async with connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/") as ws:
+                await ws.send(json.dumps({"type": "hello", "version": 2, "transport": "websocket",
+                                          "features": {"mcp": True}, "audio_params": AUDIO_PARAMS}))
+                self.assertEqual(json.loads(await ws.recv())["type"], "hello")
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(ws.recv(), 0.1)
+                live, bridge = FakeLive.instances[0], self.bridges[0]
+                self.assertFalse(bridge.device_tools.ready.is_set())
+                self.assertFalse(any(e["type"] == "session.update" for e in live.sent))
+                await ws.send(json.dumps({"type": "listen", "state": "start", "mode": "realtime"}))
+                init = json.loads(await asyncio.wait_for(ws.recv(), 1))["payload"]
+                self.assertEqual(init["method"], "initialize")
+                await ws.send(json.dumps({"type": "mcp", "payload": {
+                    "jsonrpc": "2.0", "id": init["id"], "result": {}}}))
+                self.assertEqual(json.loads(await ws.recv())["payload"]["method"], "notifications/initialized")
+                listing = json.loads(await ws.recv())["payload"]
+                await ws.send(json.dumps({"type": "mcp", "payload": {
+                    "jsonrpc": "2.0", "id": listing["id"], "result": {
+                        "tools": [{"name": "self.motion.list"}, {"name": "self.motion.play"}]}}}))
+                async with asyncio.timeout(1):
+                    while not any(e["type"] == "session.update" for e in live.sent):
+                        await asyncio.sleep(0.01)
+                update = next(e for e in live.sent if e["type"] == "session.update")
+                responses = update["session"]["delegation"]["responses"]
+                self.assertEqual(responses["tool_choice"], "auto")
+                self.assertEqual({tool["name"] for tool in responses["tools"]},
+                                 {"robot_list_movements", "robot_play_movement"})
+                self.assertEqual(bridge.device_tools.counts["requested"], 0)
+
+    async def test_disconnect_cancels_late_listen_wait_without_device_calls(self):
+        with patch("gosha_voice_router.LISTEN_READY_WARNING_SECONDS", 0.02):
+            async with connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/") as ws:
+                await ws.send(json.dumps({"type": "hello", "version": 2, "transport": "websocket",
+                                          "features": {"mcp": True}, "audio_params": AUDIO_PARAMS}))
+                await ws.recv()
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(ws.recv(), 0.1)
+            async with asyncio.timeout(2):
+                while self.tasks:
+                    await asyncio.sleep(0.01)
+            device = self.bridges[0].device_tools
+            self.assertEqual(device.next_id, 1)
+            self.assertEqual(device.pending, {})
+            self.assertEqual(device.counts["requested"], 0)
+            self.assertTrue(FakeLive.instances[0].finalized.is_set())
+
     async def test_negotiated_duplex_keeps_microphone_during_playback(self):
         with patch.dict(os.environ, {"GOSHA_VOICE_ENABLE_DUPLEX": "1"}):
             ws = await connect(f"ws://127.0.0.1:{self.port}/xiaozhi/v1/")
