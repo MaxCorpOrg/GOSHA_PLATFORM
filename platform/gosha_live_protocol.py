@@ -6,7 +6,7 @@ import uuid
 
 LIVE_URL = "wss://api.openai.com/v1/live/sessions"
 LIVE_MODEL = "gpt-live-1"
-REASONING_MODEL = "gpt-5.5"
+SUPPORTED_REASONING_MODELS = ("gpt-5.5", "gpt-5.6-luna")
 VOICES = ("marin", "quartz", "ripple", "vesper", "willow", "stone", "gleam", "meridian", "bossa", "tempo", "beacon", "delta", "cinder")
 EFFORTS = ("low", "medium", "high", "xhigh")
 
@@ -14,8 +14,9 @@ EFFORTS = ("low", "medium", "high", "xhigh")
 def session_config(assistant, provider):
     if provider.get("base_url", "").rstrip("/") != "https://api.openai.com/v1":
         raise ValueError("live_requires_openai_provider")
-    if (assistant.get("model_override") or provider.get("model")) != REASONING_MODEL:
-        raise ValueError("live_requires_gpt_5_5")
+    reasoning_model = assistant.get("model_override") or provider.get("model")
+    if reasoning_model not in SUPPORTED_REASONING_MODELS:
+        raise ValueError("unsupported_live_reasoning_model")
     voice = assistant.get("live_voice", "marin")
     effort = assistant.get("live_reasoning_effort", "medium")
     if voice not in VOICES or effort not in EFFORTS:
@@ -29,7 +30,7 @@ def session_config(assistant, provider):
         "В режиме попеременного разговора избегай звуков подтверждения во время речи пользователя.\n"
         "Interruption policy: Когда пользователь перебивает, останови ответ и выслушай его.\n"
         "Delegation policy:\nBackend tools:\n"
-        "- Модель GPT-5.5: рассуждения, объяснения, расчёты и ответы на содержательные вопросы.\n"
+        f"- Модель {reasoning_model}: рассуждения, объяснения, расчёты и ответы на содержательные вопросы.\n"
         "Delegate to the backend when:\n"
         "- Пользователь задаёт содержательный вопрос, просит рассуждение, расчёт или объяснение.\n"
         "- Пользователь просит действие с роботом, управление громкостью, экраном, движением или проверку состояния.\n"
@@ -38,7 +39,7 @@ def session_config(assistant, provider):
         "- Пользователь здоровается или просит повторить готовый ответ.\n"
         "- Нужно коротко уточнить запрос.\n"
         "Перед ответом, требующим рассуждений, дождись результата модели. Не выдумывай его. "
-        "Функции подключённого робота передаются модели GPT-5.5 после проверки устройства. "
+        "Функции подключённого робота передаются модели мышления после проверки устройства. "
         "Любое действие поручай backend и жди результата инструмента. Не говори, что действие выполнено, "
         "до подтверждения робота. Если функции нет или пришёл отказ, честно сообщи об этом. "
         "Выключение подсветки или звука не означает выключение питания робота."
@@ -64,7 +65,7 @@ def session_config(assistant, provider):
         "model": LIVE_MODEL, "instructions": prompt, "store": False,
         "audio": {"format": {"type": "audio/pcm", "rate": 16000}, "output": {"voice": voice}},
         "delegation": {"type": "responses", "responses": {
-            "model": REASONING_MODEL, "instructions": backend,
+            "model": reasoning_model, "instructions": backend,
             "reasoning": {"effort": effort}, "max_output_tokens": 4096,
             "tools": [], "tool_choice": "none", "parallel_tool_calls": False,
         }},

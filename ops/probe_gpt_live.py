@@ -15,8 +15,8 @@ from gosha_live_audio import SILENCE, audible
 from gosha_live_protocol import LiveSession, session_config
 
 
-def check_models(key):
-    for model in ("gpt-live-1", "gpt-5.5"):
+def check_models(key, reasoning_model):
+    for model in ("gpt-live-1", reasoning_model):
         request = urllib.request.Request("https://api.openai.com/v1/models/" + model,
                                          headers={"Authorization": "Bearer " + key})
         with urllib.request.urlopen(request, timeout=12) as response:
@@ -27,23 +27,27 @@ def check_models(key):
 async def probe(config, key, *, seconds=25):
     result = {"ok": False, "models_available": False, "session_started": False,
               "voice_instructions_acknowledged": False,
-              "reasoning_completed": False, "audio_received": False, "audio_audible": False,
+              "reasoning_completed": False, "answer_correct": False, "audio_received": False, "audio_audible": False,
               "finalized": False, "robot_contacted": False}
     if not key:
         result["error"] = "openai_api_key_missing"
         return result
+    reasoning_model = config["delegation"]["responses"]["model"]
+    result["reasoning_model"] = reasoning_model
     session = LiveSession(config, key)
     reader = sender = None
     try:
-        await asyncio.to_thread(check_models, key)
+        await asyncio.to_thread(check_models, key, reasoning_model)
         result["models_available"] = True
         await session.start()
         result["session_started"] = True
         done = asyncio.Event()
         instructions_ack = asyncio.Event()
         instructions_id = uuid.uuid4().hex
+        answer = ""
 
         async def receive():
+            nonlocal answer
             async for event in session.events():
                 if event.get("type") == "session.instructions.appended" and event.get("client_event_id") == instructions_id:
                     result["voice_instructions_acknowledged"] = True
@@ -54,11 +58,14 @@ async def probe(config, key, *, seconds=25):
                     result["audio_audible"] |= audible(pcm)
                 elif event.get("type") == "response.event":
                     inner = event.get("event", {})
+                    if inner.get("type") == "response.output_text.delta":
+                        answer += inner.get("delta", "")
                     if inner.get("type") == "response.completed":
                         response = inner.get("response", {})
                         model = response.get("model", "")
                         result["reasoning_completed"] = response.get("status") == "completed" and (
-                            model == "gpt-5.5" or model.startswith("gpt-5.5-"))
+                            model == reasoning_model or model.startswith(reasoning_model + "-"))
+                        result["answer_correct"] = "391" in answer
                 if result["reasoning_completed"] and result["audio_audible"]:
                     done.set()
 
@@ -104,7 +111,7 @@ async def probe(config, key, *, seconds=25):
         result["finalized"] = session.finalized.is_set()
         if isinstance(session.usage, dict):
             result["voice_seconds"] = session.usage.get("seconds")
-    result["ok"] = all(result[key] for key in ("models_available", "session_started", "voice_instructions_acknowledged", "reasoning_completed", "audio_audible", "finalized"))
+    result["ok"] = all(result[key] for key in ("models_available", "session_started", "voice_instructions_acknowledged", "reasoning_completed", "answer_correct", "audio_audible", "finalized"))
     return result
 
 

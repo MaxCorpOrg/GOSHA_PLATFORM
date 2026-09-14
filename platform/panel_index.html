@@ -2123,17 +2123,17 @@
               </div>
             <div class="field">
               <label for="assistantVoiceEngine">Голосовой движок</label>
-              <select id="assistantVoiceEngine"><option value="chained" selected>Текущий ASR → модель → TTS</option><option value="openai_live" >GPT-Live-1 + GPT-5.5</option></select>
+              <select id="assistantVoiceEngine"><option value="chained" selected>Текущий ASR → модель → TTS</option><option value="openai_live" >GPT-Live-1 + модель мышления</option></select>
             </div>
             <div class="field">
               <label for="assistantLiveVoice">Голос GPT-Live</label>
               <select id="assistantLiveVoice"><option value="marin" selected>Marin</option><option value="quartz" >Quartz</option><option value="ripple" >Ripple</option><option value="vesper" >Vesper</option><option value="willow" >Willow</option><option value="stone" >Stone</option><option value="gleam" >Gleam</option><option value="meridian" >Meridian</option><option value="bossa" >Bossa</option><option value="tempo" >Tempo</option><option value="beacon" >Beacon</option><option value="delta" >Delta</option><option value="cinder" >Cinder</option></select>
             </div>
             <div class="field">
-              <label for="assistantLiveReasoningEffort">Глубина рассуждений GPT-5.5</label>
+              <label for="assistantLiveReasoningEffort">Глубина рассуждений модели</label>
               <select id="assistantLiveReasoningEffort"><option value="low" >Быстро</option><option value="medium" selected>Обычно</option><option value="high" >Подробно</option><option value="xhigh" >Максимально</option></select>
             </div>
-            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI с моделью gpt-5.5. Применение — со следующего разговора после настройки голосового сервера.</div>
+            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI. Для мышления доступны gpt-5.6-luna и gpt-5.5; модель задаётся в настройках ассистента или поставщика. Применение — со следующего разговора после настройки голосового сервера.</div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label for="assistantSystemPromptV1">Системный промпт</label>
                 <textarea id="assistantSystemPromptV1" placeholder="Главная инструкция для ассистента"></textarea>
@@ -4724,7 +4724,7 @@
       const voice = config?.voice_profile || null;
       const ttsRuntime = config?.tts_runtime || {};
       if (assistant?.voice_engine === "openai_live") {
-        return `<div class="status-stack"><span class="pill">Голос: GPT-Live-1</span><span class="pill">Мышление: GPT-5.5</span><span class="pill">${escapeHtml(assistant.live_voice || "marin")}</span></div><div class="workspace-section-note">Выбран для следующего разговора. Требуется настроенный голосовой сервер; сохранённый профиль сам по себе не подтверждает соединение с OpenAI.</div>`;
+        return `<div class="status-stack"><span class="pill">Голос: GPT-Live-1</span><span class="pill">Мышление: ${escapeHtml(config?.voice_runtime?.reasoning_model || assistant.model_override || provider?.model || "не задано")}</span><span class="pill">${escapeHtml(assistant.live_voice || "marin")}</span></div><div class="workspace-section-note">Выбран для следующего разговора. Требуется настроенный голосовой сервер; сохранённый профиль сам по себе не подтверждает соединение с OpenAI.</div>`;
       }
       const effectiveModel = assistant?.model_override || provider?.model || "";
       const toneBits = [];
@@ -4907,17 +4907,17 @@
             </div>
             <div class="field">
               <label for="workspaceAssistantVoiceEngine">Голосовой движок</label>
-              <select id="workspaceAssistantVoiceEngine"><option value="chained" ${(profile.voice_engine || "chained") === "chained" ? "selected" : ""}>Текущий ASR → модель → TTS</option><option value="openai_live" ${(profile.voice_engine || "chained") === "openai_live" ? "selected" : ""}>GPT-Live-1 + GPT-5.5</option></select>
+              <select id="workspaceAssistantVoiceEngine"><option value="chained" ${(profile.voice_engine || "chained") === "chained" ? "selected" : ""}>Текущий ASR → модель → TTS</option><option value="openai_live" ${(profile.voice_engine || "chained") === "openai_live" ? "selected" : ""}>GPT-Live-1 + модель мышления</option></select>
             </div>
             <div class="field">
               <label for="workspaceAssistantLiveVoice">Голос GPT-Live</label>
               <select id="workspaceAssistantLiveVoice"><option value="marin" ${(profile.live_voice || "marin") === "marin" ? "selected" : ""}>Marin</option><option value="quartz" ${(profile.live_voice || "marin") === "quartz" ? "selected" : ""}>Quartz</option><option value="ripple" ${(profile.live_voice || "marin") === "ripple" ? "selected" : ""}>Ripple</option><option value="vesper" ${(profile.live_voice || "marin") === "vesper" ? "selected" : ""}>Vesper</option><option value="willow" ${(profile.live_voice || "marin") === "willow" ? "selected" : ""}>Willow</option><option value="stone" ${(profile.live_voice || "marin") === "stone" ? "selected" : ""}>Stone</option><option value="gleam" ${(profile.live_voice || "marin") === "gleam" ? "selected" : ""}>Gleam</option><option value="meridian" ${(profile.live_voice || "marin") === "meridian" ? "selected" : ""}>Meridian</option><option value="bossa" ${(profile.live_voice || "marin") === "bossa" ? "selected" : ""}>Bossa</option><option value="tempo" ${(profile.live_voice || "marin") === "tempo" ? "selected" : ""}>Tempo</option><option value="beacon" ${(profile.live_voice || "marin") === "beacon" ? "selected" : ""}>Beacon</option><option value="delta" ${(profile.live_voice || "marin") === "delta" ? "selected" : ""}>Delta</option><option value="cinder" ${(profile.live_voice || "marin") === "cinder" ? "selected" : ""}>Cinder</option></select>
             </div>
             <div class="field">
-              <label for="workspaceAssistantLiveReasoningEffort">Глубина рассуждений GPT-5.5</label>
+              <label for="workspaceAssistantLiveReasoningEffort">Глубина рассуждений модели</label>
               <select id="workspaceAssistantLiveReasoningEffort"><option value="low" ${(profile.live_reasoning_effort || "medium") === "low" ? "selected" : ""}>Быстро</option><option value="medium" ${(profile.live_reasoning_effort || "medium") === "medium" ? "selected" : ""}>Обычно</option><option value="high" ${(profile.live_reasoning_effort || "medium") === "high" ? "selected" : ""}>Подробно</option><option value="xhigh" ${(profile.live_reasoning_effort || "medium") === "xhigh" ? "selected" : ""}>Максимально</option></select>
             </div>
-            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI с моделью gpt-5.5. Применение — со следующего разговора после настройки голосового сервера.</div>
+            <div class="microcopy" style="grid-column: 1 / -1;">GPT-Live использует поставщика OpenAI. Для мышления доступны gpt-5.6-luna и gpt-5.5; модель задаётся в настройках ассистента или поставщика. Применение — со следующего разговора после настройки голосового сервера.</div>
             <div class="field">
               <label for="workspaceAssistantVoiceProfileId">${fieldLabelHtml("Голос по умолчанию", "voice-profile")}</label>
               <select id="workspaceAssistantVoiceProfileId">${profileSelectOptionsHtml(currentVoiceProfilesV1, profile.voice_profile_id || "", "Без голоса")}</select>

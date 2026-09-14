@@ -66,8 +66,32 @@ class AudioTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 session_config({}, provider)
 
+    def test_luna_override_preserves_voice_and_robot_tool_contract(self):
+        config = session_config({"model_override": "gpt-5.6-luna", "live_voice": "meridian",
+                                 "live_reasoning_effort": "low"}, PROVIDER)
+        self.assertEqual(config["model"], "gpt-live-1")
+        self.assertEqual(config["delegation"]["responses"]["model"], "gpt-5.6-luna")
+        self.assertEqual(config["delegation"]["responses"]["reasoning"], {"effort": "low"})
+        self.assertEqual(config["audio"]["output"]["voice"], "meridian")
+        self.assertFalse(config["delegation"]["responses"]["parallel_tool_calls"])
+        self.assertIn("robot_list_movements", config["delegation"]["responses"]["instructions"])
+        self.assertNotIn("GPT-5.5", config["instructions"])
+        self.assertEqual(session_config({}, {**PROVIDER, "model": "gpt-5.6-luna"})
+                         ["delegation"]["responses"]["model"], "gpt-5.6-luna")
+
 
 class StoreTests(unittest.TestCase):
+    def test_effective_live_runtime_reports_selected_luna(self):
+        provider, assistant = proposed_profiles("luna-robot")
+        providers.save_agent_profile(provider["profile_id"], provider)
+        assistant.update(model_override="gpt-5.6-luna", live_reasoning_effort="low", live_voice="meridian")
+        assistants.save_assistant_profile(assistant["profile_id"], assistant)
+        assistants.save_robot_binding("luna-robot", {"assistant_profile_id": assistant["profile_id"]})
+        effective = assistants.effective_robot_assistant_config("luna-robot")
+        self.assertEqual(effective["voice_runtime"]["reasoning_model"], "gpt-5.6-luna")
+        self.assertEqual(effective["voice_runtime"]["voice"], "meridian")
+        self.assertEqual(effective["provider_profile"]["model"], "gpt-5.5")
+
     def test_selecting_live_and_returning_to_legacy_does_not_restart_backend(self):
         import gui_panel
         robot_id = "binding-robot"
@@ -569,6 +593,8 @@ class ProbeTests(unittest.IsolatedAsyncioTestCase):
                 elif kind == "session.commentary.append":
                     await self.queue.put({"type": "session.output_audio.delta", "delta": base64.b64encode(TONE).decode()})
                 elif kind == "response.create":
+                    for delta in ("39", "1"):
+                        await self.queue.put({"type": "response.event", "event": {"type": "response.output_text.delta", "delta": delta}})
                     await self.queue.put({"type": "response.event", "event": {"type": "response.completed", "response": {"status": "completed", "model": "gpt-5.5"}}})
         with patch("probe_gpt_live.LiveSession", ProbeLive), patch("probe_gpt_live.check_models"):
             result = await probe(session_config({}, PROVIDER), "unit-only", seconds=1)

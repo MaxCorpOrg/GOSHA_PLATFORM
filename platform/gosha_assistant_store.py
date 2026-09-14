@@ -1068,7 +1068,8 @@ def effective_robot_assistant_config(robot_id):
         "voice_runtime": {
             "engine": (assistant_view or {}).get("voice_engine", "chained"),
             "model": "gpt-live-1" if (assistant_view or {}).get("voice_engine") == "openai_live" else "",
-            "reasoning_model": "gpt-5.5" if (assistant_view or {}).get("voice_engine") == "openai_live" else "",
+            "reasoning_model": ((assistant_view or {}).get("model_override") or (provider_view or {}).get("model", ""))
+            if (assistant_view or {}).get("voice_engine") == "openai_live" else "",
             "voice": (assistant_view or {}).get("live_voice", "marin"),
             "activation": "next_voice_connection",
         },
