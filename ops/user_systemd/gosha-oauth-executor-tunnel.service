@@ -1,0 +1,15 @@
+[Unit]
+Description=GOSHA OAuth executor reverse tunnel to public panel server
+After=network-online.target gosha-oauth-executor.service
+Wants=network-online.target gosha-oauth-executor.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/GOSHA_PLATFORM
+EnvironmentFile=%h/GOSHA_PLATFORM/local_only/oauth_executor.env
+ExecStart=/usr/bin/bash %h/GOSHA_PLATFORM/bin/run_oauth_executor_reverse_tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

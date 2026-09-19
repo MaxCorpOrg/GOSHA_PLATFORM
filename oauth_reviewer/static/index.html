@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GOSHA OAuth Reviewer</title>
+  <style>
+    :root {
+      --bg: #f3efe5;
+      --card: #fffaf2;
+      --ink: #1f2933;
+      --muted: #5f6c76;
+      --line: #d7c7ad;
+      --accent: #136f63;
+      --accent-2: #d95d39;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(217, 93, 57, 0.18), transparent 28%),
+        linear-gradient(135deg, #f7f1e5 0%, #efe4d1 100%);
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    .hero, .card {
+      background: rgba(255, 250, 242, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 14px 40px rgba(63, 43, 20, 0.08);
+    }
+    .hero {
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+    .card {
+      padding: 20px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 160px;
+      gap: 12px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+    textarea {
+      min-height: 280px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 11px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: var(--accent);
+    }
+    button.secondary {
+      background: var(--accent-2);
+    }
+    button.ghost {
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid var(--line);
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(19, 111, 99, 0.09);
+      border: 1px solid rgba(19, 111, 99, 0.2);
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: "Cascadia Mono", "SFMono-Regular", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    #status {
+      min-height: 22px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    @media (max-width: 720px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+      .hero h1 {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>GOSHA OAuth Reviewer</h1>
+      <p>Внешний ручной reviewer для Pull Request. Вход идёт через GitHub OAuth, а вызов OpenAI живёт на сервере сервиса, а не в secrets этого репозитория.</p>
+      <div class="meta">
+        <span class="pill" id="sessionPill">Проверка сеанса...</span>
+        <span class="pill" id="readyPill">Проверка конфигурации...</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div id="status"></div>
+      <div class="row">
+        <div>
+          <label for="repo">Репозиторий</label>
+          <input id="repo" value="MaxCorpOrg/GOSHA_PLATFORM">
+        </div>
+        <div>
+          <label for="pr">PR номер</label>
+          <input id="pr" type="number" min="1" value="1">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="loginBtn" type="button">Войти через GitHub</button>
+        <button id="previewBtn" type="button">Сделать preview review</button>
+        <button id="publishBtn" class="secondary" type="button">Опубликовать review в PR</button>
+        <button id="logoutBtn" class="ghost" type="button">Выйти</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <label for="output">Результат review</label>
+      <textarea id="output" placeholder="Здесь появится сгенерированный review." spellcheck="false"></textarea>
+    </section>
+
+    <section class="card">
+      <label for="raw">Технический ответ API</label>
+      <pre id="raw">Пока пусто.</pre>
+    </section>
+  </main>
+
+  <script>
+    const repoInput = document.getElementById("repo");
+    const prInput = document.getElementById("pr");
+    const output = document.getElementById("output");
+    const raw = document.getElementById("raw");
+    const status = document.getElementById("status");
+    const sessionPill = document.getElementById("sessionPill");
+    const readyPill = document.getElementById("readyPill");
+
+    function setStatus(text, error = false) {
+      status.textContent = text;
+      status.style.color = error ? "#a13020" : "#5f6c76";
+    }
+
+    function payload() {
+      return {
+        repo_full_name: repoInput.value.trim(),
+        pr_number: Number(prInput.value || 0),
+      };
+    }
+
+    async function loadSession() {
+      const response = await fetch("/api/session");
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.error || "Не удалось загрузить сессию.");
+      }
+      const session = data.session || {};
+      sessionPill.textContent = session.authenticated
+        ? `GitHub: ${session.github_login || "вошёл"}`
+        : "GitHub: не авторизован";
+      readyPill.textContent = `GitHub OAuth: ${session.github_ready ? "готов" : "не настроен"} | OpenAI backend: ${session.openai_ready ? "готов" : "не настроен"}`;
+      return session;
+    }
+
+    async function postJson(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      raw.textContent = JSON.stringify(data, null, 2);
+      if (!data.ok) {
+        throw new Error(data.error || "Операция не выполнена.");
+      }
+      return data;
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", () => {
+      window.location.href = "/auth/github/start?next=/";
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      try {
+        await postJson("/auth/logout", {});
+        output.value = "";
+        setStatus("Сеанс GitHub очищен.");
+        await loadSession();
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    document.getElementById("previewBtn").addEventListener("click", async () => {
+      setStatus("Собираю PR и запускаю preview review...");
+      try {
+        const data = await postJson("/api/reviews/preview", payload());
+        output.value = data.result.review_markdown || "";
+        setStatus("Preview review готов.");
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    document.getElementById("publishBtn").addEventListener("click", async () => {
+      setStatus("Готовлю review и публикую его в Pull Request...");
+      try {
+        const data = await postJson("/api/reviews/publish", payload());
+        output.value = data.result.review_markdown || "";
+        setStatus("Review опубликован в Pull Request.");
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    loadSession().catch((error) => setStatus(String(error), true));
+  </script>
+</body>
+</html>

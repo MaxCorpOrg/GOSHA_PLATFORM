@@ -1,0 +1,11 @@
+local_only/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+auth.json
+__pycache__/
+*.pyc
+GOSHA_API/
+runtime/

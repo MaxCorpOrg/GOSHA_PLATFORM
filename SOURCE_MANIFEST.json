@@ -1,0 +1,459 @@
+{
+  "source_date": "2026-09-17",
+  "source_archive_sha256": "d4eccb97333cf99f37000abaec305024cbdb29a7cf05fecbc11f55d1f4583223",
+  "server_git_base": "f705a3b6ccc7d806ddf5d1aa40e14fcf286594be",
+  "scope": "Application source and example templates only; excludes runtime, credentials, original Git metadata and private documents",
+  "sanitization": "Machine-specific IPv4 defaults replaced with documentation address 192.0.2.1; localhost and access-point literals retained",
+  "files": [
+    {
+      "path": "oauth_executor/static/index.html",
+      "source_sha256": "16499fda4b231416c4f3021553276574a9bc2b24079052989bd770495cd9648f",
+      "published_sha256": "16499fda4b231416c4f3021553276574a9bc2b24079052989bd770495cd9648f",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/codex_runner.py",
+      "source_sha256": "dd2d00eb0095c6580806bc222745b1825481a4365438e6449f795d1b701e5809",
+      "published_sha256": "dd2d00eb0095c6580806bc222745b1825481a4365438e6449f795d1b701e5809",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/.env.example",
+      "source_sha256": "b41c0bc92c8a04e77b22186a054f28e1f838572b1ce6e0d4fdb0c731ca8fde98",
+      "published_sha256": "b41c0bc92c8a04e77b22186a054f28e1f838572b1ce6e0d4fdb0c731ca8fde98",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/jobs.py",
+      "source_sha256": "d9fbcfa3d84c852a8410ab0c5bc551acd98804b645f48b944059b556f70a7c14",
+      "published_sha256": "d9fbcfa3d84c852a8410ab0c5bc551acd98804b645f48b944059b556f70a7c14",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/executor_service.py",
+      "source_sha256": "5586534811c3c03673614b01ce7ed71923b19e02307725d03ddc2be5b07e146b",
+      "published_sha256": "5586534811c3c03673614b01ce7ed71923b19e02307725d03ddc2be5b07e146b",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/__init__.py",
+      "source_sha256": "8f9f266229788cb21df0085fbe9bbdb873acde2a366f36e9c2b6b4042b7b80a0",
+      "published_sha256": "8f9f266229788cb21df0085fbe9bbdb873acde2a366f36e9c2b6b4042b7b80a0",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/requirements.txt",
+      "source_sha256": "fcb0e9577ed8b318db56112d904ce95551711b17435ea6944fc01e5d845d46b8",
+      "published_sha256": "fcb0e9577ed8b318db56112d904ce95551711b17435ea6944fc01e5d845d46b8",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/config.py",
+      "source_sha256": "3b27f53abe38e950489b4c543661eb7e46249cba0dd188c7aac66246f0853a52",
+      "published_sha256": "3b27f53abe38e950489b4c543661eb7e46249cba0dd188c7aac66246f0853a52",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/git_worktree.py",
+      "source_sha256": "f59a2609deee5c8e0521439371fbdc580ac5265a35b1c6017eaa0b12ce9f59fe",
+      "published_sha256": "f59a2609deee5c8e0521439371fbdc580ac5265a35b1c6017eaa0b12ce9f59fe",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_executor/app.py",
+      "source_sha256": "5e176ea6f4a161f1941c980185528ae9dcb80b486220f13b2be2c7935371b895",
+      "published_sha256": "5e176ea6f4a161f1941c980185528ae9dcb80b486220f13b2be2c7935371b895",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/ensure_panel_python_deps.sh",
+      "source_sha256": "c9c603920bce45ece4c398859519e49e6ea936c986993e5e5c1f1e5fe6abb985",
+      "published_sha256": "c9c603920bce45ece4c398859519e49e6ea936c986993e5e5c1f1e5fe6abb985",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/run_oauth_executor_reverse_tunnel.sh",
+      "source_sha256": "bbd6ccda203482b81f12b6d0eae4aa43f68b8807e5439901dc9f6fd7f25c35f2",
+      "published_sha256": "bbd6ccda203482b81f12b6d0eae4aa43f68b8807e5439901dc9f6fd7f25c35f2",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/start_codex_pr_branch.sh",
+      "source_sha256": "f37c9398138f0832422b55b706ab16ff4402d6b7a2db1f703d4a8813a6fdd0ed",
+      "published_sha256": "f37c9398138f0832422b55b706ab16ff4402d6b7a2db1f703d4a8813a6fdd0ed",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/run_local_gosha_gateway.sh",
+      "source_sha256": "2d80d94417f7cba257e5e2323fbd3793e84856b404b25f2dba669555fe081bd5",
+      "published_sha256": "2d80d94417f7cba257e5e2323fbd3793e84856b404b25f2dba669555fe081bd5",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/run_local_gosha_panel.sh",
+      "source_sha256": "ca2f205dd83a8d27624df6473fe2b4fe14d61e6b63bc55486a8c1eeb4d1e8d4f",
+      "published_sha256": "ca2f205dd83a8d27624df6473fe2b4fe14d61e6b63bc55486a8c1eeb4d1e8d4f",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/check_local_gosha_stack.sh",
+      "source_sha256": "0cc744ddfe2d8b63be6602ffbaab985a3051a1aa4b560ae07ca632f2a86dfecc",
+      "published_sha256": "0cc744ddfe2d8b63be6602ffbaab985a3051a1aa4b560ae07ca632f2a86dfecc",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/run_local_oauth_reviewer.sh",
+      "source_sha256": "6cfa039ecd116f3d66ccdb436e3ec048cef516d1293c47fd664c094e87c39dac",
+      "published_sha256": "6cfa039ecd116f3d66ccdb436e3ec048cef516d1293c47fd664c094e87c39dac",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/check_gosha_panel_stack.sh",
+      "source_sha256": "57936c4d4d73da5f44b45da690c1384c096c1a9e4da01115ea8081cb56ef6d83",
+      "published_sha256": "57936c4d4d73da5f44b45da690c1384c096c1a9e4da01115ea8081cb56ef6d83",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/init_local_lab.sh",
+      "source_sha256": "a28c84a37021720ec3f477b4cd1239ba13b1d4269a9fd8964dd8db137bb5509e",
+      "published_sha256": "a28c84a37021720ec3f477b4cd1239ba13b1d4269a9fd8964dd8db137bb5509e",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/install_local_oauth_executor_user_services.sh",
+      "source_sha256": "393f41cd7a866c9eb87a7e58f1d5eb559fa105203c01c3fa7d27cbc7b4813e33",
+      "published_sha256": "393f41cd7a866c9eb87a7e58f1d5eb559fa105203c01c3fa7d27cbc7b4813e33",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/run_local_oauth_executor.sh",
+      "source_sha256": "dfcc4a1cd783c2445e7a938ea0eaa223730f92949dbfe144213b0460bb7befea",
+      "published_sha256": "dfcc4a1cd783c2445e7a938ea0eaa223730f92949dbfe144213b0460bb7befea",
+      "address_replacements": 0
+    },
+    {
+      "path": "bin/ci_validate.sh",
+      "source_sha256": "1a692da9fb5a0548fd659e1cf944bb7721d381acbe1fcb1771714196237fa7d6",
+      "published_sha256": "1a692da9fb5a0548fd659e1cf944bb7721d381acbe1fcb1771714196237fa7d6",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_shared/session_store.py",
+      "source_sha256": "b4432bf91b4e791a4d8c6caa7a08a747ff9db58fdd1f68dcd4db1f477dcdb0ce",
+      "published_sha256": "b4432bf91b4e791a4d8c6caa7a08a747ff9db58fdd1f68dcd4db1f477dcdb0ce",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_shared/__init__.py",
+      "source_sha256": "30284b8e7c5d27b81be07f56f4a64962ef8bf99bad191b4e951cae02660e2525",
+      "published_sha256": "30284b8e7c5d27b81be07f56f4a64962ef8bf99bad191b4e951cae02660e2525",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/overrides/silero_local.py",
+      "source_sha256": "d588832ec4979901b00f4e61d3a7b39e1f3cc5b310841012a7c10be62391ff92",
+      "published_sha256": "d588832ec4979901b00f4e61d3a7b39e1f3cc5b310841012a7c10be62391ff92",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/overrides/fun_local.py",
+      "source_sha256": "d09ab0270dd9ce38c6d8caf43f2ec011742fc47509d033f80196f920fdc0d173",
+      "published_sha256": "d09ab0270dd9ce38c6d8caf43f2ec011742fc47509d033f80196f920fdc0d173",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/overrides/agent-base-prompt.txt",
+      "source_sha256": "43222f89f9b0b0957b7ab80c4c2f29ed9bbd7f7bb6716bf8b3bbcf9add602ed5",
+      "published_sha256": "43222f89f9b0b0957b7ab80c4c2f29ed9bbd7f7bb6716bf8b3bbcf9add602ed5",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/overrides/edge.py",
+      "source_sha256": "d6a0aa0b2e12f601e36ab9ff036b74557d3998498f02b0eab1b39604cb7ca476",
+      "published_sha256": "d6a0aa0b2e12f601e36ab9ff036b74557d3998498f02b0eab1b39604cb7ca476",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/voice-router.env.example",
+      "source_sha256": "a69d998d58968a310e945fda1982f3995b08e6101e0b530d0c0706a0a03f232c",
+      "published_sha256": "a69d998d58968a310e945fda1982f3995b08e6101e0b530d0c0706a0a03f232c",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/selfhost-backend.compose.yml",
+      "source_sha256": "05bd3e055db9bf6491674143cb9f017265221bca6f9b201cb9aebc93ff3799bd",
+      "published_sha256": "05bd3e055db9bf6491674143cb9f017265221bca6f9b201cb9aebc93ff3799bd",
+      "address_replacements": 0
+    },
+    {
+      "path": "backend/selfhost-backend.env.example",
+      "source_sha256": "2088f6bde181abdc78761c062d65da7209abdc7a71639aa63b2357a8851f852f",
+      "published_sha256": "2088f6bde181abdc78761c062d65da7209abdc7a71639aa63b2357a8851f852f",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_agent_gateway.py",
+      "source_sha256": "fc92490ad48f027dbd7f1ad364007ee90e1f3a2489883e029b32cc37dc69f211",
+      "published_sha256": "fc92490ad48f027dbd7f1ad364007ee90e1f3a2489883e029b32cc37dc69f211",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/panel-auth.env.example",
+      "source_sha256": "ba0502fb799650295f4ae0ec1dba8853c9dbb4927f739fc5d53a8128557d6002",
+      "published_sha256": "b93bbe5848a2b07c954bb754c70f584c4e15ad9b52d37a7f87cf02c81c63f4ec",
+      "address_replacements": 7
+    },
+    {
+      "path": "platform/gosha_assistant_store.py",
+      "source_sha256": "cad8f33f5f1060f12afde4db349fa6c190ec4436461cd509ab66c0c843033e60",
+      "published_sha256": "cad8f33f5f1060f12afde4db349fa6c190ec4436461cd509ab66c0c843033e60",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_live_tools.py",
+      "source_sha256": "bf684be7b3bccdb1b0b437b403df891df29fbe698bacff16d40406596bf2f9ca",
+      "published_sha256": "bf684be7b3bccdb1b0b437b403df891df29fbe698bacff16d40406596bf2f9ca",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/panel_index.html",
+      "source_sha256": "c6f1b96a26cac4a0508bde2e03a407a1c3324f390adbb71dcb6bc11e40c30b6b",
+      "published_sha256": "c6f1b96a26cac4a0508bde2e03a407a1c3324f390adbb71dcb6bc11e40c30b6b",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_agent_store.py",
+      "source_sha256": "01adaae1cd25ebf4f2b60f6a617aa0f0695273c6c3e11b611d4db83136a2b653",
+      "published_sha256": "01adaae1cd25ebf4f2b60f6a617aa0f0695273c6c3e11b611d4db83136a2b653",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gui_panel.py",
+      "source_sha256": "21976fac5c9a3b740dded587811d19b68b2ec347eeb1063be3172ef992b2b476",
+      "published_sha256": "e0b0bb9d50fb53e1778971148ea89af38780ed39e86fac08b4f2abaee4007f09",
+      "address_replacements": 2
+    },
+    {
+      "path": "platform/requirements.txt",
+      "source_sha256": "ba43081d6f7739a967ddbe5926fa9695ffab6eabffa1227401cb8c1967f40a98",
+      "published_sha256": "ba43081d6f7739a967ddbe5926fa9695ffab6eabffa1227401cb8c1967f40a98",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_live_protocol.py",
+      "source_sha256": "cdceec79d792c6b625b008cba833bc7df20a83cb3bb3e8d7964fced04afda7a0",
+      "published_sha256": "cdceec79d792c6b625b008cba833bc7df20a83cb3bb3e8d7964fced04afda7a0",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_live_motion.py",
+      "source_sha256": "32430e6d0246cc8fba685cc37752aba8303c2a97b190bf7ecea4c2ebba5d490e",
+      "published_sha256": "32430e6d0246cc8fba685cc37752aba8303c2a97b190bf7ecea4c2ebba5d490e",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/add_robot.sh",
+      "source_sha256": "0ad40bcaedfdf12011c754bf43726c4690e37a2fcc59e61a2591256db2337ccc",
+      "published_sha256": "0ad40bcaedfdf12011c754bf43726c4690e37a2fcc59e61a2591256db2337ccc",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_voice_router.py",
+      "source_sha256": "0d3cc7d7000311979f8eb7efb2849ba2f5faee6acafc6d37af2146c88a8f8a61",
+      "published_sha256": "0d3cc7d7000311979f8eb7efb2849ba2f5faee6acafc6d37af2146c88a8f8a61",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/check_gosha_mobile_contract.py",
+      "source_sha256": "42c1b241cfccbc07be9769414a2c42cd16f11893a19efddc4f47e57a75d7602e",
+      "published_sha256": "e8be085aacb30b1a35d1c78ef9d47bc7bbe4201b56d1f455552a5d45705ec7c5",
+      "address_replacements": 1
+    },
+    {
+      "path": "platform/gosha_agent_gateway_client.py",
+      "source_sha256": "65df58bbe92203437fc06109d67541703242ac96e48b50dd495ba93193bac402",
+      "published_sha256": "65df58bbe92203437fc06109d67541703242ac96e48b50dd495ba93193bac402",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/selfhost_xiaozhi_common.py",
+      "source_sha256": "7d6f3c90f738ae821f2299bd623a8f67e213b933a0cc217a83b4e2eff00c17bb",
+      "published_sha256": "465d4389f59bb3d043d5edeed5208ebf94620c32d4edde329507ea18e4b51e05",
+      "address_replacements": 1
+    },
+    {
+      "path": "platform/gosha_runtime_events.py",
+      "source_sha256": "69299a2ff829b3ddfeae0e73f997685e3fb85e681ac6846b0ccbc280b717495b",
+      "published_sha256": "69299a2ff829b3ddfeae0e73f997685e3fb85e681ac6846b0ccbc280b717495b",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_live_echo.py",
+      "source_sha256": "3bda3951addba18ef27edfac84afeb0b0bef3d1e4416aae2de787b16ba75ee70",
+      "published_sha256": "3bda3951addba18ef27edfac84afeb0b0bef3d1e4416aae2de787b16ba75ee70",
+      "address_replacements": 0
+    },
+    {
+      "path": "platform/gosha_live_audio.py",
+      "source_sha256": "5b87b958eb162845d9ff7ac75e2ca47d3ff0154c1240b53a98c601b5f9f286ab",
+      "published_sha256": "5b87b958eb162845d9ff7ac75e2ca47d3ff0154c1240b53a98c601b5f9f286ab",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/repo_guidance.py",
+      "source_sha256": "1c3a6773038b8b8534ce5685024d6cbc94d181d47d3c57eddc9bd00b52b89bd2",
+      "published_sha256": "1c3a6773038b8b8534ce5685024d6cbc94d181d47d3c57eddc9bd00b52b89bd2",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/static/index.html",
+      "source_sha256": "a89a8b50e460c741ae23b5cf4a0094aab8c3f1356b3aee4c2c02468dec0c3f42",
+      "published_sha256": "a89a8b50e460c741ae23b5cf4a0094aab8c3f1356b3aee4c2c02468dec0c3f42",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/.env.example",
+      "source_sha256": "c994f9e46aec30bee6cb92c30adc752eeca7c72665ee514063259af0f12a5150",
+      "published_sha256": "c994f9e46aec30bee6cb92c30adc752eeca7c72665ee514063259af0f12a5150",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/__init__.py",
+      "source_sha256": "f863808929c5bcfad58a7467403ee71f4274db0e7a2a355c4e9f5ad4f40a9a00",
+      "published_sha256": "f863808929c5bcfad58a7467403ee71f4274db0e7a2a355c4e9f5ad4f40a9a00",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/github_api.py",
+      "source_sha256": "9ee2bbe8ca15059122ccb3ac59cf7fa1f1f3e343b0e769ed791ab6c24aaa7b0f",
+      "published_sha256": "9ee2bbe8ca15059122ccb3ac59cf7fa1f1f3e343b0e769ed791ab6c24aaa7b0f",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/requirements.txt",
+      "source_sha256": "fcb0e9577ed8b318db56112d904ce95551711b17435ea6944fc01e5d845d46b8",
+      "published_sha256": "fcb0e9577ed8b318db56112d904ce95551711b17435ea6944fc01e5d845d46b8",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/config.py",
+      "source_sha256": "de7e8b34bd60fdb9cbe3177eb08472f7f8d845e96503d6a810bb62cbc88ed01d",
+      "published_sha256": "de7e8b34bd60fdb9cbe3177eb08472f7f8d845e96503d6a810bb62cbc88ed01d",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/openai_review.py",
+      "source_sha256": "405a78db55110b2aef44d338d9fc58739fadd41d0e2f0579ecad0957c0bcb31c",
+      "published_sha256": "405a78db55110b2aef44d338d9fc58739fadd41d0e2f0579ecad0957c0bcb31c",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/app.py",
+      "source_sha256": "65f3897bff178b310bca52db9452aff3d2c9717eaf802f83716507f586734bcf",
+      "published_sha256": "65f3897bff178b310bca52db9452aff3d2c9717eaf802f83716507f586734bcf",
+      "address_replacements": 0
+    },
+    {
+      "path": "oauth_reviewer/codex_review.py",
+      "source_sha256": "67452ad88baf1649debe95d7cbedcfe5e9725a4b023c779425742ae53f56a270",
+      "published_sha256": "67452ad88baf1649debe95d7cbedcfe5e9725a4b023c779425742ae53f56a270",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/gosha_observer.py",
+      "source_sha256": "16f19dfa108656826ab1079bafdabda45703df2f24947827006645bb4bd51d0c",
+      "published_sha256": "16f19dfa108656826ab1079bafdabda45703df2f24947827006645bb4bd51d0c",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/user_systemd/gosha-oauth-executor.service",
+      "source_sha256": "42a65d9a53fe9906babbf75137bcdfb2c42597426ac5bfe74f0306ea43c98b00",
+      "published_sha256": "42a65d9a53fe9906babbf75137bcdfb2c42597426ac5bfe74f0306ea43c98b00",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/user_systemd/gosha-oauth-executor-tunnel.service",
+      "source_sha256": "1fa6533da23d156efd84f0b8adc85786b52cba6d69573f633859663a79b08878",
+      "published_sha256": "1fa6533da23d156efd84f0b8adc85786b52cba6d69573f633859663a79b08878",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/configure_gpt_live.py",
+      "source_sha256": "964be9f562fd212a8a37c41336d392fcf5a594e1b75777befdf2aef3ccc60d54",
+      "published_sha256": "964be9f562fd212a8a37c41336d392fcf5a594e1b75777befdf2aef3ccc60d54",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/probe_live_tools.py",
+      "source_sha256": "b713aa5afc4fe423e7dbb1458f8f782213a758f5346eb909e2eb80019a32cabe",
+      "published_sha256": "b713aa5afc4fe423e7dbb1458f8f782213a758f5346eb909e2eb80019a32cabe",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-observer.service",
+      "source_sha256": "ba1399d3b6c347e06a0e50ee3daac646d63e59c5b1ffefccfb773156618a6c44",
+      "published_sha256": "ba1399d3b6c347e06a0e50ee3daac646d63e59c5b1ffefccfb773156618a6c44",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-panel.service",
+      "source_sha256": "d6f4b12b1c65412c8910da1b489d3f5045ca843682334ec7949720a52a9118f7",
+      "published_sha256": "d6f4b12b1c65412c8910da1b489d3f5045ca843682334ec7949720a52a9118f7",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-voice-router.service",
+      "source_sha256": "4eba54674af6a4323fe7a60e2e5c69c0698f15ecffef6b7c511f114637d85ade",
+      "published_sha256": "4eba54674af6a4323fe7a60e2e5c69c0698f15ecffef6b7c511f114637d85ade",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-observer.timer",
+      "source_sha256": "87f05b96afe4feb09754968fddc3dc317c1b398f815cefb3e396aa2d0197ea4a",
+      "published_sha256": "87f05b96afe4feb09754968fddc3dc317c1b398f815cefb3e396aa2d0197ea4a",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-agent-gateway.service",
+      "source_sha256": "368b11e410917b483ebeb469692899e918ad23e04015a0f5a463106661eb93cf",
+      "published_sha256": "368b11e410917b483ebeb469692899e918ad23e04015a0f5a463106661eb93cf",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/systemd/gosha-backend.service",
+      "source_sha256": "dc6093cc1008f814e9ee05c71a2f84897d41a765b671a378fb0a3260d05f3bee",
+      "published_sha256": "dc6093cc1008f814e9ee05c71a2f84897d41a765b671a378fb0a3260d05f3bee",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/render_backend_config.py",
+      "source_sha256": "4aa2e56ced770bb04b0b13921e03e5d7aa1bb68fb65176c6d5240d353d56bab3",
+      "published_sha256": "4aa2e56ced770bb04b0b13921e03e5d7aa1bb68fb65176c6d5240d353d56bab3",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/set_live_voice_profile.py",
+      "source_sha256": "aecf9219cdce0d543f037f93c036cb1f391544dbc745a2d2746265eb8e8038d5",
+      "published_sha256": "aecf9219cdce0d543f037f93c036cb1f391544dbc745a2d2746265eb8e8038d5",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/probe_gpt_live.py",
+      "source_sha256": "18d71525d336d8afe52706d693e2ef5b967186b207cca678cb6069e9bac42fd7",
+      "published_sha256": "18d71525d336d8afe52706d693e2ef5b967186b207cca678cb6069e9bac42fd7",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/install_voice_router.sh",
+      "source_sha256": "dd0d414ba892de7d8300232fe74317f12be4a3e354293b505d560b34559b61ea",
+      "published_sha256": "dd0d414ba892de7d8300232fe74317f12be4a3e354293b505d560b34559b61ea",
+      "address_replacements": 0
+    },
+    {
+      "path": "ops/install_server.sh",
+      "source_sha256": "361876fbe8984a2fc300e73c9a8bd9a854061e800aaf36fd08c3a44b3a330f12",
+      "published_sha256": "2e63bf44bbbf6e7444e5b7bd077886806d431c0a3eb4c7a0166e85036ba1cc6b",
+      "address_replacements": 1
+    }
+  ]
+}

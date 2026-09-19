@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GOSHA OAuth Executor</title>
+  <style>
+    :root {
+      --bg: #f2f4ed;
+      --card: #fbfcf7;
+      --ink: #1f2d20;
+      --muted: #5f6e61;
+      --line: #cfd8c6;
+      --accent: #2b6f3e;
+      --accent-2: #7f5539;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(43, 111, 62, 0.18), transparent 30%),
+        linear-gradient(135deg, #f6f8f0 0%, #e8ecdd 100%);
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; }
+    .hero, .card {
+      background: rgba(251, 252, 247, 0.94);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 14px 40px rgba(42, 53, 34, 0.08);
+    }
+    .hero { padding: 22px; margin-bottom: 18px; }
+    .hero h1 { margin: 0 0 8px; font-size: 31px; }
+    .hero p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .card { padding: 20px; margin-bottom: 18px; }
+    .row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
+    label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: white;
+      color: var(--ink);
+      font: inherit;
+    }
+    textarea { min-height: 300px; resize: vertical; line-height: 1.45; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 11px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: var(--accent);
+    }
+    button.secondary { background: var(--accent-2); }
+    button.ghost {
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid var(--line);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(43, 111, 62, 0.09);
+      border: 1px solid rgba(43, 111, 62, 0.2);
+      color: var(--muted);
+      margin-right: 8px;
+      margin-top: 10px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: "Cascadia Mono", "SFMono-Regular", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    #status { min-height: 22px; color: var(--muted); margin-bottom: 10px; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } .hero h1 { font-size: 26px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>GOSHA OAuth Executor</h1>
+      <p>Локальный исполнительный агент `Codex`: берёт замечания по PR, вносит правки в отдельной рабочей копии, запускает проверку, коммитит и отправляет изменения обратно в ветку.</p>
+      <div>
+        <span class="pill" id="sessionPill">Проверка сеанса...</span>
+        <span class="pill" id="readyPill">Проверка готовности...</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div id="status"></div>
+      <div class="row">
+        <div>
+          <label for="repo">Репозиторий</label>
+          <input id="repo" value="MaxCorpOrg/GOSHA_PLATFORM">
+        </div>
+        <div>
+          <label for="pr">Номер PR</label>
+          <input id="pr" type="number" min="1" value="1">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="loginBtn" type="button">Войти через GitHub</button>
+        <button id="startBtn" class="secondary" type="button">Запустить исполнителя</button>
+        <button id="refreshBtn" class="ghost" type="button">Обновить статус задачи</button>
+        <button id="logoutBtn" class="ghost" type="button">Выйти</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <label for="summary">Результат задачи</label>
+      <textarea id="summary" placeholder="Здесь появится итог автоматического исполнения." spellcheck="false"></textarea>
+    </section>
+
+    <section class="card">
+      <label for="raw">Технический ответ API</label>
+      <pre id="raw">Пока пусто.</pre>
+    </section>
+  </main>
+
+  <script>
+    const repoInput = document.getElementById("repo");
+    const prInput = document.getElementById("pr");
+    const summary = document.getElementById("summary");
+    const raw = document.getElementById("raw");
+    const status = document.getElementById("status");
+    const sessionPill = document.getElementById("sessionPill");
+    const readyPill = document.getElementById("readyPill");
+    let currentJobId = "";
+    let pollTimer = 0;
+
+    function setStatus(text, error = false) {
+      status.textContent = text;
+      status.style.color = error ? "#9f2f21" : "#5f6e61";
+    }
+
+    function payload() {
+      return {
+        repo_full_name: repoInput.value.trim(),
+        pr_number: Number(prInput.value || 0),
+      };
+    }
+
+    async function loadSession() {
+      const response = await fetch("/api/session");
+      const data = await response.json();
+      if (!data.ok) throw new Error(data.error || "Не удалось получить сеанс.");
+      const session = data.session || {};
+      sessionPill.textContent = session.authenticated ? `GitHub: ${session.github_login || "вошёл"}` : "GitHub: не авторизован";
+      readyPill.textContent = `OAuth: ${session.github_ready ? "готов" : "не настроен"} | сервисный токен: ${session.service_token_ready ? "есть" : "нет"} | webhook: ${session.webhook_ready ? "готов" : "не готов"} | Codex: ${session.codex_ready ? "виден" : "не найден"}`;
+      return session;
+    }
+
+    async function postJson(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      raw.textContent = JSON.stringify(data, null, 2);
+      if (!data.ok) throw new Error(data.error || "Операция не выполнена.");
+      return data;
+    }
+
+    async function fetchJob(jobId) {
+      const response = await fetch(`/api/executions/${jobId}`);
+      const data = await response.json();
+      raw.textContent = JSON.stringify(data, null, 2);
+      if (!data.ok) throw new Error(data.error || "Задача исполнения не найдена.");
+      const job = data.job || {};
+      let text = `Статус: ${job.status || "-"}\n`;
+      if (job.result?.commit_sha) text += `Коммит: ${job.result.commit_sha}\n`;
+      if (job.result?.head_branch) text += `Ветка: ${job.result.head_branch}\n`;
+      if (job.result?.worktree_path) text += `Рабочая копия: ${job.result.worktree_path}\n`;
+      if (job.result?.summary) text += `\nРезюме:\n${job.result.summary}\n`;
+      if (job.error) text += `\nОшибка:\n${job.error}\n`;
+      if (Array.isArray(job.logs)) text += `\nЛог:\n${job.logs.join("\n")}`;
+      summary.value = text.trim();
+        setStatus(`Задача ${job.job_id}: ${job.status}`);
+        if (job.status === "queued" || job.status === "running") {
+          startPolling(job.job_id);
+        } else {
+          stopPolling();
+        }
+        return job;
+      }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = 0;
+      }
+    }
+
+    function startPolling(jobId) {
+      stopPolling();
+      pollTimer = window.setTimeout(async () => {
+        try {
+          await fetchJob(jobId);
+        } catch (error) {
+          setStatus(String(error), true);
+        }
+      }, 3000);
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", () => {
+      window.location.href = "/auth/github/start?next=/";
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      try {
+        await postJson("/auth/logout", {});
+        stopPolling();
+        currentJobId = "";
+        summary.value = "";
+        setStatus("Сеанс GitHub очищен.");
+        await loadSession();
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    document.getElementById("startBtn").addEventListener("click", async () => {
+      setStatus("Запускаю исполнительный агент...");
+      try {
+        const data = await postJson("/api/executions/start", payload());
+        currentJobId = data.job.job_id;
+        summary.value = `Задача создана: ${currentJobId}\nСтатус: ${data.job.status}`;
+        setStatus(`Задача ${currentJobId} создана.`);
+        startPolling(currentJobId);
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", async () => {
+      if (!currentJobId) {
+        setStatus("Сначала запусти задачу.", true);
+        return;
+      }
+      try {
+        await fetchJob(currentJobId);
+      } catch (error) {
+        setStatus(String(error), true);
+      }
+    });
+
+    loadSession().catch((error) => setStatus(String(error), true));
+  </script>
+</body>
+</html>
