@@ -1,0 +1,20 @@
+diff --git a/platform/gui_panel.py b/platform/gui_panel.py
+index 9732cd2..f38a0cc 100644
+--- a/platform/gui_panel.py
++++ b/platform/gui_panel.py
+@@ -1770,6 +1770,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
+     users = load_users(robot_id)
+     backend_mode = robot_backend_mode(env)
+     selfhost_bundle = selfhost_gateway_state() if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
++    selfhost_claim = selfhost_xiaozhi.find_claim_by_robot(robot_id) if backend_mode == selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED else None
+     bundle = {
+         "code": code,
+         "panel_url": PUBLIC_PANEL_URL,
+@@ -1798,6 +1799,7 @@ def onboarding_bundle(robot_id, code=None, include_panel_client_token=False):
+         mcp_endpoint_base = str(backend.get("mcp_endpoint_base", "") or "")
+         bundle["selfhost_xiaozhi"] = {
+             "provider": selfhost_xiaozhi.BACKEND_MODE_SELF_HOSTED,
++            "device_id": str((selfhost_claim or {}).get("device_id", "") or ""),
+             "ota_url": str(backend.get("ota_url", "") or ""),
+             "activate_url": str(backend.get("activate_url", "") or ""),
+             "websocket_url": websocket_url,
