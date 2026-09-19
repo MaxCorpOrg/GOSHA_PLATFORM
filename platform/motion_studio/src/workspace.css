@@ -755,6 +755,9 @@
   .version {
     display: none;
   }
+  .save-state {
+    display: none;
+  }
   .transport {
     padding: 0 12px;
     gap: 6px;
@@ -837,9 +840,6 @@
   .library {
     height: 850px;
   }
-  .save-state {
-    display: none;
-  }
   .statusbar > span:nth-child(2) {
     display: none;
   }
@@ -847,7 +847,7 @@
     display: none;
   }
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   .topbar {
     height: auto;
     min-height: 70px;
@@ -861,6 +861,8 @@
   .top-spacer {
     display: none;
   }
+}
+@media (max-width: 650px) {
   .topbar .button {
     font-size: 12px;
     padding: 7px 8px;

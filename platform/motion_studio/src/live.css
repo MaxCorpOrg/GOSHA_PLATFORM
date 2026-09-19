@@ -277,6 +277,27 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+.live-package-details .button {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 9px;
+}
+.live-package-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.live-package-picker select {
+  width: 100%;
+  min-width: 0;
+}
+.live-package-details small {
+  display: block;
+  margin-top: 8px;
+  color: #aab6c6;
+  font-size: 12px;
+  line-height: 1.45;
+}
 .live-step-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

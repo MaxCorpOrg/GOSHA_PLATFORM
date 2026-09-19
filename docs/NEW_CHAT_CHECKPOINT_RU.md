@@ -1,4 +1,205 @@
+## Перенос на другое устройство — 19 сентября 2026
+
+Сохранены ранее локальные изменения Motion Studio: экспорт и загрузка пакетов,
+чтение метаданных без включения приводов, выбор active-пакета, точечное удаление
+при объявленной поддержке, запуск сохранённого пакета и обновление его метаданных
+при перезаписи. Проверки переноса: 110 тестов редактора, 16 тестов USB-службы,
+сборка интерфейса PASS. Аппаратных действий в задаче переноса не было.
+Последний принятый app — `9ba5e327…fdfb4`, обычные 27 движений сохранены;
+новый общий формат и полный темп пользовательских пакетов ещё только в плане.
+Голосовой сервер находится в отдельной ветке
+`codex/live-tools-discovery-recovery-20260914` этого же репозитория.
+Общий маршрут: `AI_ROBOTS/docs/TRANSFER_TO_ANOTHER_DEVICE_2026-09-19_RU.md`
+в ветке `codex/execute-project-plan-20260905`.
+
+## План развития от 14 сентября 2026
+
+Владелец требует сохранить прежние 27 движений и добавлять новые в общий
+каталог с исходным темпом. Текущий принятый app — `9ba5e327…fdfb4` из
+Firmware `a63ac87`; описанные ниже установки 13 сентября являются историей.
+Подготовлен [план Motion Studio](../platform/motion_studio/DEVELOPMENT_PLAN_RU.md):
+общий формат сегментов, отдельные ручной и рабочий профили, сохранные версии
+пакетов, запрет неявного вытеснения и полный путь создания/установки/голоса.
+План основан на текущих исходниках: stored v1 ещё ограничен редактором до
+10°/с, store имеет два слота и пакет до 12 КиБ. Нового кода, прошивки,
+аппаратных действий или серверных изменений в этой работе не было.
+
 # NEW CHAT CHECKPOINT
+
+Актуально после последнего аппаратного продолжения 13 сентября: на роботе
+установлен app-only `motion-targeted-delete-build-20260913-1`, SHA-256
+`f873484b28eee5cde3a50b71d9bace371002e4c550357d4f88ef267fe4edc248`,
+3 693 072 байта. App-write `0x20000`, отдельный `verify_flash`, restart и
+дополнительный USB reset PASS; NVS/otadata/bootloader/partition/assets не
+менялись. Ноль правой руки 135°, крепления и диапазоны сохранены.
+Предыдущий `motion-hardware-runner-build-20260912-4` (`a76b7f13…`) остаётся
+rollback-базой, но не текущим установленным app.
+
+Targeted delete аппаратно принят на текущем app:
+`local_only/motion-targeted-delete-hardware-acceptance-20260913-1/targeted-delete-acceptance-result.json`.
+Firmware объявляет `package_features.delete_by_id:true`; удаление inactive
+`hardware-smoke-arm3-20260912`, restore, удаление active `arm3` с promotion на
+all-5, повторный restore и финальный active all-5 PASS. Полный all-5 hardware
+run на `f873484…` также принят: `hardware-run-full-all5-20260913.json`
+получил `hardware_run_finished`, `hardware_apply:true`, `elapsed_ms:10000`,
+target 0°; отдельный `final-readonly-after-full-all5-20260913.json` PASS:
+`motion_allowed:true`, `right_arm_initialized:true`, `active_motion:null`, все
+`commanded_pose` 0°, right hand 135°, active
+`hardware-smoke-all5-20260911T125716Z`, два пакета в store.
+
+Live-panel UI read regression в состоянии `init_required` PASS:
+`local_only/motion-live-panel-package-read-init-required-20260913-1/live-panel-package-read-init-required-result.json`.
+Production preview `index-BSkfsIuY.js` прочитал список пакетов кнопкой
+**Обновить статус** без ключа и без движения; после
+`restore-right-arm-init-after-ui-read.json` финально right hand 135°,
+`motion_allowed:true`, active all-5, два пакета и все `commanded_pose` 0°.
+Fresh `final-readonly-after-restore-init.json` после закрытия restore-сессии
+также PASS.
+
+Остаётся: настоящий power-cycle выключателем/питанием, измерение
+углов/нагрузки, расширенный restore/slot-management UX библиотеки и финальная
+destructive-регрессия кнопки **Удалить выбранный** через саму Live-панель.
+
+Предыдущее продолжение 13 сентября шло поверх принятого app-only
+`motion-hardware-runner-build-20260912-4`
+(`a76b7f13eb3982a2fdaf71a13d3c45fa716b3d16b64d2127df3f2bf0ea3ec3aa`).
+На этом этапе новых прошивок не ставилось, flash не записывался; ноль правой
+руки 135°, крепления и диапазоны сохранены. Persistence acceptance PASS:
+`local_only/motion-persistence-acceptance-20260913-1/persistence-acceptance-result.json`
+в мета-репозитории. Software reset выполнен через `esptool flash_id
+--before usb_reset --after hard_reset` без flash-write; active
+`hardware-smoke-all5-20260911T125716Z` сохранился до/после reset; после
+ожидаемой повторной `initialize_right_arm` all-5 run завершился
+`hardware_run_finished`, `hardware_apply:true`, `elapsed_ms:10000`, target 0°.
+Финально `motion_allowed:true`, `right_arm_initialized:true`,
+`active_motion:null`, все `commanded_pose` 0°, right hand 135°.
+
+В Live-панель добавлен слой библиотеки пакетов: snapshot хранит
+`storedPackages`, блок **Пакет в роботе** показывает selector **Библиотека**,
+а действие **Сделать активным** отправляет только `package_select` с ключом
+доступа, без `arm`, `pose` или hardware run. Кнопка **Запустить в роботе**
+запускает уже выбранный active payload прежним проверенным runner-путём.
+После аппаратной приёмки добавлен capability-gated software-слой
+**Удалить выбранный**: клиент отправляет `package_delete` с `package_id`
+только если прошивка явно объявила `package_features.delete_by_id:true`.
+На момент этого этапа новая прошивка с этим слоем ещё не устанавливалась;
+затем она была установлена и принята, см. верхний блок.
+Аппаратная приёмка выбора пакета PASS:
+`local_only/motion-package-library-acceptance-20260913-1/package-library-acceptance-result.json`.
+Через USB bridge выбран inactive `hardware-smoke-arm3-20260912`, повторный
+`package_list` подтвердил active arm3, затем выбранный пакет завершился
+`hardware_run_finished`, `hardware_apply:true`, `elapsed_ms:4000`, target 0°;
+active restored обратно на `hardware-smoke-all5-20260911T125716Z`.
+Проверки после init-required UI package-read регрессии:
+`npm test` 110/110 PASS,
+`npm run test:bridge` 16/16 PASS,
+`npm run build` PASS. Firmware host gate после этого PASS. Остаётся:
+настоящий power-cycle выключателем/питанием, измерение углов/нагрузки и
+полноценная пользовательская библиотека beyond текущего two-slot
+active-select слоя, включая аппаратную приёмку targeted delete/slot-операций.
+
+Актуально после продолжения 12 сентября: hardware-runner сохранённых движений
+принят на реальном роботе. Установлен app-only
+`motion-hardware-runner-build-20260912-4`,
+SHA-256 `a76b7f13eb3982a2fdaf71a13d3c45fa716b3d16b64d2127df3f2bf0ea3ec3aa`,
+3 692 176 байт. Evidence в мета-репозитории:
+`docs/MOTION_STUDIO_HARDWARE_RUNNER_2026-09-12_RU.md` и
+`local_only/motion-hardware-runner-build-20260912-4`. Прямые аппаратные
+процедуры `start/status/stop`, single-arm 4 s и all-5 10 s прошли PASS,
+финальный `hardware_run_finished`, `hardware_apply:true`, target 0°.
+Дополнительно клиентский путь, который вызывает кнопка **Запустить в роботе**,
+принят через production preview + USB bridge:
+`live-panel-run-stored-package-acceptance-20260912T125907Z.json` PASS.
+После него read-only hello
+`status-hello-after-live-panel-run-20260912T125956Z.json` PASS:
+`motion_allowed:true`, `right_arm_initialized:true`, `active_motion:null`,
+все `commanded_pose` 0°. Проверки Platform после этого: `npm test` 105/105
+PASS, `npm run test:bridge` 16/16 PASS, `npm run build` PASS; service
+перезапущен на финальном bundle. Следующее: persistence acceptance после
+явного reboot/power-cycle и затем решение по библиотеке нескольких движений.
+
+Актуально после аппаратного окна 11 сентября: на роботе установлена
+диагностика v3
+`bcd34d472c6dd935f8547604a1c48684772bd6b94e4734e00f3636a46994b9f3`
+(3 650 208 байт, firmware source `dd73638cceacd4c7792b3a96acfaa8a9b1d08eca`).
+Она заменяет установленную ранее v2 `671bbbdd…` и меняет только USB diagnostic
+write budget `100 ms -> 2000 ms`. Evidence в мета-репозитории:
+`docs/MOTION_STUDIO_HARDWARE_ACCEPTANCE_2026-09-11_RU.md` и
+`local_only/motion-output-usb-budget-v3-20260911`. Командная/PWM проверка
+пяти активных суставов получена, но непрерывный all-joints маршрут в одной
+длинной Live-сессии не принят, а визуальная физическая приёмка владельцем или
+камерой после этого уточнена владельцем: «все двигалось». Считать видимое
+движение пяти активных суставов подтверждённым владельцем; точные углы,
+крайние положения и нагрузка не измерялись. Финальное состояние: все
+`commanded_pose` 0°, `active_motion:null`; после rollback/reboot на v3
+правая рука не инициализирована, `motion_allowed:false` только из-за
+требуемого `initialize_right_arm`.
+
+Продолжение 10-11 сентября: актуальный worktree
+`/home/max/worktrees/gosha/platform-motion-studio` на ветке
+`codex/motion-studio-20260906`, HEAD `6f2c917`. В редактор добавлен
+безопасный черновик и программная запись пакета робота:
+`prepareRobotMotionPackage()` требует свежее Live `capabilities` именно
+`mode:"motion_editor"` с текущим набором подключённых приводов, затем
+проверяет каждый кадр, недоступные суставы, Live-пределы и скорость без
+clamp/scale; кнопка **Пакет робота** скачивает `.robot-package-draft.json`
+только при совместимости, а **Записать в робота** отправляет payload через
+`package_upload_begin/chunk/finish` и проверяет цепочку `package_load` →
+`package_prepare` → `package_sample(0)` → `package_run_start/status/stop`
+без ARM/POSE, принимая только `hardware_apply:false`; кнопка **Проверить в
+роботе** делает такой же readback/software-run для уже сохранённого active
+payload без повторного upload; кнопка **Удалить в роботе** отправляет
+`package_delete` с ключом и очищает active payload без ARM/POSE/run.
+Блок Live-панели **Пакет в роботе** читает read-only статус через
+`package_list` без ключа доступа: пустой store возвращается как нормальное
+состояние, один active payload показывает название, длительность,
+interpolation, число кадров/активных суставов, id/размер/CRC и совпадение
+калибровки; invalid JSON остаётся ошибкой, upload, ARM, POSE и run не
+выполняются.
+Обновлены `README.md`,
+`LIVE_PROTOCOL.md` и этот checkpoint: они явно разделяют исторический
+`caf1c368…`, установленную затем заменённую v2 `671bbbdd…`, текущую v3
+`bcd34d47…`, отозванный `06bbb7ee…`, Live-предел правой руки [-70,+45] при
+нуле 135°, свежее подтверждение владельца «все двигалось» и будущий статус
+постоянной библиотеки движений в роботе. Независимый review нашёл P2 на
+старые/частичные `capabilities`; исправлено fail-closed и покрыто регрессией.
+После v3 добавлена явная regression-приёмка reset/ownership recovery:
+после USB close/reset поздний старый ACK не оживляет сессию, а новое USB
+подключение начинается с fresh `hello` и не отправляет `arm`/`pose`
+самопроизвольно. Проверки без аппаратуры: `npm test` 103/103 PASS,
+`npm run test:bridge` 16/16 PASS, `npm run build` PASS.
+Прошивочные host/source guard’ы в соседнем
+`/home/max/worktrees/gosha/firmware-motion-live` тоже PASS. Там же добавлен
+package protocol layer (`package_upload_begin/chunk/finish/abort`,
+`package_list`, `package_load`, `package_prepare`, `package_sample`,
+`package_delete`): session привязан к `owner_id`, finish требует `access_key`,
+package-операции запрещены при ARMED Live-сессии, а `package_list` не требует
+ключ и fail-closed отличает повреждённый store от пустого. Следом в
+Firmware подключён NVS-backed storage backend: `finish` сохраняет payload в
+namespace `motion_pkg` через two-slot store; `motion_package_player.*`
+готовит активный payload и семплирует кадр обратно в `MotionLiveTarget` без
+hardware apply. Перед паузой добавлен firmware software runner
+`motion_package_runner.*` и ops `package_run_start/status/stop`: owner-bound
+`run_session_id`, отказ ненулевого первого кадра, stop/finish/transport-close,
+ответы `hardware_apply:false`. Клиентская кнопка записи теперь использует этот
+runner как software self-check после readback, а отдельная клиентская проверка
+сохранённого пакета подтверждает active payload из storage без upload.
+Клиентское удаление active payload использует `package_delete` без движения.
+В соседней firmware package-ветке перенесён v3 USB write budget, закрыт
+`initialize_right_arm` guard blocker, `package_list`/`package_select`
+маршрутизируются через adapter, все package host-тесты PASS и ESP-IDF build
+PASS; локальный package-runner образ
+`local_only/motion-package-runner-build-20260911/gosha.bin` имеет SHA-256
+`3fb310435a8c156c75dd67be0249ac08cd4de50f91f158cdf360d2405ea60747` и размер
+3 684 736 байт. После этого hardware-runner кандидаты `-1/-3/-4`
+устанавливались app-only и отозваны: `package_hardware_run_start` приводил к
+timeout/reset до ответа; fresh hello после reset показывал все команды 0°.
+Финально робот откатан на стабильную v3 `bcd34d47…`. Постоянное хранение
+active payload доказано через `package_list` после reset
+(`hardware-smoke-all5-20260911T125716Z`, 11 кадров, 5 суставов, CRC
+`3935257385`), но физический запуск сохранённого пакета не принят.
+Следующий шаг — чинить start/reset blocker offline; кандидаты `-1/-3/-4`
+не повторять.
 
 Исправленная диагностика v2 собрана и проверена: app `671bbbdd…`,
 Firmware source `c473857` / build `50cdb60`, 3 649 248 байт. Кадры

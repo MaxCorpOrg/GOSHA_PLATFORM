@@ -603,7 +603,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         server = await self.start_bridge(
             infos=[info],
             serial_factory=lambda _device: fake,
-            hello_timeout=1,
+            hello_timeout=bridge.SERIAL_FRAME_TIMEOUT + 1,
         )
         ws = await self.ws_connect(server, port_id)
         await ws.send_str(
@@ -611,7 +611,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
                 {"protocol": LIVE_PROTOCOL, "op": "hello", "request_id": "r-drip"}
             )
         )
-        message = await ws.receive(timeout=0.7)
+        message = await ws.receive(timeout=bridge.SERIAL_FRAME_TIMEOUT + 0.5)
         self.assertEqual(
             json.loads(message.data)["code"],
             "usb_bridge_invalid_response",

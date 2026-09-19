@@ -12,6 +12,7 @@ import {
   validateMotion,
   validatePose,
   parseMotion,
+  prepareRobotMotionPackage,
   newId,
   MAX_FILE_BYTES,
 } from "./motion.js";
@@ -33,6 +34,7 @@ const icons = {
   save: '<path d="M5 3h12l4 4v14H3V3Zm2 0v6h10V3M7 21v-8h10v8"/>',
   reset: '<path d="M3 10a9 9 0 1 1 1 7M3 3v7h7"/>',
   mirror: '<path d="M12 2v3m0 3v3m0 3v3m0 3v2M8 6v12H2Zm8 0v12h6Z"/>',
+  "shield-check": '<path d="M12 2 20 5v7c0 5-3.5 8-8 10-4.5-2-8-5-8-10V5Z"/><path d="m9 12 2 2 4-5"/>',
 };
 const icon = (name) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
@@ -71,6 +73,11 @@ document.querySelector("#app").innerHTML = `
     <div class="top-spacer"></div>
     <span class="save-state" id="save-status" role="status">Сохранено в браузере</span>
     <button id="export-original" class="button quiet" hidden>Исходная библиотека</button>
+    <button id="export-robot-package" class="button quiet">${icon("download")}Пакет робота</button>
+    <button id="upload-robot-package" class="button quiet">${icon("upload")}Записать в робота</button>
+    <button id="verify-robot-package" class="button quiet">${icon("shield-check")}Проверить в роботе</button>
+    <button id="run-robot-package" class="button quiet">${icon("play")}Запустить в роботе</button>
+    <button id="delete-robot-package" class="button quiet">${icon("trash")}Удалить в роботе</button>
     <button id="import" class="button quiet">${icon("upload")}Импорт</button>
     <button id="export" class="button">${icon("download")}Экспорт JSON</button>
     <input type="file" id="file-input" accept=".json,application/json" hidden />
@@ -140,7 +147,15 @@ function notify(message, error = false) {
 }
 function attempt(action) {
   try {
-    return action();
+    const result = action();
+    if (result?.then) {
+      return result.catch((error) => {
+        pose = poseAt(motion, time);
+        notify(error.message, true);
+        render();
+      });
+    }
+    return result;
   } catch (error) {
     pose = poseAt(motion, time);
     notify(error.message, true);
@@ -159,6 +174,22 @@ function persist() {
   $("save-status").classList.toggle("failed", !result.ok);
   if (!result.ok) notify(result.error, true);
   return result.ok;
+}
+function downloadJsonFile(name, value) {
+  const blob = new Blob([JSON.stringify(value, null, 2) + "\n"], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function safeMotionFileName(suffix) {
+  const name =
+    motion.name.replace(/[^\p{L}\p{N}_ -]/gu, "").slice(0, 60) || "motion";
+  return `${name}${suffix}`;
 }
 function commit(next, keepLive = false) {
   next = validateMotion(next);
@@ -553,20 +584,100 @@ $("confirm-delete").onclick = () => {
   $("delete-dialog").close();
 };
 $("export").onclick = () => {
-  const blob = new Blob(
-    [JSON.stringify(validateMotion(motion), null, 2) + "\n"],
-    { type: "application/json" },
-  );
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${motion.name.replace(/[^\p{L}\p{N}_ -]/gu, "").slice(0, 60) || "motion"}.motion.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadJsonFile(safeMotionFileName(".motion.json"), validateMotion(motion));
   notify(
     "Скачан проект движения. Загрузка в прошивку появится на следующем этапе.",
   );
 };
+$("export-robot-package").onclick = () =>
+  attempt(() => {
+    const caps = live?.snapshot?.caps;
+    if (!caps)
+      throw new Error(
+        "Подключите Live, чтобы проверить движение против реальных пределов робота.",
+    );
+    const result = prepareRobotMotionPackage(motion, caps);
+    if (!result.ok) {
+      const rest =
+        result.issues.length > 1 ? ` Ещё: ${result.issues.length - 1}.` : "";
+      throw new Error(
+        `Пакет робота не готов: ${result.issues[0].message}${rest}`,
+      );
+    }
+    downloadJsonFile(
+      safeMotionFileName(".robot-package-draft.json"),
+      result.package,
+    );
+    notify(
+      "Скачан черновик пакета робота. Для записи используйте «Записать в робота».",
+    );
+  });
+$("upload-robot-package").onclick = () =>
+  attempt(async () => {
+    const caps = live?.snapshot?.caps;
+    if (!caps)
+      throw new Error(
+        "Подключите Live, чтобы проверить движение против реальных пределов робота.",
+      );
+    const result = prepareRobotMotionPackage(motion, caps);
+    if (!result.ok) {
+      const rest =
+        result.issues.length > 1 ? ` Ещё: ${result.issues.length - 1}.` : "";
+      throw new Error(
+        `Пакет робота не готов: ${result.issues[0].message}${rest}`,
+      );
+    }
+    await live.uploadPackage(result.package);
+    notify(
+      "Пакет записан, прочитан и программно проверен без движения приводов.",
+    );
+  });
+$("verify-robot-package").onclick = () =>
+  attempt(async () => {
+    const caps = live?.snapshot?.caps;
+    if (!caps)
+      throw new Error(
+        "Подключите Live, чтобы проверить сохранённый пакет в роботе.",
+      );
+    await live.verifyStoredPackage();
+    notify(
+      "Сохранённый пакет прочитан и программно проверен без движения приводов.",
+    );
+  });
+$("run-robot-package").onclick = () =>
+  attempt(async () => {
+    const caps = live?.snapshot?.caps;
+    if (!caps)
+      throw new Error(
+        "Подключите Live, чтобы запустить сохранённый пакет в роботе.",
+      );
+    if (
+      !window.confirm(
+        "Запустить сохранённый пакет в роботе? Приводы будут двигаться.",
+      )
+    )
+      return;
+    await live.runStoredPackageInHardware();
+    notify("Сохранённый пакет выполнен в роботе.");
+  });
+$("delete-robot-package").onclick = () =>
+  attempt(async () => {
+    const caps = live?.snapshot?.caps;
+    if (!caps)
+      throw new Error(
+        "Подключите Live, чтобы удалить сохранённый пакет в роботе.",
+      );
+    if (
+      !window.confirm(
+        "Удалить сохранённый пакет из робота? Движение не запускается.",
+      )
+    )
+      return;
+    await live.deleteStoredPackage();
+    notify(
+      "Сохранённый пакет удалён из робота. Движение не запускалось.",
+    );
+  });
 $("export-original").hidden = !library.originalLibrary;
 $("export-original").onclick = () => {
   const url = URL.createObjectURL(new Blob([library.originalLibrary], {type:"application/json"}));

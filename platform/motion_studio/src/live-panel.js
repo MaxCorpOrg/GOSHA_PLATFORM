@@ -16,6 +16,61 @@ const isActiveSessionState = (state) =>
   state.state === "armed" || state.state === "stopping";
 const currentCommandedPose = (state) =>
   state.telemetry?.commanded_pose ?? state.caps?.commanded_pose;
+const packageInterpolationLabels = {
+  smooth: "Плавные",
+  linear: "Линейные",
+  hold: "Без перехода",
+};
+
+export function formatStoredPackageFields(storedPackage) {
+  const empty = {
+    name: "—",
+    id: "—",
+    duration: "—",
+    interpolation: "—",
+    keyframes: "—",
+    activeJoints: "—",
+    size: "—",
+    crc: "—",
+    calibration: "—",
+  };
+  if (!storedPackage?.present) return empty;
+  return {
+    name: storedPackage.name || storedPackage.package_id || "—",
+    id: storedPackage.package_id || "—",
+    duration: Number.isFinite(storedPackage.duration_ms)
+      ? `${(storedPackage.duration_ms / 1000).toFixed(1)} с`
+      : "—",
+    interpolation:
+      typeof storedPackage.interpolation === "string" &&
+      storedPackage.interpolation
+        ? (packageInterpolationLabels[storedPackage.interpolation] ??
+          storedPackage.interpolation)
+        : "—",
+    keyframes:
+      Number.isInteger(storedPackage.keyframe_count) &&
+      storedPackage.keyframe_count >= 0
+        ? String(storedPackage.keyframe_count)
+        : "—",
+    activeJoints:
+      Number.isInteger(storedPackage.active_joint_count) &&
+      storedPackage.active_joint_count >= 0
+        ? String(storedPackage.active_joint_count)
+        : "—",
+    size: Number.isFinite(storedPackage.payload_size)
+      ? `${storedPackage.payload_size} байт`
+      : "—",
+    crc: Number.isFinite(storedPackage.crc32)
+      ? `0x${storedPackage.crc32.toString(16).padStart(8, "0")}`
+      : "—",
+    calibration:
+      storedPackage.compatible === true
+        ? "Совпадает"
+        : storedPackage.compatible === false
+          ? "Не совпадает"
+          : "—",
+  };
+}
 
 export function canKeepIdleSessionOnBlur(session) {
   return session.state === "armed" &&
@@ -308,6 +363,28 @@ export function mountLivePanel({
     </details>
     <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
+    <details class="live-details live-package-details">
+      <summary>Пакет в роботе</summary>
+      <dl class="live-step-status live-package-status">
+        <dt>Состояние</dt><dd id="live-package-state">—</dd>
+        <dt>Название</dt><dd id="live-package-name">—</dd>
+        <dt>ID</dt><dd id="live-package-id">—</dd>
+        <dt>Длительность</dt><dd id="live-package-duration">—</dd>
+        <dt>Переходы</dt><dd id="live-package-interpolation">—</dd>
+        <dt>Кадры</dt><dd id="live-package-keyframes">—</dd>
+        <dt>Суставы</dt><dd id="live-package-joints">—</dd>
+        <dt>Размер</dt><dd id="live-package-size">—</dd>
+        <dt>CRC32</dt><dd id="live-package-crc">—</dd>
+        <dt>Калибровка</dt><dd id="live-package-calibration">—</dd>
+      </dl>
+      <div class="live-package-picker">
+        <label class="live-field">Библиотека<select id="live-package-select"></select></label>
+        <button id="live-package-select-active" class="button quiet" type="button">Сделать активным</button>
+        <button id="live-package-delete-selected" class="button quiet" type="button" hidden>Удалить выбранный</button>
+      </div>
+      <button id="live-package-refresh" class="button quiet" type="button">Обновить статус</button>
+      <small id="live-package-note">Отображается active payload в роботе.</small>
+    </details>
     <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
     <details class="live-details">
       <summary>Пояснения и режим</summary>
@@ -362,7 +439,14 @@ export function mountLivePanel({
   );
   const guarded = (action) => {
     try {
-      return action();
+      const result = action();
+      if (result?.then) {
+        return result.catch((e) => {
+          session.release("Ошибка настройки.");
+          notify(e.message, true);
+        });
+      }
+      return result;
     } catch (e) {
       session.release("Ошибка настройки.");
       notify(e.message, true);
@@ -679,6 +763,88 @@ export function mountLivePanel({
     byId("live-speed").value = state.speed;
     byId("live-speed").disabled = Boolean(state.caps?.commissioning);
     byId("live-speed").max = isEditorMode(state) ? Math.min(10,...state.caps.joint_limits.map(j=>j.max_speed_dps)) : 15;
+    const packageReadable =
+      ["ready", "init_required"].includes(state.state) &&
+      isEditorMode(state) &&
+      !state.packagePending;
+    const packageWritable =
+      state.state === "ready" && isEditorMode(state) && !state.packagePending;
+    byId("live-package-refresh").disabled = !packageReadable;
+    const storedPackage = state.storedPackage;
+    const storedPackages = Array.isArray(state.storedPackages)
+      ? state.storedPackages
+      : null;
+    const packageSelect = byId("live-package-select");
+    const previouslySelected = packageSelect.value;
+    packageSelect.replaceChildren();
+    if (!storedPackages) {
+      packageSelect.add(new Option("Список не прочитан", ""));
+    } else if (!storedPackages.length) {
+      packageSelect.add(new Option("Нет пакетов", ""));
+    } else {
+      for (const item of storedPackages) {
+        const fields = formatStoredPackageFields(item);
+        const stateLabel = item.active
+          ? "active"
+          : item.compatible
+            ? "готов"
+            : "другая калибровка";
+        packageSelect.add(
+          new Option(`${fields.name} · ${stateLabel}`, item.package_id),
+        );
+      }
+      const selectedPackage =
+        storedPackages.find((item) => item.package_id === previouslySelected) ??
+        storedPackages.find((item) => item.active) ??
+        storedPackages[0];
+      packageSelect.value = selectedPackage.package_id;
+    }
+    const selectedPackage = storedPackages?.find(
+      (item) => item.package_id === packageSelect.value,
+    );
+    packageSelect.disabled = !packageReadable || !storedPackages?.length;
+    byId("live-package-select-active").disabled =
+      !packageWritable ||
+      !keyReady ||
+      !selectedPackage ||
+      selectedPackage.active === true;
+    const canDeleteSelected =
+      state.caps?.package_features?.delete_by_id === true;
+    byId("live-package-delete-selected").hidden = !canDeleteSelected;
+    byId("live-package-delete-selected").disabled =
+      !canDeleteSelected || !packageWritable || !keyReady || !selectedPackage;
+    const packageFields = formatStoredPackageFields(storedPackage);
+    if (!state.caps) {
+      byId("live-package-state").textContent = "—";
+      byId("live-package-note").textContent = "Робот не подключён.";
+    } else if (!isEditorMode(state)) {
+      byId("live-package-state").textContent = "Недоступно";
+      byId("live-package-note").textContent = "Статус пакета доступен только в motion_editor.";
+    } else if (storedPackage?.present) {
+      byId("live-package-state").textContent = storedPackage.compatible
+        ? "Сохранён"
+        : "Другая калибровка";
+      byId("live-package-note").textContent =
+        "Метаданные прочитаны без upload, ARM, POSE или run.";
+    } else if (storedPackage?.present === false) {
+      byId("live-package-state").textContent = "Пакета нет";
+      byId("live-package-note").textContent =
+        "Active payload в роботе не найден.";
+    } else {
+      byId("live-package-state").textContent = "Не запрошен";
+      byId("live-package-note").textContent =
+        "Метаданные ещё не читались в этой Live-сессии.";
+    }
+    byId("live-package-name").textContent = packageFields.name;
+    byId("live-package-id").textContent = packageFields.id;
+    byId("live-package-duration").textContent = packageFields.duration;
+    byId("live-package-interpolation").textContent =
+      packageFields.interpolation;
+    byId("live-package-keyframes").textContent = packageFields.keyframes;
+    byId("live-package-joints").textContent = packageFields.activeJoints;
+    byId("live-package-size").textContent = packageFields.size;
+    byId("live-package-crc").textContent = packageFields.crc;
+    byId("live-package-calibration").textContent = packageFields.calibration;
     byId("live-latency").textContent =
       state.rtt === null ? "—" : `${state.rtt} мс`;
     const joint = getJoint();
@@ -831,6 +997,43 @@ export function mountLivePanel({
   byId("live-init-right-arm").onclick = () =>
     guarded(() => session.initializeRightArm(byId("live-key").value));
   byId("live-key").oninput = () => render(session.snapshot());
+  byId("live-package-refresh").onclick = () =>
+    guarded(async () => {
+      const { storedPackage } = await session.readStoredPackage();
+      notify(
+        storedPackage.present
+          ? "Статус пакета в роботе прочитан без движения."
+          : "В роботе нет сохранённого active payload.",
+      );
+    });
+  byId("live-package-select-active").onclick = () =>
+    guarded(async () => {
+      const packageId = byId("live-package-select").value;
+      const { storedPackage } = await session.selectStoredPackage(
+        packageId,
+        byId("live-key").value,
+      );
+      notify(`Активный пакет: ${storedPackage.name}.`);
+    });
+  byId("live-package-delete-selected").onclick = () =>
+    guarded(async () => {
+      const packageId = byId("live-package-select").value;
+      if (
+        !window.confirm(
+          "Удалить выбранный пакет из робота? Движение не запускается.",
+        )
+      )
+        return;
+      const { storedPackage } = await session.deleteStoredPackage(
+        byId("live-key").value,
+        packageId,
+      );
+      notify(
+        storedPackage.present
+          ? `Пакет удалён. Active: ${storedPackage.name}.`
+          : "Пакет удалён. Active payload в роботе не найден.",
+      );
+    });
   byId("live-copy-pose").onclick = () => guarded(() => {
     if (!session.lastTelemetry || session.holding) return;
     onPose(session.lastTelemetry.commanded_pose);
@@ -1069,6 +1272,27 @@ export function mountLivePanel({
       });
     },
     play() { if (running) release("Воспроизведение остановлено."); else start(true); },
+    uploadPackage(packageDraft) {
+      return session.uploadPackageDraft(packageDraft, byId("live-key").value);
+    },
+    readStoredPackage() {
+      return session.readStoredPackage();
+    },
+    selectStoredPackage(packageId) {
+      return session.selectStoredPackage(packageId, byId("live-key").value);
+    },
+    verifyStoredPackage() {
+      return session.verifyStoredPackage(byId("live-key").value);
+    },
+    runStoredPackageInHardware() {
+      return session.runStoredPackageInHardware(byId("live-key").value);
+    },
+    deleteStoredPackage() {
+      return session.deleteStoredPackage(byId("live-key").value);
+    },
+    deleteSelectedStoredPackage(packageId) {
+      return session.deleteStoredPackage(byId("live-key").value, packageId);
+    },
     requestJointSelection(id) {
       if (!enabled || id === getJoint()) return true;
       const state = session.snapshot();

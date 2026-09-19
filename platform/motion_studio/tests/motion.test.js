@@ -10,8 +10,44 @@ import {
   mirrorPose,
   validateMotion,
   parseMotion,
+  prepareRobotMotionPackage,
+  prepareRobotPackageUpload,
+  robotPackageCrc32,
+  ROBOT_PACKAGE_UPLOAD_CHUNK_BYTES,
   MAX_FILE_BYTES,
 } from "../src/motion.js";
+
+const liveEditorCaps = () => ({
+  profile_id: PROFILE.id,
+  mode: "motion_editor",
+  calibration_id: "a".repeat(64),
+  calibrated: false,
+  commissioning: false,
+  initialization_required: false,
+  right_arm_initialized: true,
+  watchdog_ms: 300,
+  max_rate_hz: 10,
+  commanded_pose: zeroPose(),
+  joint_limits: [
+    { id: "arm_positive_x", min: -70, max: 45, max_speed_dps: 10 },
+    { id: "leg_negative_x", min: -35, max: 35, max_speed_dps: 10 },
+    { id: "leg_positive_x", min: -35, max: 35, max_speed_dps: 10 },
+    { id: "foot_negative_x", min: -30, max: 30, max_speed_dps: 10 },
+    { id: "foot_positive_x", min: -30, max: 30, max_speed_dps: 10 },
+  ],
+});
+
+function motionFrom(frames, options = {}) {
+  return validateMotion({
+    ...createMotion("Проверка робота"),
+    ...options,
+    duration_ms: options.duration_ms ?? frames.at(-1)[0],
+    keyframes: frames.map(([time_ms, values]) => ({
+      time_ms,
+      pose: { ...zeroPose(), ...values },
+    })),
+  });
+}
 
 test("JSON round trip preserves every frame, duration, name and profile", () => {
   for (const motion of examples())
@@ -167,4 +203,176 @@ test("both arms mirror the complete 70-up and 55-down endpoints", () => {
   }
   assert.throws(()=>putPose(createMotion(),100,{...zeroPose(),arm_positive_x:56}));
   assert.throws(()=>putPose(createMotion(),100,{...zeroPose(),arm_negative_x:-56}));
+});
+
+test("robot package draft rejects right arm frames beyond current Live limits without clamping", () => {
+  const motion = motionFrom([
+    [0, {}],
+    [8000, { arm_positive_x: 55 }],
+  ]);
+  const result = prepareRobotMotionPackage(motion, liveEditorCaps());
+  assert.equal(result.ok, false);
+  assert.equal(result.package, null);
+  assert.ok(
+    result.issues.some(
+      (item) =>
+        item.code === "joint_out_of_range" &&
+        item.joint_id === "arm_positive_x" &&
+        item.value === 55 &&
+        item.max === 45,
+    ),
+  );
+  assert.equal(motion.keyframes[1].pose.arm_positive_x, 55);
+});
+
+test("robot package draft requires current motion_editor capabilities", () => {
+  const motion = motionFrom([
+    [0, {}],
+    [8000, { leg_negative_x: 10 }],
+  ]);
+  assert.throws(
+    () =>
+      prepareRobotMotionPackage(motion, {
+        ...liveEditorCaps(),
+        mode: "verified",
+      }),
+    /motion_editor/,
+  );
+  assert.throws(
+    () =>
+      prepareRobotMotionPackage(motion, {
+        ...liveEditorCaps(),
+        joint_limits: [
+          { id: "leg_negative_x", min: -35, max: 35, max_speed_dps: 10 },
+        ],
+      }),
+    /набором подключённых приводов/,
+  );
+  assert.throws(
+    () =>
+      prepareRobotMotionPackage(motion, {
+        ...liveEditorCaps(),
+        joint_limits: [
+          ...liveEditorCaps().joint_limits,
+          { id: "arm_negative_x", min: -55, max: 70, max_speed_dps: 10 },
+        ],
+      }),
+    /набором подключённых приводов/,
+  );
+});
+
+test("robot package draft rejects movement on unavailable left arm", () => {
+  const neutralLeft = motionFrom([
+    [0, {}],
+    [8000, { arm_positive_x: 40 }],
+  ]);
+  const neutralResult = prepareRobotMotionPackage(neutralLeft, liveEditorCaps());
+  assert.equal(neutralResult.ok, true);
+  assert.equal(
+    neutralResult.package.active_joints.includes("arm_negative_x"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(neutralResult.package.keyframes[1].target, "arm_negative_x"),
+    false,
+  );
+
+  const movingLeft = motionFrom([
+    [0, {}],
+    [5000, { arm_negative_x: 10 }],
+  ]);
+  const blocked = prepareRobotMotionPackage(movingLeft, liveEditorCaps());
+  assert.equal(blocked.ok, false);
+  assert.ok(
+    blocked.issues.some(
+      (item) =>
+        item.code === "joint_unavailable" &&
+        item.joint_id === "arm_negative_x" &&
+        item.value === 10,
+    ),
+  );
+});
+
+test("robot package draft reports speed and interpolation blockers explicitly", () => {
+  const tooFast = motionFrom([
+    [0, {}],
+    [1000, { arm_positive_x: 20 }],
+  ]);
+  const fastResult = prepareRobotMotionPackage(tooFast, liveEditorCaps());
+  assert.equal(fastResult.ok, false);
+  assert.ok(
+    fastResult.issues.some(
+      (item) =>
+        item.code === "joint_speed_exceeded" &&
+        item.joint_id === "arm_positive_x" &&
+        item.required_speed_dps === 30,
+    ),
+  );
+
+  const hold = motionFrom(
+    [
+      [0, {}],
+      [5000, { foot_positive_x: 5 }],
+    ],
+    { interpolation: "hold" },
+  );
+  const holdResult = prepareRobotMotionPackage(hold, liveEditorCaps());
+  assert.equal(holdResult.ok, false);
+  assert.ok(
+    holdResult.issues.some(
+      (item) => item.code === "unsupported_interpolation",
+    ),
+  );
+});
+
+test("robot package draft preserves preview flags and active joint constraints", () => {
+  const motion = motionFrom([
+    [0, {}],
+    [6000, { arm_positive_x: 40, leg_negative_x: -12, foot_positive_x: 8 }],
+  ]);
+  const result = prepareRobotMotionPackage(motion, liveEditorCaps());
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.package.package_type, "gosha.motion.robot-package-draft.v1");
+  assert.equal(result.package.source_preview_only, true);
+  assert.equal(result.package.hardware_validated, false);
+  assert.equal(result.package.robot_storage_implemented, false);
+  assert.deepEqual(result.package.active_joints, [
+    "arm_positive_x",
+    "leg_negative_x",
+    "leg_positive_x",
+    "foot_negative_x",
+    "foot_positive_x",
+  ]);
+  assert.deepEqual(result.package.keyframes[1].target, {
+    arm_positive_x: 40,
+    leg_negative_x: -12,
+    leg_positive_x: 0,
+    foot_negative_x: 0,
+    foot_positive_x: 8,
+  });
+});
+
+test("robot package upload plan is bounded, deterministic and CRC checked", () => {
+  const motion = motionFrom([
+    [0, {}],
+    [6000, { arm_positive_x: 40, leg_negative_x: -12, foot_positive_x: 8 }],
+  ]);
+  const result = prepareRobotMotionPackage(motion, liveEditorCaps());
+  const upload = prepareRobotPackageUpload(result.package);
+  const payload = Buffer.from(JSON.stringify(result.package), "utf8");
+  const decoded = Buffer.concat(
+    upload.chunks.map((chunk) => Buffer.from(chunk.data_b64, "base64")),
+  );
+  assert.match(upload.package_id, /^[a-zA-Z0-9_.-]{1,63}$/);
+  assert.equal(upload.profile_id, PROFILE.id);
+  assert.equal(upload.calibration_id, "a".repeat(64));
+  assert.equal(upload.total_size, payload.length);
+  assert.equal(upload.crc32, robotPackageCrc32(payload));
+  assert.deepEqual(decoded, payload);
+  assert.ok(
+    upload.chunks.every(
+      (chunk) => chunk.size > 0 && chunk.size <= ROBOT_PACKAGE_UPLOAD_CHUNK_BYTES,
+    ),
+  );
 });

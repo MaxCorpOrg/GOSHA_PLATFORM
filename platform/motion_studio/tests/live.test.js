@@ -14,6 +14,7 @@ import {
 import {
   canKeepIdleSessionOnBlur,
   createLiveStepPlan,
+  formatStoredPackageFields,
   liveSafeIntervalForJoint,
   liveSliderViewModel,
   liveInspectorJointViewModel,
@@ -22,7 +23,13 @@ import {
   liveStepViewModel,
   prepareLiveStepTarget,
 } from "../src/live-panel.js";
-import { PROFILE, createMotion, putPose, zeroPose } from "../src/motion.js";
+import {
+  PROFILE,
+  createMotion,
+  prepareRobotMotionPackage,
+  putPose,
+  zeroPose,
+} from "../src/motion.js";
 
 const capabilities = () => ({
   protocol: LIVE_PROTOCOL,
@@ -498,6 +505,48 @@ test("late response after disconnect cannot resurrect an armed session", () => {
   });
   assert.equal(h.live.state, "disconnected");
   assert.equal(h.live.sessionId, null);
+});
+test("USB reset recovery starts from fresh hello and ignores stale session telemetry", () => {
+  const h = harness(editorCaps45);
+  const first = h.ready();
+  h.live.arm("synthetic-test-key-only");
+  first.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "armed",
+    request_id: h.live.requestId,
+    session_id: "session-before-reset",
+    calibration_id: h.live.caps.calibration_id,
+  });
+  const oldSessionId = h.live.sessionId;
+  h.live.moveTo({ ...zeroPose(), arm_positive_x: -10 });
+  h.advance(50);
+  first.onclose();
+
+  assert.equal(h.live.state, "fault");
+  assert.equal(h.live.sessionId, null);
+  first.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "ack",
+    session_id: oldSessionId,
+    seq: 1,
+    commanded_pose: { ...zeroPose(), arm_positive_x: -10 },
+    measured_pose: null,
+    tilt: null,
+  });
+  assert.equal(h.live.state, "fault");
+  assert.equal(h.live.sessionId, null);
+
+  h.live.connectUsb("a".repeat(24));
+  const second = h.sockets.at(-1);
+  second.readyState = 1;
+  second.onopen();
+  assert.equal(second.sent[0].op, "hello");
+  assert.ok(second.url.includes("/live?port_id="));
+  second.receive({ ...editorCaps45(), request_id: h.live.requestId });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.sessionId, null);
+  assert.equal(second.sent.some((item) => item.op === "arm"), false);
+  assert.equal(second.sent.some((item) => item.op === "pose"), false);
 });
 test("a pending ARM can be cancelled and can never start motion on its own", () => {
   const h = harness();
@@ -1439,10 +1488,37 @@ function editorCaps(initialized = true) {
     ...(initialized ? {} : {reason:RIGHT_ARM_INITIALIZATION_REASON}),
     joint_limits:PROFILE.joints.filter(j=>j.id!=="arm_negative_x").map(j=>({id:j.id,min:j.min,max:j.max,max_speed_dps:10}))};
 }
+function editorCaps45() {
+  return {
+    ...editorCaps(),
+    joint_limits: [
+      { id: "arm_positive_x", min: -70, max: 45, max_speed_dps: 10 },
+      { id: "leg_negative_x", min: -35, max: 35, max_speed_dps: 10 },
+      { id: "leg_positive_x", min: -35, max: 35, max_speed_dps: 10 },
+      { id: "foot_negative_x", min: -30, max: 30, max_speed_dps: 10 },
+      { id: "foot_positive_x", min: -30, max: 30, max_speed_dps: 10 },
+    ],
+  };
+}
 test("full editor declares uncalibrated owner limits separately from legacy commissioning", () => {
   const caps=validateCapabilities(editorCaps());
   assert.equal(caps.commissioning,false); assert.equal(caps.calibrated,false);
   assert.equal(caps.initialization_required,false);
+  assert.equal(caps.package_features.delete_by_id, false);
+  assert.equal(
+    validateCapabilities({
+      ...editorCaps(),
+      package_features: {
+        store_slots: 2,
+        list: true,
+        select: true,
+        delete_all: true,
+        delete_by_id: true,
+        hardware_run: true,
+      },
+    }).package_features.delete_by_id,
+    true,
+  );
   assert.equal(validateCapabilities(editorCaps(false)).initialization_required,true);
   assert.throws(()=>validateCapabilities({...editorCaps(),calibrated:true}));
   assert.throws(()=>validateCapabilities({...editorCaps(),commissioning:true}));
@@ -1479,4 +1555,1046 @@ test("editor rejects a disconnected arm and resolves sub-degree endpoint at PWM 
   h.live.moveTo({...zeroPose(),arm_positive_x:12.5});h.advance(100);
   h.ack(s,{...zeroPose(),arm_positive_x:13});
   assert.equal(h.live.state,"armed");assert.equal(h.live.following,false);
+});
+
+test("editor uploads a robot package without arming or sending pose", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const motion = putPose({ ...createMotion("Пакет"), duration_ms: 6000 }, 6000, {
+    ...zeroPose(),
+    arm_positive_x: 40,
+    leg_negative_x: -12,
+    foot_positive_x: 8,
+  });
+  const result = prepareRobotMotionPackage(motion, h.live.caps);
+  const upload = h.live.uploadPackageDraft(
+    result.package,
+    "synthetic-test-key-only",
+  );
+
+  const begin = socket.sent.at(-1);
+  assert.equal(begin.op, "package_upload_begin");
+  assert.equal(begin.access_key, "synthetic-test-key-only");
+  assert.equal(begin.profile_id, PROFILE.id);
+  assert.equal(begin.calibration_id, "a".repeat(64));
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: begin.request_id,
+    status: "upload_started",
+    upload_session_id: "upload-session-0001",
+    package_id: begin.package_id,
+    expected_size: begin.total_size,
+    received_size: 0,
+  });
+  await Promise.resolve();
+
+  let received = 0;
+  while (socket.sent.at(-1).op === "package_upload_chunk") {
+    const chunk = socket.sent.at(-1);
+    assert.equal(chunk.upload_session_id, "upload-session-0001");
+    assert.equal(chunk.offset, received);
+    received += Buffer.from(chunk.data_b64, "base64").length;
+    socket.receive({
+      protocol: LIVE_PROTOCOL,
+      op: "package_status",
+      request_id: chunk.request_id,
+      status: "upload_chunk",
+      upload_session_id: "upload-session-0001",
+      package_id: begin.package_id,
+      expected_size: begin.total_size,
+      received_size: received,
+    });
+    await Promise.resolve();
+  }
+  assert.equal(received, begin.total_size);
+
+  const finish = socket.sent.at(-1);
+  assert.equal(finish.op, "package_upload_finish");
+  assert.equal(finish.upload_session_id, "upload-session-0001");
+  assert.equal(finish.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: finish.request_id,
+    status: "stored",
+    package_id: begin.package_id,
+  });
+  await Promise.resolve();
+
+  const load = socket.sent.at(-1);
+  assert.equal(load.op, "package_load");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: load.request_id,
+    status: "loaded",
+    package_id: begin.package_id,
+    profile_id: begin.profile_id,
+    calibration_id: begin.calibration_id,
+    payload_size: begin.total_size,
+    crc32: begin.crc32,
+    name: result.package.name,
+    duration_ms: result.package.duration_ms,
+    interpolation: result.package.interpolation,
+    keyframe_count: result.package.keyframes.length,
+    active_joint_count: result.package.active_joints.length,
+  });
+  await Promise.resolve();
+
+  const prepare = socket.sent.at(-1);
+  assert.equal(prepare.op, "package_prepare");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: prepare.request_id,
+    status: "prepared",
+    package_id: begin.package_id,
+    duration_ms: 6000,
+  });
+  await Promise.resolve();
+
+  const sample = socket.sent.at(-1);
+  assert.equal(sample.op, "package_sample");
+  assert.equal(sample.elapsed_ms, 0);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: sample.request_id,
+    status: "sampled",
+    package_id: begin.package_id,
+    elapsed_ms: 0,
+    finished: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStart = socket.sent.at(-1);
+  assert.equal(runStart.op, "package_run_start");
+  assert.equal(runStart.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStart.request_id,
+    status: "run_started",
+    run_session_id: "run-session-0001",
+    package_id: begin.package_id,
+    elapsed_ms: 0,
+    finished: false,
+    hardware_apply: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStatus = socket.sent.at(-1);
+  assert.equal(runStatus.op, "package_run_status");
+  assert.equal(runStatus.run_session_id, "run-session-0001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStatus.request_id,
+    status: "run_running",
+    run_session_id: "run-session-0001",
+    package_id: begin.package_id,
+    elapsed_ms: 20,
+    finished: false,
+    hardware_apply: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStop = socket.sent.at(-1);
+  assert.equal(runStop.op, "package_run_stop");
+  assert.equal(runStop.run_session_id, "run-session-0001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStop.request_id,
+    status: "run_stopped",
+    run_session_id: "run-session-0001",
+    hardware_apply: false,
+  });
+
+  const meta = await upload;
+  assert.equal(meta.loaded.status, "loaded");
+  assert.equal(meta.prepared.status, "prepared");
+  assert.equal(meta.sampled.status, "sampled");
+  assert.equal(meta.runStarted.status, "run_started");
+  assert.equal(meta.runStatus.status, "run_running");
+  assert.equal(meta.runStopped.status, "run_stopped");
+  assert.equal(meta.storedPackage.name, "Пакет");
+  assert.equal(meta.storedPackage.duration_ms, 6000);
+  assert.equal(meta.storedPackage.keyframe_count, 2);
+  assert.equal(meta.storedPackage.active_joint_count, 5);
+  assert.equal(h.live.state, "ready");
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor verifies a stored robot package without uploading, arming or sending pose", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const verify = h.live.verifyStoredPackage("synthetic-test-key-only");
+
+  const load = socket.sent.at(-1);
+  assert.equal(load.op, "package_load");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: load.request_id,
+    status: "loaded",
+    package_id: "persisted-001",
+    profile_id: PROFILE.id,
+    calibration_id: "a".repeat(64),
+    payload_size: 2048,
+    crc32: 123456,
+    name: "Тестовый поклон",
+    duration_ms: 6000,
+    interpolation: "smooth",
+    keyframe_count: 2,
+    active_joint_count: 5,
+  });
+  await Promise.resolve();
+
+  const prepare = socket.sent.at(-1);
+  assert.equal(prepare.op, "package_prepare");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: prepare.request_id,
+    status: "prepared",
+    package_id: "persisted-001",
+    duration_ms: 6000,
+  });
+  await Promise.resolve();
+
+  const sample = socket.sent.at(-1);
+  assert.equal(sample.op, "package_sample");
+  assert.equal(sample.elapsed_ms, 0);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: sample.request_id,
+    status: "sampled",
+    package_id: "persisted-001",
+    elapsed_ms: 0,
+    finished: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStart = socket.sent.at(-1);
+  assert.equal(runStart.op, "package_run_start");
+  assert.equal(runStart.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStart.request_id,
+    status: "run_started",
+    run_session_id: "stored-run-000001",
+    package_id: "persisted-001",
+    elapsed_ms: 0,
+    finished: false,
+    hardware_apply: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStatus = socket.sent.at(-1);
+  assert.equal(runStatus.op, "package_run_status");
+  assert.equal(runStatus.run_session_id, "stored-run-000001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStatus.request_id,
+    status: "run_finished",
+    run_session_id: "stored-run-000001",
+    package_id: "persisted-001",
+    elapsed_ms: 6000,
+    finished: true,
+    hardware_apply: false,
+    target: {
+      arm_positive_x: 40,
+      leg_negative_x: -12,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 8,
+    },
+  });
+  await Promise.resolve();
+
+  const runStop = socket.sent.at(-1);
+  assert.equal(runStop.op, "package_run_stop");
+  assert.equal(runStop.run_session_id, "stored-run-000001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStop.request_id,
+    status: "run_stopped",
+    run_session_id: "stored-run-000001",
+    hardware_apply: false,
+  });
+
+  const meta = await verify;
+  assert.equal(meta.loaded.package_id, "persisted-001");
+  assert.equal(meta.runStatus.status, "run_finished");
+  assert.equal(h.live.snapshot().storedPackage.name, "Тестовый поклон");
+  assert.equal(h.live.snapshot().storedPackage.duration_ms, 6000);
+  assert.equal(h.live.snapshot().storedPackage.keyframe_count, 2);
+  assert.equal(h.live.snapshot().storedPackage.active_joint_count, 5);
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor reads stored robot package metadata without key, upload or motion", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const status = h.live.readStoredPackage();
+
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  assert.equal(Object.hasOwn(list, "access_key"), false);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 1,
+    packages: [
+      {
+        package_id: "persisted-001",
+        name: "Тестовый поклон",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 123456,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 2,
+        active_joint_count: 5,
+        active: true,
+      },
+    ],
+  });
+
+  const meta = await status;
+  assert.equal(meta.storedPackage.present, true);
+  assert.equal(meta.storedPackage.package_id, "persisted-001");
+  assert.equal(meta.storedPackage.name, "Тестовый поклон");
+  assert.equal(meta.storedPackage.duration_ms, 6000);
+  assert.equal(meta.storedPackage.interpolation, "smooth");
+  assert.equal(meta.storedPackage.keyframe_count, 2);
+  assert.equal(meta.storedPackage.active_joint_count, 5);
+  assert.equal(meta.storedPackage.compatible, true);
+  assert.equal(h.live.snapshot().storedPackage.package_id, "persisted-001");
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor can read stored packages while right arm initialization is required", async () => {
+  const h = harness(() => ({
+    ...editorCaps45(),
+    motion_allowed: false,
+    right_arm_initialized: false,
+    reason: RIGHT_ARM_INITIALIZATION_REASON,
+    package_features: {
+      store_slots: 2,
+      list: true,
+      select: true,
+      delete_all: true,
+      delete_by_id: true,
+      hardware_run: true,
+    },
+  }));
+  const socket = h.ready();
+  assert.equal(h.live.state, "init_required");
+
+  const status = h.live.readStoredPackage();
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  assert.equal(Object.hasOwn(list, "access_key"), false);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 1,
+    packages: [
+      {
+        package_id: "persisted-001",
+        name: "Тестовый поклон",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 123456,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 2,
+        active_joint_count: 5,
+        active: true,
+      },
+    ],
+  });
+
+  const meta = await status;
+  assert.equal(meta.storedPackage.package_id, "persisted-001");
+  assert.equal(h.live.snapshot().state, "init_required");
+  await assert.rejects(
+    () => h.live.deleteStoredPackage("synthetic-test-key-only", "persisted-001"),
+    /требует включенной правой руки/,
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_delete"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor reads active package from a multi-slot robot list", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const status = h.live.readStoredPackage();
+
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 2,
+    packages: [
+      {
+        package_id: "inactive-001",
+        name: "Старый пакет",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 1024,
+        crc32: 111,
+        duration_ms: 3000,
+        interpolation: "linear",
+        keyframe_count: 2,
+        active_joint_count: 5,
+        active: false,
+      },
+      {
+        package_id: "active-002",
+        name: "Активный пакет",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 222,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 3,
+        active_joint_count: 5,
+        active: true,
+      },
+    ],
+  });
+
+  const meta = await status;
+  assert.equal(meta.storedPackage.package_id, "active-002");
+  assert.equal(meta.storedPackage.name, "Активный пакет");
+  assert.equal(h.live.snapshot().storedPackage.package_id, "active-002");
+  assert.deepEqual(
+    h.live.snapshot().storedPackages.map((item) => ({
+      package_id: item.package_id,
+      active: item.active,
+      compatible: item.compatible,
+    })),
+    [
+      { package_id: "inactive-001", active: false, compatible: true },
+      { package_id: "active-002", active: true, compatible: true },
+    ],
+  );
+});
+
+test("stored package snapshot replaces metadata when a package is overwritten", () => {
+  const h = harness(editorCaps45);
+  h.ready();
+  h.live.setStoredPackageList({
+    count: 2,
+    packages: [
+      {
+        package_id: "motion-same-id",
+        name: "Старая версия",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 1024,
+        crc32: 111,
+        duration_ms: 3000,
+        interpolation: "linear",
+        keyframe_count: 2,
+        active_joint_count: 5,
+        active: true,
+      },
+      {
+        package_id: "other-package",
+        name: "Другой пакет",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 222,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 3,
+        active_joint_count: 5,
+        active: false,
+      },
+    ],
+  });
+
+  h.live.setStoredPackage(
+    h.live.packageMetadataFromRecord(
+      {
+        package_id: "motion-same-id",
+        name: "Новая версия",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 4096,
+        crc32: 999,
+        duration_ms: 8000,
+        interpolation: "hold",
+        keyframe_count: 4,
+        active_joint_count: 5,
+      },
+      { active: true },
+    ),
+  );
+
+  const snapshot = h.live.snapshot();
+  assert.equal(snapshot.storedPackage.name, "Новая версия");
+  assert.deepEqual(
+    snapshot.storedPackages.map((item) => ({
+      package_id: item.package_id,
+      name: item.name,
+      crc32: item.crc32,
+      duration_ms: item.duration_ms,
+      active: item.active,
+    })),
+    [
+      {
+        package_id: "motion-same-id",
+        name: "Новая версия",
+        crc32: 999,
+        duration_ms: 8000,
+        active: true,
+      },
+      {
+        package_id: "other-package",
+        name: "Другой пакет",
+        crc32: 222,
+        duration_ms: 6000,
+        active: false,
+      },
+    ],
+  );
+});
+
+test("editor selects a stored robot package without arming, posing or running it", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const status = h.live.readStoredPackage();
+
+  const list = socket.sent.at(-1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 2,
+    packages: [
+      {
+        package_id: "inactive-001",
+        name: "Короткий тест руки",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 1024,
+        crc32: 111,
+        duration_ms: 3000,
+        interpolation: "linear",
+        keyframe_count: 2,
+        active_joint_count: 5,
+        active: false,
+      },
+      {
+        package_id: "active-002",
+        name: "Активный пакет",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 222,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 3,
+        active_joint_count: 5,
+        active: true,
+      },
+    ],
+  });
+  await status;
+
+  const selection = h.live.selectStoredPackage(
+    "inactive-001",
+    "synthetic-test-key-only",
+  );
+  const select = socket.sent.at(-1);
+  assert.equal(select.op, "package_select");
+  assert.equal(select.package_id, "inactive-001");
+  assert.equal(select.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: select.request_id,
+    status: "selected",
+    package_id: "inactive-001",
+    name: "Короткий тест руки",
+    profile_id: PROFILE.id,
+    calibration_id: "a".repeat(64),
+    payload_size: 1024,
+    crc32: 111,
+    duration_ms: 3000,
+    interpolation: "linear",
+    keyframe_count: 2,
+    active_joint_count: 5,
+    active: true,
+  });
+
+  const meta = await selection;
+  assert.equal(meta.storedPackage.package_id, "inactive-001");
+  assert.deepEqual(
+    h.live.snapshot().storedPackages.map((item) => ({
+      package_id: item.package_id,
+      active: item.active,
+    })),
+    [
+      { package_id: "inactive-001", active: true },
+      { package_id: "active-002", active: false },
+    ],
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_hardware_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("stored robot package panel fields include rich read-only metadata", () => {
+  assert.deepEqual(formatStoredPackageFields(null), {
+    name: "—",
+    id: "—",
+    duration: "—",
+    interpolation: "—",
+    keyframes: "—",
+    activeJoints: "—",
+    size: "—",
+    crc: "—",
+    calibration: "—",
+  });
+  assert.deepEqual(
+    formatStoredPackageFields({
+      present: true,
+      package_id: "persisted-001",
+      name: "Тестовый поклон",
+      duration_ms: 6000,
+      interpolation: "smooth",
+      keyframe_count: 2,
+      active_joint_count: 5,
+      payload_size: 2048,
+      crc32: 123456,
+      compatible: true,
+    }),
+    {
+      name: "Тестовый поклон",
+      id: "persisted-001",
+      duration: "6.0 с",
+      interpolation: "Плавные",
+      keyframes: "2",
+      activeJoints: "5",
+      size: "2048 байт",
+      crc: "0x0001e240",
+      calibration: "Совпадает",
+    },
+  );
+});
+
+test("editor runs a stored robot package through the hardware runner", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const run = h.live.runStoredPackageInHardware("synthetic-test-key-only");
+
+  const load = socket.sent.at(-1);
+  assert.equal(load.op, "package_load");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: load.request_id,
+    status: "loaded",
+    package_id: "persisted-001",
+    profile_id: PROFILE.id,
+    calibration_id: "a".repeat(64),
+    payload_size: 2048,
+    crc32: 123456,
+    name: "Тестовый поклон",
+    duration_ms: 6000,
+    interpolation: "smooth",
+    keyframe_count: 2,
+    active_joint_count: 5,
+  });
+  await Promise.resolve();
+
+  const prepare = socket.sent.at(-1);
+  assert.equal(prepare.op, "package_prepare");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: prepare.request_id,
+    status: "prepared",
+    package_id: "persisted-001",
+    duration_ms: 6000,
+  });
+  await Promise.resolve();
+
+  const sample = socket.sent.at(-1);
+  assert.equal(sample.op, "package_sample");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: sample.request_id,
+    status: "sampled",
+    package_id: "persisted-001",
+    elapsed_ms: 0,
+    finished: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const start = socket.sent.at(-1);
+  assert.equal(start.op, "package_hardware_run_start");
+  assert.equal(start.access_key, "synthetic-test-key-only");
+  assert.equal(start.speed_dps, 5);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: start.request_id,
+    status: "hardware_run_started",
+    run_session_id: "hardware-run-000001",
+    live_session_id: "live-run-000001",
+    live_armed: false,
+    hardware_apply: false,
+  });
+  await Promise.resolve();
+
+  const status = socket.sent.at(-1);
+  assert.equal(status.op, "package_hardware_run_status");
+  assert.equal(status.run_session_id, "hardware-run-000001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: status.request_id,
+    status: "hardware_run_finished",
+    run_session_id: "hardware-run-000001",
+    live_session_id: "live-run-000001",
+    live_armed: true,
+    hardware_apply: true,
+    package_id: "persisted-001",
+    elapsed_ms: 6000,
+    finished: true,
+    target: {
+      arm_positive_x: 40,
+      leg_negative_x: -12,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 8,
+    },
+  });
+
+  const meta = await run;
+  assert.equal(meta.runStarted.status, "hardware_run_started");
+  assert.equal(meta.runStatus.status, "hardware_run_finished");
+  assert.equal(socket.sent.some((item) => item.op === "package_hardware_run_stop"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor reads an empty robot package list without treating it as an error", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const status = h.live.readStoredPackage();
+
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 0,
+    packages: [],
+  });
+
+  const meta = await status;
+  assert.equal(meta.storedPackage.present, false);
+  assert.equal(h.live.snapshot().storedPackage.present, false);
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("stored package verification rejects hardware apply and stops the software run", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const verify = h.live.verifyStoredPackage("synthetic-test-key-only");
+
+  const load = socket.sent.at(-1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: load.request_id,
+    status: "loaded",
+    package_id: "persisted-unsafe",
+    profile_id: PROFILE.id,
+    calibration_id: "a".repeat(64),
+    payload_size: 2048,
+    crc32: 123456,
+  });
+  await Promise.resolve();
+
+  const prepare = socket.sent.at(-1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: prepare.request_id,
+    status: "prepared",
+    package_id: "persisted-unsafe",
+    duration_ms: 6000,
+  });
+  await Promise.resolve();
+
+  const sample = socket.sent.at(-1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: sample.request_id,
+    status: "sampled",
+    package_id: "persisted-unsafe",
+    elapsed_ms: 0,
+    finished: false,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+
+  const runStart = socket.sent.at(-1);
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStart.request_id,
+    status: "run_started",
+    run_session_id: "unsafe-run-000001",
+    package_id: "persisted-unsafe",
+    elapsed_ms: 0,
+    finished: false,
+    hardware_apply: true,
+    target: {
+      arm_positive_x: 0,
+      leg_negative_x: 0,
+      leg_positive_x: 0,
+      foot_negative_x: 0,
+      foot_positive_x: 0,
+    },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const runStop = socket.sent.at(-1);
+  assert.equal(runStop.op, "package_run_stop");
+  assert.equal(runStop.run_session_id, "unsafe-run-000001");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: runStop.request_id,
+    status: "run_stopped",
+    run_session_id: "unsafe-run-000001",
+    hardware_apply: false,
+  });
+
+  await assert.rejects(verify, /безопасный программный запуск/);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor deletes a stored robot package without uploading, arming or sending pose", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const removal = h.live.deleteStoredPackage("synthetic-test-key-only");
+
+  const deleted = socket.sent.at(-1);
+  assert.equal(deleted.op, "package_delete");
+  assert.equal(deleted.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: deleted.request_id,
+    status: "deleted",
+  });
+
+  const meta = await removal;
+  assert.equal(meta.deleted.status, "deleted");
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor refuses targeted package delete when firmware does not advertise it", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+
+  await assert.rejects(
+    () => h.live.deleteStoredPackage("synthetic-test-key-only", "inactive-001"),
+    /не поддерживает безопасное удаление выбранного пакета/,
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_delete"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("editor deletes a selected robot package and refreshes the package list", async () => {
+  const h = harness(() => ({
+    ...editorCaps45(),
+    package_features: {
+      store_slots: 2,
+      list: true,
+      select: true,
+      delete_all: true,
+      delete_by_id: true,
+      hardware_run: true,
+    },
+  }));
+  const socket = h.ready();
+  const removal = h.live.deleteStoredPackage(
+    "synthetic-test-key-only",
+    "inactive-001",
+  );
+
+  const deleted = socket.sent.at(-1);
+  assert.equal(deleted.op, "package_delete");
+  assert.equal(deleted.package_id, "inactive-001");
+  assert.equal(deleted.access_key, "synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: deleted.request_id,
+    status: "deleted",
+    package_id: "inactive-001",
+  });
+
+  await Promise.resolve();
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 1,
+    packages: [
+      {
+        package_id: "active-002",
+        name: "Активный пакет",
+        profile_id: PROFILE.id,
+        calibration_id: "a".repeat(64),
+        payload_size: 2048,
+        crc32: 222,
+        duration_ms: 6000,
+        interpolation: "smooth",
+        keyframe_count: 3,
+        active_joint_count: 5,
+        active: true,
+      },
+    ],
+  });
+
+  const meta = await removal;
+  assert.equal(meta.deleted.status, "deleted");
+  assert.equal(meta.deleted.package_id, "inactive-001");
+  assert.equal(meta.storedPackage.package_id, "active-002");
+  assert.deepEqual(
+    h.live.snapshot().storedPackages.map((item) => ({
+      package_id: item.package_id,
+      active: item.active,
+    })),
+    [{ package_id: "active-002", active: true }],
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "package_hardware_run_start"), false);
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+test("package upload fails closed if the connection drops before package status", async () => {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const motion = putPose({ ...createMotion("Пакет"), duration_ms: 6000 }, 6000, {
+    ...zeroPose(),
+    arm_positive_x: 40,
+  });
+  const result = prepareRobotMotionPackage(motion, h.live.caps);
+  const upload = h.live.uploadPackageDraft(
+    result.package,
+    "synthetic-test-key-only",
+  );
+  assert.equal(socket.sent.at(-1).op, "package_upload_begin");
+
+  socket.onclose();
+
+  await assert.rejects(upload, /Связь с роботом потеряна/);
+  assert.equal(h.live.state, "fault");
+  assert.equal(socket.sent.some((item) => item.op === "arm"), false);
+  assert.equal(socket.sent.some((item) => item.op === "pose"), false);
 });

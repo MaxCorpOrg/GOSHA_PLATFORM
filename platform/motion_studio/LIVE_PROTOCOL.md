@@ -8,26 +8,34 @@ tools нет. Отсутствие ответа означает несовме�
 
 ## Состояние поставки
 
-Клиент находится в этом модуле. Прошивочный обработчик для первого Live-теста
-ног был подготовлен в GOSHA_FIRMWARE, ветка `codex/motion-live-20260906` от
-точного установленного safe-neutral `baf0323d17db9f0635cf9ae64d79eb6f3c19af2c`.
-Отдельное расширение 2026-09-07 добавляет в клиент ожидание включения правой
-руки и пошаговую проверку одного выбранного сустава. Расширение 2026-09-08
-сохраняет тот же `mode:"commissioning_right_arm"`, но принимает старый правый
-предел `-5…+5°` или новый `-15…+15°` только из фактического `joint_limits`.
-Второе расширение 2026-09-08 добавляет в commissioning-интерфейс
-ползунок выбранного сустава поверх прежних `pose`, `ack` и `stop`; формат
-сообщений при этом не меняется.
-Текущее расширение 2026-09-07 добавляет выбор транспорта USB/Wi-Fi и локальную
-USB-службу для браузеров без WebSerial. Эта клиентская сборка сама не
-устанавливает прошивку, не открывает сеть робота и не запускает движение.
+Клиент находится в этом модуле. Последняя установленная аппаратная диагностика
+на роботе — v3
+`bcd34d472c6dd935f8547604a1c48684772bd6b94e4734e00f3636a46994b9f3`
+(11 сентября 2026). Она заменяет установленную ранее v2 `671bbbdd…` и меняет
+только firmware USB diagnostic write budget `100 ms -> 2000 ms`. ACK,
+`commanded_pose` и регистры PWM являются программными подтверждениями, а не
+измеренными углами и не физической приёмкой.
 
-Исторический первый аппаратный набор ограничен четырьмя каналами ног/ступней.
-Праворукий набор разрешает только `arm_positive_x` и те же четыре сустава
-ног/ступней. Левая рука физически отключена и в Live остаётся недоступной.
-Правая рука привязана к аппаратному каналу GPIO12 с нейтралью 135°; это
-начальное удержание, а не жест. Физическое направление и механическая модель
-ещё подтверждаются оператором.
+Текущий рабочий режим полного редактора — `mode:"motion_editor"`. Он объявляет
+пять активных суставов в одной сессии: `arm_positive_x` и четыре ноги/стопы.
+Левая рука физически отключена и в Live остаётся недоступной. Правая рука
+привязана к аппаратному каналу GPIO12 с нейтралью 135°; при сохранённом нуле
+Live-предел правой руки равен [-70,+45], ноги ±35°, стопы ±30°, скорость
+1…10°/с. 3D-модель сохраняет правую руку [-70,+55], но недостижимые для Live
+кадры должны отклоняться явно, без скрытого обрезания или масштабирования.
+
+Диагностический app `06bbb7ee…` отозван из-за перезапусков. Текущая v3
+прошла app-only запись, отдельную сверку и restart; NVS/otadata/bootloader/
+partition/assets не менялись. Командная/PWM проверка пяти активных суставов
+получена, но непрерывный all-joints маршрут в одной длинной Live-сессии не
+принят, а визуальная физическая приёмка ещё не завершена. Клиентская сборка
+сама не устанавливает прошивку, не открывает сеть робота и не запускает
+движение без явного Live-действия.
+
+Исторические режимы `commissioning` и `commissioning_right_arm` ниже сохранены
+как совместимые протоколы для старых проверочных профилей. Они не заменяют
+текущий `motion_editor` и не расширяются автоматически поверх фактических
+`joint_limits`.
 
 ## Проверочный обмен и доступ
 
@@ -55,6 +63,34 @@ USB-службу для браузеров без WebSerial. Эта клиент
 Границы должны укладываться в визуальный профиль, скорость — до 30°/с.
 Приложение дополнительно ограничивает настройку диапазоном 1–15°/с.
 Нормы движения проверяет **сама прошивка**, а не только браузер.
+Опциональный объект `package_features` описывает package-возможности текущей
+прошивки: `store_slots`, `list`, `select`, `delete_all`, `delete_by_id` и
+`hardware_run`. Если объекта нет, клиент считает targeted delete
+неподдержанным и не отправляет `package_delete` с `package_id`.
+
+### Полный режим редактора
+
+`motion_editor` использует `commissioning:false` и `calibrated:false`: профиль
+разрешён владельцем, но не считается измеренной механической калибровкой. До
+явного авторизованного `initialize_right_arm` правая рука может требовать
+`right_arm_initialization_required`; `hello`, `arm`, `keepalive` и STOP сами
+не включают правый канал.
+
+Клиент принимает такие фактические пределы из `joint_limits`:
+
+| Сустав | Предел Live | Скорость |
+|---|---:|---:|
+| `arm_positive_x` | `-70…+45°` | `1…10°/с` |
+| `leg_negative_x` | `-35…+35°` | `1…10°/с` |
+| `leg_positive_x` | `-35…+35°` | `1…10°/с` |
+| `foot_negative_x` | `-30…+30°` | `1…10°/с` |
+| `foot_positive_x` | `-30…+30°` | `1…10°/с` |
+
+В одной сессии можно менять несколько доступных суставов последовательно или
+одновременно. Выбор другого сустава не закрывает обычную `motion_editor`
+сессию. Неактивные суставы исключаются из пакетов, а запрос угла вне
+`joint_limits` отклоняется с понятным сообщением. Приёмка полного движения
+допускается только после физической проверки каждого канала.
 
 ### Первичная проверка приводов
 
@@ -283,6 +319,164 @@ open на ESP32-S3 могли вызывать USB reset. При неподтв�
 запрещено; повторение всей последовательности в Live автоматически не
 запускается.
 
+Постоянного хранения движений в роботе пока нет. Экспорт редактора остаётся
+`preview_only:true` и `hardware_validated:false`; загрузка JSON обратно в
+браузер не записывает движение в прошивку.
+
+Черновик пакета робота `gosha.motion.robot-package-draft.v1` создаётся только
+после Live-подключения, потому что требует свежие `capabilities`. Клиент
+сначала проверяет профиль, режим `motion_editor`, `calibration_id`, watchdog,
+частоту, точный текущий набор активных суставов и текущую `commanded_pose`.
+Для `gosha-v1` пакет сейчас требует правую руку, обе ноги и обе стопы; левая
+рука должна отсутствовать. Старые режимы и частичные `capabilities`
+отклоняются до создания файла. Затем каждая поза проверяется
+по фактическим `joint_limits`, отсутствующим суставам и скорости с учётом
+пикового наклона плавной интерполяции. Недоступный сустав допускается только
+если все кадры совпадают с его текущей командой с допуском 0,1°. Например,
+левая отключённая рука остаётся вне пакета, а правая рука +55° отклоняется
+для текущего Live-предела +45°. Углы не обрезаются, не масштабируются и не
+растягиваются автоматически.
+
+Успешный черновик содержит только активные суставы, ограничения, кадры,
+`source_preview_only:true`, `hardware_validated:false`,
+`live_compatible:true` и `robot_storage_implemented:false`. Это локальный
+артефакт проверки совместимости, не команда запуска. Кнопка **Записать в
+робота** отправляет этот же payload через `package_upload_begin/chunk/finish`,
+потом выполняет `package_load`, `package_prepare`, `package_sample(0)` и
+software-run проверку `package_run_start/status/stop`; metadata, первый кадр,
+owner-bound `run_session_id` и `hardware_apply:false` сверяются без ARM/POSE,
+сохранённое движение при этом не исполняется сервами. Firmware-контракт уже
+добавил постоянное NVS-backed хранение payload для `package_upload_finish`,
+безопасный player для программного семплирования сохранённого payload,
+software runner без hardware apply и hardware runner для выбранного active
+payload. Блок **Пакет в роботе** в Live-панели делает read-only
+`package_list`: показывает пустой store или список сохранённых пакетов с
+metadata (`name`, duration, interpolation, keyframes/active joints,
+id/size/CRC/calibration, `active`) без ключа доступа, upload, ARM, POSE или
+run. Действие **Сделать активным** отправляет только `package_select` с
+ключом доступа и не запускает движение. Кнопка
+**Проверить в роботе** не отправляет payload заново: она выполняет
+`package_load` -> `package_prepare` -> `package_sample(0)` ->
+`package_run_start/status/stop` для уже сохранённого active payload и также
+требует `hardware_apply:false`. Кнопка **Удалить в роботе** после явного
+подтверждения отправляет `package_delete` с `access_key` и не выполняет
+upload, ARM, POSE или run. Кнопка **Удалить выбранный** доступна только при
+`package_features.delete_by_id:true`, отправляет `package_delete` с
+`package_id` и затем перечитывает `package_list`; клиент fail-closed не
+отправляет targeted delete старой прошивке. В Firmware есть
+подготовительные слои: upload-session
+для chunks до
+2048 байт с лимитом пакета 12 KiB и CRC32, а также host-only abstract store с
+двумя слотами `A/B`, commit через активный указатель и fail-closed чтением по
+active pointer/magic/version/package_id/profile/calibration/size/CRC. Missing
+или corrupt active pointer при существующих слотах не выбирает старый payload;
+invalid JSON в active payload остаётся fail-closed ошибкой `package_json_parse`.
+Host-only JSON parser восстанавливает draft из raw payload и прогоняет его
+через firmware validator до store. Host-only manager связывает successful
+upload finish с validate+atomic save и проверяет, что incomplete/CRC-failed
+upload не пишет пакет, а store commit failure сохраняет старый payload.
+Adapter подключает этот store к NVS namespace `motion_pkg`. Это уже хранение
+payload, но ещё не исполнение движения.
+
+Live package protocol уже зарезервирован в том же
+`gosha.motion.live.v1` namespace:
+
+- `package_upload_begin` требует `access_key`, `package_id`, `profile_id`,
+  `calibration_id`, `total_size`, `crc32`; успешный ответ возвращает
+  `op:"package_status"`, `status:"upload_started"` и случайный
+  `upload_session_id`, привязанный к `owner_id` транспорта.
+- `package_upload_chunk` требует `upload_session_id`, строгий `offset` и
+  `data_b64`; chunk декодируется из base64 и проверяется upload-session/owner.
+- `package_upload_finish` требует `access_key` и `upload_session_id`,
+  завершает CRC, JSON parse, firmware validation и попытку store.
+- `package_upload_abort` требует `upload_session_id` и очищает активный
+  upload того же owner.
+- `package_list` не требует `access_key`, возвращает `status:"listed"` и
+  массив `packages`: пустой store отдаёт `count:0`, а нормальный store отдаёт
+  один или несколько payload records. Ровно один record должен иметь
+  `active:true` для запуска через active payload. Каждый record отдаёт metadata
+  (`package_id`, `name`, `duration_ms`, `interpolation`, `keyframe_count`,
+  `active_joint_count`, `profile_id`, `calibration_id`, `payload_size`,
+  `crc32`) и `active`. Повреждённый active pointer, record или payload JSON
+  остаётся ошибкой, а не пустым списком.
+- `package_select` требует `access_key` и `package_id`, переключает active
+  pointer на уже сохранённый payload, очищает подготовленный player/runner и
+  возвращает metadata выбранного payload с `status:"selected"` и
+  `active:true`.
+- `package_load` возвращает metadata сохранённого payload: `package_id`,
+  `name`, `duration_ms`, `interpolation`, `keyframe_count`,
+  `active_joint_count`, `profile_id`, `calibration_id`, `payload_size`,
+  `crc32`; payload JSON парсится fail-closed, как в `package_list`.
+- `package_prepare` загружает активный сохранённый payload, повторно проверяет
+  profile/calibration/CRC, разбирает JSON и валидирует draft в прошивке.
+- `package_sample` требует `elapsed_ms` и возвращает рассчитанный `target` для
+  активных суставов; это программное чтение кадра, не аппаратная команда.
+- `package_run_start` требует `access_key` и заранее выполненный
+  `package_prepare`; создаёт `run_session_id`, отказывается от ненулевого
+  первого кадра и возвращает первый `target` с `hardware_apply:false`.
+- `package_run_status` требует owner-bound `run_session_id`, семплирует кадр по
+  внутренним часам и возвращает `run_running` или `run_finished`.
+- `package_run_stop` требует owner-bound `run_session_id`, очищает software
+  runner и не отправляет Home, POSE или hardware apply.
+- `package_hardware_run_start` требует `access_key` и заранее подготовленный
+  active payload; start создаёт `run_session_id`, не применяет hardware в
+  стартовом ответе, а дальнейший hardware runner тикает из watchdog.
+- `package_hardware_run_status` требует owner-bound `run_session_id` и
+  возвращает `hardware_run_running` или terminal `hardware_run_finished`.
+  Во время движения ответы с `hardware_apply:true` содержат рассчитанный
+  target в пределах текущих caps.
+- `package_hardware_run_stop` требует owner-bound `run_session_id`, штатно
+  останавливает hardware runner и возвращает `hardware_run_stopped`.
+- `package_delete` требует `access_key`. Без `package_id` это delete-all
+  текущего store; с `package_id` это targeted delete выбранного record.
+  Клиенты должны отправлять targeted delete только если `hello` объявил
+  `package_features.delete_by_id:true`, потому что старые прошивки игнорируют
+  `package_id` и удаляют весь store.
+
+Текущий `MotionLiveAdapter` подключён к package protocol handler и
+NVS-backed storage backend. После manager/validator `package_upload_finish`
+пишет payload в namespace `motion_pkg` через two-slot store
+`motion_pkg_a`/`motion_pkg_b` с active pointer `motion_pkg_act`, чтобы сбой
+записи слота или commit не выбирал повреждённый пакет. Это постоянное
+хранение payload, список сохранённых records, выбор active record через
+`package_select` и аппаратный запуск выбранного active payload. Это всё ещё не
+полноценная пользовательская библиотека произвольного размера: текущий слой
+остаётся two-slot active-select моделью. Текущий установленный app
+`motion-targeted-delete-build-20260913-1` объявляет
+`package_features.delete_by_id:true`, а targeted delete по `package_id` принят
+на storage-path: inactive record удаляется отдельно, active record удаляется с
+promotion на оставшийся пакет, после restore store снова содержит оба
+smoke-пакета. Package-операции отклоняются при активной ARMED Live-сессии
+(`package_live_session_active`), чтобы flash/NVS запись не блокировала
+STOP/watchdog под mutex. Закрытие транспорта владельцем abort-ит активный
+upload.
+После upload клиент дополнительно вызывает `package_prepare` и
+`package_sample(0)`, затем сверяет первый кадр active joints с отправленным
+пакетом. После этого клиент вызывает `package_run_start`, один
+`package_run_status` и `package_run_stop`, принимает только
+`hardware_apply:false` и совпадающий owner-bound `run_session_id`. Такой
+readback и software-run self-check доказывают, что payload можно разобрать,
+семплировать и провести через run session в прошивке, но не доказывают
+физическое движение.
+Отдельная клиентская проверка сохранённого пакета выполняет ту же readback/run
+цепочку без `package_upload_*`, чтобы после переподключения можно было
+подтвердить active payload в storage без новой записи.
+Отдельное клиентское удаление сохранённого пакета отправляет только
+`package_delete` и проверяет ответ `deleted`; оно не создаёт Live-сессию и не
+посылает команды движения.
+Отдельное клиентское удаление выбранного пакета отправляет `package_delete`
+с `package_id` только при capability `delete_by_id`, проверяет ответ
+`deleted` и сразу перечитывает список пакетов.
+Отдельное клиентское чтение статуса отправляет только `package_list`; оно не
+требует ключ, не подготавливает player и не запускает software-run.
+
+`package_run_start/status/stop` остаётся только программным self-check без
+hardware apply: он проверяет owner/session, access key на start, безопасный
+первый кадр, завершение по duration и stop/transport close, но не вызывает
+`MotionLiveCore::Pose()`, `ApplyHardware`, ARM, POSE или STOP. Реальное
+движение сохранённого active payload делает только
+`package_hardware_run_start/status/stop`.
+
 У текущего `gosha-v1` нет подтверждённого измерения углов/IMU, поэтому
 равновесие проверяется наблюдением физического робота после механического
 допуска. Видеонаблюдение, IMU, датчики тока/контакта опоры и автоматическая
@@ -297,13 +491,19 @@ open на ESP32-S3 могли вызывать USB reset. При неподтв�
 ARM, один сустав и шаг `5°` или `15°` для правой руки и `1°` для ног/стоп,
 фиксированное отображение активного шага при
 промежуточных ACK, последняя цель без очереди, номера и подтверждения, потеря
-связи, stop timeout, отмена ARM, старые ответы, ошибочные ACK/STOP и отсутствие
-ложных измерений. `npm run test:bridge` проверяет локальную USB-службу на
+связи, stop timeout, отмена ARM, старые ответы, ошибочные ACK/STOP, режим
+`motion_editor`, отделение PWM-диагностики от измеренного угла и отсутствие
+ложных измерений, а также черновик пакета робота: отказ правой руки +55°
+при текущем Live +45°, отказ движения отключённой левой руки, отказ слишком
+быстрых участков и `hold`, сохранение активных суставов без скрытого clamp.
+`npm run test:bridge` проверяет локальную USB-службу на
 подставных serial/HTTP/WebSocket: фильтр `303a:1001`, скрытие путей, Origin,
 одного владельца, DTR/RTS/exclusive до открытия, split-ответы, boot logs,
 ограничения размеров, тайм-аут hello, busy/absent/nohello errors, отсутствие
-безграничного flush и очистку очереди без replay. Браузерные и физические
-прогоны отдельно не выполнены.
+безграничного flush и очистку очереди без replay. Эти тесты используют
+имитаторы и не открывают реальное USB-устройство. Свежие hardware evidence
+описаны в checkpoint 12-13 сентября: приняты hardware runner, persistence
+после software reset и выбор/запуск сохранённого `arm3` package.
 
 Справочные API: [WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket),
 [видимость страницы](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API).
@@ -317,8 +517,9 @@ anchor POSE на последнюю подтверждённую `commanded_pose
 цель. При более коротком промежутке накопление не превышает 0,1° при 1°/с.
 Таймаут anchor завершает сессию без отправки новой цели. Baseline ARM,
 ограничение одного сустава, auth, скорость, watchdog и STOP сохраняются.
-Исправление совместимо с установленным профилем ±15 и неустановленным
-кандидатом [-70,+15]; смена прошивки не требуется.
+Исправление совместимо с историческим профилем ±15, неустановленным
+кандидатом [-70,+15] и текущим `motion_editor`; смена прошивки для этого
+клиентского поведения не требуется.
 
 ## Выбор следующего сустава и фокус окна (2026-09-08)
 

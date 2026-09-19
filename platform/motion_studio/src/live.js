@@ -1,5 +1,5 @@
 import { normalizePwmDiagnostics } from "./pwm-diagnostics.js";
-import { PROFILE, validatePose } from "./motion.js";
+import { PROFILE, prepareRobotPackageUpload, validatePose } from "./motion.js";
 
 export const LIVE_PROTOCOL = "gosha.motion.live.v1";
 export const USB_BRIDGE_HTTP_URL = "http://127.0.0.1:5177";
@@ -29,6 +29,7 @@ const assert = (condition, message) => {
 const jointById = (id) => PROFILE.joints.find((joint) => joint.id === id);
 const formatDegrees = (value) =>
   `${value > 0 ? "+" : ""}${Number(value.toFixed(2))}°`;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function commissioningJointIds(mode) {
   if (mode === RIGHT_ARM_COMMISSIONING_MODE) return RIGHT_ARM_COMMISSIONING_JOINTS;
@@ -91,6 +92,31 @@ function summarizeMessage(message) {
     return "запрошено включение правой руки";
   if (message.op === "keepalive") return `seq ${message.seq}`;
   if (message.op === "hello") return "проверка протокола";
+  if (message.op === "package_upload_begin") return "начало записи пакета";
+  if (message.op === "package_upload_chunk")
+    return `chunk ${message.offset}`;
+  if (message.op === "package_upload_finish") return "завершение записи пакета";
+  if (message.op === "package_upload_abort") return "отмена записи пакета";
+  if (message.op === "package_list") return "список пакетов робота";
+  if (message.op === "package_load") return "проверка сохранённого пакета";
+  if (message.op === "package_select") return "выбор пакета робота";
+  if (message.op === "package_prepare") return "подготовка сохранённого пакета";
+  if (message.op === "package_sample")
+    return `проверка кадра ${message.elapsed_ms} мс`;
+  if (message.op === "package_run_start")
+    return "программная проверка запуска пакета";
+  if (message.op === "package_run_status")
+    return "статус программной проверки пакета";
+  if (message.op === "package_run_stop")
+    return "остановка программной проверки пакета";
+  if (message.op === "package_hardware_run_start")
+    return "аппаратный запуск пакета";
+  if (message.op === "package_hardware_run_status")
+    return "статус аппаратного запуска пакета";
+  if (message.op === "package_hardware_run_stop")
+    return "остановка аппаратного запуска пакета";
+  if (message.op === "package_delete")
+    return "удаление сохранённого пакета";
   return message.op;
 }
 
@@ -114,8 +140,27 @@ function summarizeIncoming(data, caps) {
     );
   if (data.op === "stopped") return "робот подтвердил остановку";
   if (data.op === "armed") return "сессия подтверждена";
+  if (data.op === "package_status") return data.status ?? "статус пакета";
   if (data.op === "error") return data.code ?? "ошибка робота";
   return data.op;
+}
+
+function normalizePackageFeatures(features) {
+  const source =
+    features && typeof features === "object" && !Array.isArray(features)
+      ? features
+      : {};
+  return {
+    store_slots:
+      Number.isInteger(source.store_slots) && source.store_slots >= 0
+        ? source.store_slots
+        : 0,
+    list: source.list === true,
+    select: source.select === true,
+    delete_all: source.delete_all === true,
+    delete_by_id: source.delete_by_id === true,
+    hardware_run: source.hardware_run === true,
+  };
 }
 
 export function robotSocketUrl(host) {
@@ -253,9 +298,13 @@ export function validateCapabilities(data) {
     data.reason === RIGHT_ARM_INITIALIZATION_REASON;
   assert(
     data.motion_allowed === true || initializationRequired,
-    data.reason === "no_motion_profile"
-      ? "В прошивке включён режим без движений."
-      : "Робот не разрешил живое управление.",
+    data.reason === "ordinary_pose_outside_editor"
+      ? "Поза после обычного движения выходит за пределы редактора. Скажите роботу «Вернись в нейтральную стойку», затем подключитесь снова."
+      : data.reason === "robot_movement_active"
+        ? "Робот выполняет обычное движение. Дождитесь окончания или скажите «Стоп», затем подключитесь снова."
+        : data.reason === "no_motion_profile"
+          ? "В прошивке включён режим без движений."
+          : "Робот не разрешил живое управление.",
   );
   assert(
     (data.commissioning === undefined || typeof data.commissioning === "boolean") &&
@@ -356,6 +405,7 @@ export function validateCapabilities(data) {
     joint_limits,
     commanded_pose,
     pwm_diagnostics: normalizePwmDiagnostics(data.pwm_diagnostics),
+    package_features: normalizePackageFeatures(data.package_features),
     feedback: {
       measured_position: data.feedback?.measured_position === true,
       imu: data.feedback?.imu === true,
@@ -385,6 +435,9 @@ export class LiveSession {
     this.needsFreshPoseClock = false;
     this.sessionId = null;
     this.pending = null;
+    this.packageRequest = null;
+    this.storedPackage = null;
+    this.storedPackages = null;
     this.lastTelemetry = null;
     this.speed = 10;
     this.target = null;
@@ -419,6 +472,11 @@ export class LiveSession {
         : null,
       commissioning_joint: this.commissioningJoint,
       pending: Boolean(this.pending),
+      packagePending: Boolean(this.packageRequest),
+      storedPackage: this.storedPackage ? { ...this.storedPackage } : null,
+      storedPackages: Array.isArray(this.storedPackages)
+        ? this.storedPackages.map((item) => ({ ...item }))
+        : null,
       commandLog: this.commandLog.map((entry) => ({ ...entry })),
     };
   }
@@ -443,6 +501,13 @@ export class LiveSession {
     this.socket.send(JSON.stringify({ protocol: LIVE_PROTOCOL, ...message }));
     this.appendLog("sent", message.op, summarizeMessage(message));
     this.onChange(this.snapshot());
+  }
+  clearPackageRequest(reason = "Операция пакета прервана.") {
+    if (!this.packageRequest) return;
+    const request = this.packageRequest;
+    clearTimeout(request.timer);
+    this.packageRequest = null;
+    request.reject(new Error(reason));
   }
   connect(host) {
     this.connectUrl(robotSocketUrl(host), {
@@ -523,6 +588,31 @@ export class LiveSession {
     };
   }
   receive(data) {
+    if (
+      this.packageRequest &&
+      data.request_id === this.packageRequest.requestId &&
+      (data.op === "package_status" || data.op === "error")
+    ) {
+      const request = this.packageRequest;
+      clearTimeout(request.timer);
+      this.packageRequest = null;
+      this.appendLog("received", data.op, summarizeIncoming(data, this.caps));
+      if (data.op === "error") {
+        request.reject(
+          new Error(
+            data.message || data.code || "Робот отклонил операцию пакета.",
+          ),
+        );
+      } else if (!request.statuses.includes(data.status)) {
+        request.reject(
+          new Error("Робот вернул неожиданный статус операции пакета."),
+        );
+      } else {
+        request.resolve(data);
+      }
+      this.onChange(this.snapshot());
+      return;
+    }
     if (
       data.op === "error" &&
       (data.request_id === this.requestId ||
@@ -691,6 +781,536 @@ export class LiveSession {
       }
       this.onTelemetry(this.lastTelemetry);
       this.onChange(this.snapshot());
+    }
+  }
+  requestPackageStatus(message, statuses, timeoutMs = 2500) {
+    assert(!this.packageRequest, "Предыдущая операция пакета ещё не завершена.");
+    const requestId = this.makeId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.packageRequest?.requestId === requestId) {
+          this.packageRequest = null;
+          this.onChange(this.snapshot());
+        }
+        reject(new Error("Робот не подтвердил операцию пакета."));
+      }, timeoutMs);
+      this.packageRequest = { requestId, statuses, resolve, reject, timer };
+      try {
+        this.send({ ...message, request_id: requestId });
+      } catch (error) {
+        clearTimeout(timer);
+        this.packageRequest = null;
+        reject(error);
+      }
+    });
+  }
+  assertPackageOperationReady(key, action = "Операция с пакетом") {
+    this.assertPackageReadReady(action);
+    assert(
+      this.state === "ready",
+      `${action} требует включенной правой руки и состояния готовности.`,
+    );
+    assert(
+      typeof key === "string" && key.length >= 16 && key.length <= 128,
+      "Нужен ключ доступа, выданный при настройке Live на роботе.",
+    );
+  }
+  assertPackageReadReady(action = "Операция с пакетом") {
+    assert(
+      ["ready", "init_required"].includes(this.state) && this.caps,
+      "Подключите робота и дождитесь состояния готовности.",
+    );
+    assert(
+      this.caps.mode === MOTION_EDITOR_MODE && !this.caps.commissioning,
+      `${action} доступна только в Live-режиме motion_editor.`,
+    );
+  }
+  packageMetadataFromRecord(record, { active = false } = {}) {
+    assert(
+      record &&
+        typeof record.package_id === "string" &&
+        record.package_id.length > 0 &&
+        typeof record.profile_id === "string" &&
+        typeof record.calibration_id === "string" &&
+        Number.isFinite(record.payload_size) &&
+        record.payload_size > 0 &&
+        Number.isFinite(record.crc32),
+      "Робот вернул некорректные сведения о сохранённом пакете.",
+    );
+    return {
+      present: true,
+      package_id: record.package_id,
+      name:
+        typeof record.name === "string" && record.name.trim()
+          ? record.name
+          : record.package_id,
+      profile_id: record.profile_id,
+      calibration_id: record.calibration_id,
+      payload_size: record.payload_size,
+      crc32: record.crc32,
+      duration_ms: Number.isFinite(record.duration_ms)
+        ? record.duration_ms
+        : null,
+      interpolation:
+        typeof record.interpolation === "string" && record.interpolation
+          ? record.interpolation
+          : null,
+      keyframe_count: Number.isInteger(record.keyframe_count)
+        ? record.keyframe_count
+        : null,
+      active_joint_count: Number.isInteger(record.active_joint_count)
+        ? record.active_joint_count
+        : null,
+      active,
+      compatible:
+        record.profile_id === this.caps?.profile_id &&
+        record.calibration_id === this.caps?.calibration_id,
+    };
+  }
+  setStoredPackage(metadata, packages = null) {
+    this.storedPackage = metadata;
+    if (packages) {
+      this.storedPackages = packages;
+    } else if (metadata?.present && Array.isArray(this.storedPackages)) {
+      const found = this.storedPackages.some(
+        (item) => item.package_id === metadata.package_id,
+      );
+      this.storedPackages = found
+        ? this.storedPackages.map((item) =>
+            item.package_id === metadata.package_id
+              ? { ...metadata, active: true }
+              : { ...item, active: false },
+          )
+        : [
+            { ...metadata, active: true },
+            ...this.storedPackages.map((item) => ({
+              ...item,
+              active: false,
+            })),
+          ];
+    } else if (metadata?.present === false) {
+      this.storedPackages = [];
+    }
+    this.onChange(this.snapshot());
+    return metadata;
+  }
+  setStoredPackageList(listed) {
+    assert(
+      Number.isInteger(listed.count) &&
+        Array.isArray(listed.packages) &&
+        listed.packages.length === listed.count,
+      "Робот вернул некорректный список сохранённых пакетов.",
+    );
+    if (listed.packages.length === 0) {
+      const empty = { present: false };
+      this.setStoredPackage(empty, []);
+      return {
+        storedPackage: empty,
+        storedPackages: [],
+      };
+    }
+    const activePackages = listed.packages.filter((item) => item.active === true);
+    const active = activePackages[0];
+    assert(
+      active && activePackages.length === 1,
+      "Робот вернул список пакетов без активного payload.",
+    );
+    const storedPackages = listed.packages.map((item) =>
+      this.packageMetadataFromRecord(item, { active: item.active === true }),
+    );
+    const storedPackage = this.setStoredPackage(
+      this.packageMetadataFromRecord(active, { active: true }),
+      storedPackages,
+    );
+    return { storedPackage, storedPackages };
+  }
+  async readStoredPackage() {
+    this.assertPackageReadReady("Статус пакета робота");
+    const listed = await this.requestPackageStatus(
+      { op: "package_list" },
+      ["listed"],
+    );
+    return { listed, ...this.setStoredPackageList(listed) };
+  }
+  async selectStoredPackage(packageId, key) {
+    this.assertPackageOperationReady(key, "Выбор пакета робота");
+    assert(
+      typeof packageId === "string" && packageId.length > 0,
+      "Выберите пакет робота из списка.",
+    );
+    const selected = await this.requestPackageStatus(
+      {
+        op: "package_select",
+        package_id: packageId,
+        access_key: key,
+      },
+      ["selected"],
+      5000,
+    );
+    const storedPackage = this.setStoredPackage(
+      this.packageMetadataFromRecord(selected, { active: true }),
+    );
+    return { selected, storedPackage };
+  }
+  packageSampleWithinCaps(sample, packageId, elapsedMs = null) {
+    if (
+      sample.package_id !== packageId ||
+      (elapsedMs !== null && sample.elapsed_ms !== elapsedMs) ||
+      !Number.isFinite(sample.elapsed_ms) ||
+      !sample.target
+    )
+      return false;
+    return this.caps.joint_limits.every(
+      (limit) =>
+        Number.isFinite(sample.target[limit.id]) &&
+        sample.target[limit.id] >= limit.min &&
+        sample.target[limit.id] <= limit.max,
+    );
+  }
+  async verifyPackageSoftwareRun(packageId, key, firstFrameMatches) {
+    let runSessionId = null;
+    try {
+      const runStarted = await this.requestPackageStatus(
+        {
+          op: "package_run_start",
+          access_key: key,
+        },
+        ["run_started"],
+      );
+      runSessionId = runStarted.run_session_id;
+      assert(
+        typeof runSessionId === "string" &&
+          runSessionId.length >= 16 &&
+          runStarted.hardware_apply === false &&
+          firstFrameMatches(runStarted),
+        "Робот не подтвердил безопасный программный запуск пакета.",
+      );
+      const runStatus = await this.requestPackageStatus(
+        {
+          op: "package_run_status",
+          run_session_id: runSessionId,
+        },
+        ["run_running", "run_finished"],
+      );
+      assert(
+        runStatus.run_session_id === runSessionId &&
+          runStatus.hardware_apply === false &&
+          this.packageSampleWithinCaps(runStatus, packageId),
+        "Робот не подтвердил программное исполнение пакета без hardware apply.",
+      );
+      const runStopped = await this.requestPackageStatus(
+        {
+          op: "package_run_stop",
+          run_session_id: runSessionId,
+        },
+        ["run_stopped"],
+      );
+      assert(
+        runStopped.run_session_id === runSessionId &&
+          runStopped.hardware_apply === false,
+        "Робот не подтвердил остановку программной проверки пакета.",
+      );
+      runSessionId = null;
+      return { runStarted, runStatus, runStopped };
+    } catch (error) {
+      if (runSessionId) {
+        try {
+          await this.requestPackageStatus(
+            {
+              op: "package_run_stop",
+              run_session_id: runSessionId,
+            },
+            ["run_stopped"],
+            1000,
+          );
+        } catch {}
+      }
+      throw error;
+    }
+  }
+  hardwareRunStatusWithinCaps(status, packageId) {
+    if (!["hardware_run_running", "hardware_run_finished"].includes(status.status)) {
+      return false;
+    }
+    if (status.hardware_apply === false) {
+      return Boolean(status.run_session_id) && !status.target;
+    }
+    return (
+      status.hardware_apply === true &&
+      this.packageSampleWithinCaps(status, packageId)
+    );
+  }
+  async runStoredPackageInHardware(key, { pollIntervalMs = 500 } = {}) {
+    this.assertPackageOperationReady(key, "Аппаратный запуск сохранённого пакета");
+    const loaded = await this.requestPackageStatus(
+      { op: "package_load" },
+      ["loaded"],
+    );
+    const storedPackage = this.setStoredPackage(
+      this.packageMetadataFromRecord(loaded),
+    );
+    assert(
+      storedPackage.compatible,
+      "Сохранённый пакет не совпал с текущей калибровкой робота.",
+    );
+    const prepared = await this.requestPackageStatus(
+      { op: "package_prepare" },
+      ["prepared"],
+    );
+    assert(
+      prepared.package_id === loaded.package_id &&
+        Number.isFinite(prepared.duration_ms) &&
+        prepared.duration_ms > 0,
+      "Робот не подготовил сохранённый пакет к запуску.",
+    );
+    const sampled = await this.requestPackageStatus(
+      { op: "package_sample", elapsed_ms: 0 },
+      ["sampled"],
+    );
+    assert(
+      this.packageSampleWithinCaps(sampled, loaded.package_id, 0) &&
+        this.caps.joint_limits.every(
+          (limit) => sampled.target[limit.id] === this.caps.commanded_pose[limit.id],
+        ),
+      "Первый кадр пакета не совпадает с текущей командой робота.",
+    );
+    let runSessionId = null;
+    try {
+      const runStarted = await this.requestPackageStatus(
+        {
+          op: "package_hardware_run_start",
+          access_key: key,
+          speed_dps: this.speed,
+        },
+        ["hardware_run_started"],
+        5000,
+      );
+      runSessionId = runStarted.run_session_id;
+      assert(
+        typeof runSessionId === "string" &&
+          runSessionId.length >= 16 &&
+          runStarted.hardware_apply === false,
+        "Робот не подтвердил безопасный старт аппаратного запуска.",
+      );
+      const deadline = this.now() + prepared.duration_ms + 8000;
+      let runStatus = null;
+      do {
+        runStatus = await this.requestPackageStatus(
+          {
+            op: "package_hardware_run_status",
+            run_session_id: runSessionId,
+          },
+          ["hardware_run_running", "hardware_run_finished"],
+          5000,
+        );
+        assert(
+          runStatus.run_session_id === runSessionId &&
+            this.hardwareRunStatusWithinCaps(runStatus, loaded.package_id),
+          "Робот сообщил некорректный статус аппаратного запуска.",
+        );
+        if (runStatus.status === "hardware_run_finished") {
+          runSessionId = null;
+          return { loaded, prepared, sampled, runStarted, runStatus };
+        }
+        await delay(pollIntervalMs);
+      } while (this.now() < deadline);
+      throw new Error("Робот не завершил аппаратный запуск пакета вовремя.");
+    } catch (error) {
+      if (runSessionId) {
+        try {
+          await this.requestPackageStatus(
+            {
+              op: "package_hardware_run_stop",
+              run_session_id: runSessionId,
+            },
+            ["hardware_run_stopped"],
+            1500,
+          );
+        } catch {}
+      }
+      throw error;
+    }
+  }
+  async verifyStoredPackage(key) {
+    this.assertPackageOperationReady(key, "Проверка сохранённого пакета");
+    const loaded = await this.requestPackageStatus(
+      { op: "package_load" },
+      ["loaded"],
+    );
+    const storedPackage = this.setStoredPackage(
+      this.packageMetadataFromRecord(loaded),
+    );
+    assert(
+      storedPackage.compatible,
+      "Сохранённый пакет не совпал с текущей калибровкой робота.",
+    );
+    const prepared = await this.requestPackageStatus(
+      { op: "package_prepare" },
+      ["prepared"],
+    );
+    assert(
+      prepared.package_id === loaded.package_id &&
+        Number.isFinite(prepared.duration_ms) &&
+        prepared.duration_ms > 0,
+      "Робот не подготовил сохранённый пакет к проверке.",
+    );
+    const sampled = await this.requestPackageStatus(
+      { op: "package_sample", elapsed_ms: 0 },
+      ["sampled"],
+    );
+    assert(
+      this.packageSampleWithinCaps(sampled, loaded.package_id, 0),
+      "Робот не смог прочитать первый кадр сохранённого пакета.",
+    );
+    const firstFrameMatches = (sample) =>
+      this.packageSampleWithinCaps(sample, loaded.package_id, 0) &&
+      this.caps.joint_limits.every(
+        (limit) => sample.target[limit.id] === sampled.target[limit.id],
+      );
+    const run = await this.verifyPackageSoftwareRun(
+      loaded.package_id,
+      key,
+      firstFrameMatches,
+    );
+    return { loaded, prepared, sampled, ...run };
+  }
+  async deleteStoredPackage(key, packageId = null) {
+    this.assertPackageOperationReady(key, "Удаление сохранённого пакета");
+    const targeted = packageId !== null && packageId !== undefined;
+    if (targeted) {
+      assert(
+        this.caps?.package_features?.delete_by_id === true,
+        "Прошивка робота не поддерживает безопасное удаление выбранного пакета.",
+      );
+      assert(
+        typeof packageId === "string" && packageId.length > 0,
+        "Выберите пакет робота из списка.",
+      );
+    }
+    const deleted = await this.requestPackageStatus(
+      {
+        op: "package_delete",
+        ...(targeted ? { package_id: packageId } : {}),
+        access_key: key,
+      },
+      ["deleted"],
+      5000,
+    );
+    if (targeted) {
+      const { listed, storedPackage, storedPackages } =
+        await this.readStoredPackage();
+      return { deleted, listed, storedPackage, storedPackages };
+    }
+    this.setStoredPackage({ present: false });
+    this.storedPackages = [];
+    return { deleted };
+  }
+  async uploadPackageDraft(packageDraft, key) {
+    this.assertPackageOperationReady(key, "Запись пакета");
+    const upload = prepareRobotPackageUpload(packageDraft);
+    assert(
+      upload.profile_id === this.caps.profile_id &&
+        upload.calibration_id === this.caps.calibration_id,
+      "Пакет подготовлен не для текущей калибровки робота.",
+    );
+    let uploadSessionId = null;
+    try {
+      const begin = await this.requestPackageStatus(
+        {
+          op: "package_upload_begin",
+          package_id: upload.package_id,
+          profile_id: upload.profile_id,
+          calibration_id: upload.calibration_id,
+          total_size: upload.total_size,
+          crc32: upload.crc32,
+          access_key: key,
+        },
+        ["upload_started"],
+      );
+      uploadSessionId = begin.upload_session_id;
+      assert(
+        typeof uploadSessionId === "string" && uploadSessionId.length >= 16,
+        "Робот не выдал корректную upload-сессию.",
+      );
+      for (const chunk of upload.chunks) {
+        await this.requestPackageStatus(
+          {
+            op: "package_upload_chunk",
+            upload_session_id: uploadSessionId,
+            offset: chunk.offset,
+            data_b64: chunk.data_b64,
+          },
+          ["upload_chunk"],
+        );
+      }
+      await this.requestPackageStatus(
+        {
+          op: "package_upload_finish",
+          upload_session_id: uploadSessionId,
+          access_key: key,
+        },
+        ["stored"],
+        5000,
+      );
+      uploadSessionId = null;
+      const loaded = await this.requestPackageStatus(
+        { op: "package_load" },
+        ["loaded"],
+      );
+      const storedPackage = this.setStoredPackage(
+        this.packageMetadataFromRecord(loaded),
+      );
+      assert(
+        loaded.package_id === upload.package_id &&
+          loaded.profile_id === upload.profile_id &&
+          loaded.calibration_id === upload.calibration_id &&
+          loaded.payload_size === upload.total_size &&
+          loaded.crc32 === upload.crc32,
+        "Сохранённый пакет не совпал с отправленным.",
+      );
+      const prepared = await this.requestPackageStatus(
+        { op: "package_prepare" },
+        ["prepared"],
+      );
+      assert(
+        prepared.package_id === upload.package_id &&
+          prepared.duration_ms === packageDraft.duration_ms,
+        "Робот не подготовил сохранённый пакет к проверке.",
+      );
+      const sampled = await this.requestPackageStatus(
+        { op: "package_sample", elapsed_ms: 0 },
+        ["sampled"],
+      );
+      const firstTarget = packageDraft.keyframes?.[0]?.target ?? {};
+      const firstFrameMatches = (sample) =>
+        this.packageSampleWithinCaps(sample, upload.package_id, 0) &&
+        packageDraft.active_joints.every(
+          (id) => sample.target[id] === firstTarget[id],
+        );
+      assert(
+        firstFrameMatches(sampled),
+        "Робот не смог прочитать первый кадр сохранённого пакета.",
+      );
+      const run = await this.verifyPackageSoftwareRun(
+        upload.package_id,
+        key,
+        firstFrameMatches,
+      );
+      return { loaded, prepared, sampled, storedPackage, ...run };
+    } catch (error) {
+      if (uploadSessionId) {
+        try {
+          await this.requestPackageStatus(
+            {
+              op: "package_upload_abort",
+              upload_session_id: uploadSessionId,
+            },
+            ["upload_aborted"],
+            1000,
+          );
+        } catch {}
+      }
+      throw error;
     }
   }
   validateTelemetry(data) {
@@ -910,6 +1530,7 @@ export class LiveSession {
     this.needsFreshPoseClock = false;
     this.target = null;
     this.pending = null;
+    this.clearPackageRequest(reason);
     if (this.state === "arming") {
       this.disconnect();
       return;
@@ -941,6 +1562,7 @@ export class LiveSession {
     this.pending = null;
     this.sessionId = null;
     this.deadline = null;
+    this.clearPackageRequest(reason);
     this.socket = null;
     this.closeAfterStop = false;
     this.commissioningStartPose = null;
@@ -993,6 +1615,7 @@ export class LiveSession {
     this.holding = false;
     this.following = false;
     this.needsFreshPoseClock = false;
+    this.clearPackageRequest(reason);
     this.closeAfterStop = false;
     this.commissioningStartPose = null;
     this.commissioningJoint = null;
