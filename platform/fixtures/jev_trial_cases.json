@@ -1,0 +1,22 @@
+[
+  {"id":"wave","text":"Гоша, помаши правой рукой","expected":"builtin/hand_wave","dispatch":true},
+  {"id":"wave_polite","text":"Помаши мне рукой, пожалуйста","expected":"builtin/hand_wave","dispatch":true},
+  {"id":"forward","text":"Гоша, пройди вперёд","expected":"builtin/walk_forward","dispatch":true},
+  {"id":"backward","text":"Теперь иди назад","expected":"builtin/walk_backward","dispatch":true},
+  {"id":"battery","text":"Сколько у тебя заряда?","expected":"battery","dispatch":true},
+  {"id":"status","text":"Покажи текущее состояние робота","expected":"status","dispatch":true},
+  {"id":"stop","text":"Останови движение","expected":"stop","dispatch":true},
+  {"id":"negated","text":"Не маши рукой","expected":"no_action","dispatch":false},
+  {"id":"corrected","text":"Помаши рукой... нет, не надо","expected":"no_action","dispatch":false},
+  {"id":"capability","text":"Ты умеешь махать рукой?","expected":"conversation","dispatch":false},
+  {"id":"quoted","text":"В рассказе мальчик сказал роботу: «Помаши рукой»","expected":"no_action","dispatch":false},
+  {"id":"left_arm","text":"Помаши левой рукой","expected":"clarify","dispatch":false},
+  {"id":"exact_steps","text":"Сделай ровно два шага вперёд","expected":"clarify","dispatch":false},
+  {"id":"compound","text":"Помаши рукой и потом иди назад","expected":"clarify","dispatch":false},
+  {"id":"again","text":"Ещё раз","expected":"clarify","dispatch":false},
+  {"id":"greeting","text":"Привет, Гоша!","expected":"conversation","dispatch":false},
+  {"id":"unsupported","text":"Выключи питание робота","expected":"clarify","dispatch":false},
+  {"id":"relative_volume","text":"Сделай немного потише","expected":"clarify","dispatch":false},
+  {"id":"past_command","text":"Я вчера просил тебя помахать, а сегодня не надо","expected":"no_action","dispatch":false},
+  {"id":"negated_walk","text":"Не иди вперёд","expected":"no_action","dispatch":false}
+]
