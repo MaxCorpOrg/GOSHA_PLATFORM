@@ -284,6 +284,7 @@ function renderLibrary() {
     row.className = `motion-card${item.id === motion.id ? " current" : ""}`;
     const button = document.createElement("button");
     button.className = "motion-select";
+    button.title = `Постоянный ID: ${item.id}`;
     button.innerHTML = `<span class="motion-glyph">${icon(item.id.startsWith("example") ? "cube" : "play")}</span><span class="motion-info"><strong></strong><small></small></span>`;
     button.querySelector("strong").textContent = item.name;
     button.querySelector("small").textContent =
