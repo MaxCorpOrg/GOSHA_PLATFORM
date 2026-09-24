@@ -1491,6 +1491,8 @@ function editorCaps(initialized = true) {
 function editorCaps45() {
   return {
     ...editorCaps(),
+    package_features: { store_slots: 3, list: true, select: true,
+      delete_all: true, delete_by_id: true, hardware_run: true },
     joint_limits: [
       { id: "arm_positive_x", min: -70, max: 45, max_speed_dps: 10 },
       { id: "leg_negative_x", min: -35, max: 35, max_speed_dps: 10 },
@@ -1500,6 +1502,18 @@ function editorCaps45() {
     ],
   };
 }
+test("old two-slot firmware rejects uploads before replacing a package", async () => {
+  const h = harness(() => ({ ...editorCaps45(),
+    package_features: { store_slots: 2, list: true, select: true } }));
+  const socket = h.ready();
+  const motion = createMotion("Новый жест");
+  const draft = prepareRobotMotionPackage(motion, h.live.caps).package;
+  await assert.rejects(
+    () => h.live.uploadPackageDraft(draft, "synthetic-test-key-only"),
+    /хранит только два пакета/,
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+});
 test("full editor declares uncalibrated owner limits separately from legacy commissioning", () => {
   const caps=validateCapabilities(editorCaps());
   assert.equal(caps.commissioning,false); assert.equal(caps.calibrated,false);
@@ -1733,7 +1747,29 @@ test("editor uploads a robot package without arming or sending pose", async () =
     hardware_apply: false,
   });
 
+  await Promise.resolve();
+  await Promise.resolve();
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 1,
+    packages: [{
+      package_id: begin.package_id,
+      profile_id: begin.profile_id,
+      calibration_id: begin.calibration_id,
+      payload_size: begin.total_size,
+      crc32: begin.crc32,
+      name: result.package.name,
+      active: true,
+    }],
+  });
+
   const meta = await upload;
+  assert.equal(meta.catalog.storedPackages.length, 1);
   assert.equal(meta.loaded.status, "loaded");
   assert.equal(meta.prepared.status, "prepared");
   assert.equal(meta.sampled.status, "sampled");
@@ -1972,11 +2008,21 @@ test("editor can read stored packages while right arm initialization is required
   const meta = await status;
   assert.equal(meta.storedPackage.package_id, "persisted-001");
   assert.equal(h.live.snapshot().state, "init_required");
-  await assert.rejects(
-    () => h.live.deleteStoredPackage("synthetic-test-key-only", "persisted-001"),
-    /требует включенной правой руки/,
-  );
-  assert.equal(socket.sent.some((item) => item.op === "package_delete"), false);
+  const remove = h.live.deleteStoredPackage("synthetic-test-key-only", "persisted-001");
+  const deleted = socket.sent.at(-1);
+  assert.equal(deleted.op, "package_delete");
+  socket.receive({
+    protocol: LIVE_PROTOCOL, op: "package_status", request_id: deleted.request_id,
+    status: "deleted", package_id: "persisted-001",
+  });
+  await Promise.resolve();
+  const after = socket.sent.at(-1);
+  assert.equal(after.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL, op: "package_status", request_id: after.request_id,
+    status: "listed", count: 0, packages: [],
+  });
+  await remove;
   assert.equal(socket.sent.some((item) => item.op === "arm"), false);
   assert.equal(socket.sent.some((item) => item.op === "pose"), false);
 });
@@ -2491,7 +2537,7 @@ test("editor deletes a stored robot package without uploading, arming or sending
 });
 
 test("editor refuses targeted package delete when firmware does not advertise it", async () => {
-  const h = harness(editorCaps45);
+  const h = harness(() => ({ ...editorCaps45(), package_features: { store_slots: 2 } }));
   const socket = h.ready();
 
   await assert.rejects(

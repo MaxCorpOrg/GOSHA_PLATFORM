@@ -6,6 +6,7 @@ import {
   clone,
   zeroPose,
   createMotion,
+  examples,
   poseAt,
   putPose,
   mirrorPose,
@@ -13,6 +14,8 @@ import {
   validatePose,
   parseMotion,
   prepareRobotMotionPackage,
+  prepareRobotPackageUpload,
+  robotPackageCrc32,
   newId,
   MAX_FILE_BYTES,
 } from "./motion.js";
@@ -72,6 +75,7 @@ document.querySelector("#app").innerHTML = `
     <span class="version">ПРОТОТИП 01</span>
     <div class="top-spacer"></div>
     <span class="save-state" id="save-status" role="status">Сохранено в браузере</span>
+    <span class="save-state" id="robot-install-status" role="status">Черновик</span>
     <button id="export-original" class="button quiet" hidden>Исходная библиотека</button>
     <button id="export-robot-package" class="button quiet">${icon("download")}Пакет робота</button>
     <button id="upload-robot-package" class="button quiet">${icon("upload")}Записать в робота</button>
@@ -87,6 +91,7 @@ document.querySelector("#app").innerHTML = `
       <div class="panel-heading"><span class="eyebrow">БИБЛИОТЕКА</span><span class="count" id="library-count"></span></div>
       <h1>Движения</h1>
       <button class="button new-motion" id="new">${icon("plus")}Новое движение</button>
+      <button class="button quiet new-motion" id="new-greeting">${icon("copy")}Малое приветствие</button>
       <label class="search-label"><span class="sr-only">Найти движение</span><input id="search" type="search" placeholder="Найти движение…" /></label>
       <div id="motion-list" class="motion-list"></div>
       <div class="library-footer"><span class="local-dot"></span><div>Локальная библиотека<small>Движения остаются в этом браузере. Для копии скачайте JSON.</small></div></div>
@@ -162,6 +167,28 @@ function attempt(action) {
     render();
   }
 }
+function motionFingerprint(value) {
+  return robotPackageCrc32(
+    new TextEncoder().encode(JSON.stringify(validateMotion(value))),
+  );
+}
+function updateRobotInstallStatus() {
+  const record = library.installed[motion.id];
+  const current = record && record.fingerprint === motionFingerprint(motion);
+  const packages = live?.snapshot?.storedPackages;
+  const onRobot = Array.isArray(packages)
+    ? packages.find((item) => item.package_id === record?.package_id)
+    : null;
+  let label = "Черновик";
+  if (record && !current) label = "Изменено";
+  else if (record && Array.isArray(packages) && !onRobot) label = "Нет в роботе";
+  else if (record && onRobot && onRobot.crc32 !== record.crc32)
+    label = "Изменено в роботе";
+  else if (record) label = "Установлено";
+  $("robot-install-status").textContent = label;
+  $("upload-robot-package").innerHTML =
+    `${icon("upload")}${record ? "Обновить в роботе" : "Записать в робота"}`;
+}
 function persist() {
   library.active_id = motion.id;
   const index = library.motions.findIndex((m) => m.id === motion.id);
@@ -172,6 +199,7 @@ function persist() {
     ? "Сохранено в браузере"
     : "Сохраните JSON";
   $("save-status").classList.toggle("failed", !result.ok);
+  updateRobotInstallStatus();
   if (!result.ok) notify(result.error, true);
   return result.ok;
 }
@@ -385,6 +413,7 @@ function render() {
   renderVersions();
   selectJoint(selectedJoint);
   renderPosition();
+  updateRobotInstallStatus();
 }
 function addMotion(value) {
   if (library.motions.length >= 100)
@@ -415,6 +444,11 @@ $("new").onclick = () =>
     addMotion(createMotion());
     $("motion-name").focus();
     $("motion-name").select();
+  });
+$("new-greeting").onclick = () =>
+  attempt(() => {
+    const template = examples().find((item) => item.id === "example-small-greeting");
+    addMotion({ ...template, id: newId() });
   });
 $("search").oninput = renderLibrary;
 $("motion-name").onchange = () =>
@@ -572,6 +606,7 @@ $("confirm-delete").onclick = () => {
   live?.stop("Движение удалено из редактора.");
   library.motions = library.motions.filter((m) => m.id !== motion.id);
   delete library.revisions[motion.id];
+  delete library.installed[motion.id];
   if (!library.motions.length) library.motions.push(createMotion());
   motion = clone(library.motions[0]);
   time = 0;
@@ -627,7 +662,26 @@ $("upload-robot-package").onclick = () =>
         `Пакет робота не готов: ${result.issues[0].message}${rest}`,
       );
     }
-    await live.uploadPackage(result.package);
+    const previous = library.installed[motion.id];
+    const revision = (previous?.revision || 0) + 1;
+    const packageDraft = { ...result.package, revision };
+    const upload = prepareRobotPackageUpload(packageDraft);
+    await live.uploadPackage(packageDraft);
+    if (previous?.motion_snapshot &&
+        previous.fingerprint !== motionFingerprint(motion)) {
+      const revisions = library.revisions[motion.id] || [];
+      revisions.push({ saved_at: new Date().toISOString(), motion: previous.motion_snapshot });
+      library.revisions[motion.id] = revisions.slice(-20);
+    }
+    library.installed[motion.id] = {
+      package_id: upload.package_id,
+      crc32: upload.crc32,
+      fingerprint: motionFingerprint(motion),
+      revision,
+      motion_snapshot: clone(motion),
+    };
+    if (!persist()) throw new Error("Пакет записан, но локальная история не сохранилась. Скачайте JSON движения.");
+    renderVersions();
     notify(
       "Пакет записан, прочитан и программно проверен без движения приводов.",
     );
@@ -754,6 +808,7 @@ function updateLiveView() {
     : "Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.";
   $("neutral").disabled = $("mirror").disabled = Boolean(live?.enabled);
   renderPosition();
+  if (typeof updateRobotInstallStatus === "function") updateRobotInstallStatus();
 }
 live = mountLivePanel({
   getPose: () => pose,

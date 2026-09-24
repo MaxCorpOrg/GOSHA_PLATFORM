@@ -440,14 +440,15 @@ function bytesToBase64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
-function safeRobotPackageId(packageDraft, crc32) {
+function safeRobotPackageId(packageDraft) {
   const raw = String(packageDraft.source_motion_id || "motion");
-  const prefix =
-    raw
-      .replace(/[^a-zA-Z0-9_.-]/g, "_")
-      .replace(/^\.\.?$/, "motion")
-      .slice(0, 48) || "motion";
-  return `${prefix}-${crc32.toString(16).padStart(8, "0")}`;
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(raw))
+    fail("Некорректный постоянный идентификатор движения.");
+  if (raw.length <= 56) return `motion-${raw}`;
+  const suffix = robotPackageCrc32(textEncoder.encode(raw))
+    .toString(16)
+    .padStart(8, "0");
+  return `motion-${raw.slice(0, 46)}-${suffix}`;
 }
 
 export function prepareRobotPackageUpload(packageDraft) {
@@ -467,7 +468,7 @@ export function prepareRobotPackageUpload(packageDraft) {
     chunks.push({ offset, size: chunk.length, data_b64: bytesToBase64(chunk) });
   }
   return {
-    package_id: safeRobotPackageId(packageDraft, crc32),
+    package_id: safeRobotPackageId(packageDraft),
     profile_id: packageDraft.profile_id,
     calibration_id: packageDraft.calibration_id,
     total_size: bytes.length,
@@ -561,6 +562,12 @@ export function examples() {
       })),
     });
   return [
+    make("example-small-greeting", "Малое приветствие", [
+      [0, {}],
+      [1200, { arm_positive_x: 6 }],
+      [3600, { arm_positive_x: -6 }],
+      [4800, {}],
+    ]),
     make("example-wave", "Приветствие", [
       [0, {}],
       [600, { arm_positive_x: -55 }],

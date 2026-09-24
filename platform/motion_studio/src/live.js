@@ -804,10 +804,10 @@ export class LiveSession {
       }
     });
   }
-  assertPackageOperationReady(key, action = "Операция с пакетом") {
+  assertPackageOperationReady(key, action = "Операция с пакетом", requireInitialized = true) {
     this.assertPackageReadReady(action);
     assert(
-      this.state === "ready",
+      !requireInitialized || this.state === "ready",
       `${action} требует включенной правой руки и состояния готовности.`,
     );
     assert(
@@ -933,7 +933,7 @@ export class LiveSession {
     return { listed, ...this.setStoredPackageList(listed) };
   }
   async selectStoredPackage(packageId, key) {
-    this.assertPackageOperationReady(key, "Выбор пакета робота");
+    this.assertPackageOperationReady(key, "Выбор пакета робота", false);
     assert(
       typeof packageId === "string" && packageId.length > 0,
       "Выберите пакет робота из списка.",
@@ -1175,7 +1175,7 @@ export class LiveSession {
     return { loaded, prepared, sampled, ...run };
   }
   async deleteStoredPackage(key, packageId = null) {
-    this.assertPackageOperationReady(key, "Удаление сохранённого пакета");
+    this.assertPackageOperationReady(key, "Удаление сохранённого пакета", false);
     const targeted = packageId !== null && packageId !== undefined;
     if (targeted) {
       assert(
@@ -1206,7 +1206,11 @@ export class LiveSession {
     return { deleted };
   }
   async uploadPackageDraft(packageDraft, key) {
-    this.assertPackageOperationReady(key, "Запись пакета");
+    this.assertPackageOperationReady(key, "Запись пакета", false);
+    assert(
+      this.caps.package_features?.store_slots >= 3,
+      "Эта прошивка хранит только два пакета. Для сохранной записи нужна обновлённая прошивка Motion Studio.",
+    );
     const upload = prepareRobotPackageUpload(packageDraft);
     assert(
       upload.profile_id === this.caps.profile_id &&
@@ -1296,7 +1300,14 @@ export class LiveSession {
         key,
         firstFrameMatches,
       );
-      return { loaded, prepared, sampled, storedPackage, ...run };
+      const catalog = await this.readStoredPackage();
+      assert(
+        catalog.storedPackages.some((item) =>
+          item.package_id === upload.package_id &&
+          item.crc32 === upload.crc32 && item.active === true),
+        "Робот не подтвердил пакет в каталоге после записи.",
+      );
+      return { loaded, prepared, sampled, storedPackage, catalog, ...run };
     } catch (error) {
       if (uploadSessionId) {
         try {

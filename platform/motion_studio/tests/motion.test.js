@@ -58,6 +58,15 @@ test("JSON round trip preserves every frame, duration, name and profile", () => 
   });
   assert.deepEqual(parseMotion(JSON.stringify(motion)), motion);
 });
+test("small greeting example fits the current robot package limits", () => {
+  const greeting = examples().find((motion) => motion.id === "example-small-greeting");
+  const result = prepareRobotMotionPackage(greeting, liveEditorCaps());
+  assert.equal(result.ok, true);
+  assert.equal(result.package.duration_ms, 4800);
+  assert.equal(result.package.safety.max_required_speed_dps, 7.5);
+  assert.equal(prepareRobotPackageUpload(result.package).package_id,
+    "motion-example-small-greeting");
+});
 test("pose edits retain surrounding frames and never mutate the original motion", () => {
   const original = examples()[0];
   const baseline = structuredClone(original);
@@ -369,6 +378,9 @@ test("robot package upload plan is bounded, deterministic and CRC checked", () =
   assert.equal(upload.calibration_id, "a".repeat(64));
   assert.equal(upload.total_size, payload.length);
   assert.equal(upload.crc32, robotPackageCrc32(payload));
+  const changed = prepareRobotPackageUpload({ ...result.package, name: "Новая версия" });
+  assert.equal(changed.package_id, upload.package_id);
+  assert.notEqual(changed.crc32, upload.crc32);
   assert.deepEqual(decoded, payload);
   assert.ok(
     upload.chunks.every(

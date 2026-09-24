@@ -17,6 +17,7 @@ export function createStore(storage) {
             motions,
             active_id: motions[0].id,
             revisions: {},
+            installed: {},
             error: null,
           };
         }
@@ -38,6 +39,7 @@ export function createStore(storage) {
         if (new Set(motions.map((m) => m.id)).size !== motions.length)
           throw new Error("Duplicate ids");
         const revisions = Object.create(null);
+        const installed = Object.create(null);
         for (const motion of motions) {
           const saved = Object.hasOwn(data.revisions ?? {}, motion.id)
             ? data.revisions[motion.id]
@@ -55,6 +57,27 @@ export function createStore(storage) {
               throw new Error("Invalid revision identity");
             return { saved_at: r.saved_at, motion: snapshot };
           });
+          const record = Object.hasOwn(data.installed ?? {}, motion.id)
+            ? data.installed[motion.id]
+            : undefined;
+          if (record !== undefined) {
+            if (
+              !record ||
+              !/^[a-zA-Z0-9_.-]{1,64}$/.test(record.package_id ?? "") ||
+              !Number.isInteger(record.crc32) ||
+              record.crc32 < 0 || record.crc32 > 0xffffffff ||
+              !Number.isInteger(record.fingerprint) ||
+              record.fingerprint < 0 || record.fingerprint > 0xffffffff
+            ) throw new Error("Invalid installation record");
+            if (record.motion_snapshot) {
+              const snapshot = validateMotion(record.motion_snapshot);
+              if (snapshot.id !== motion.id) throw new Error("Invalid installation identity");
+            }
+            if (record.revision !== undefined &&
+                (!Number.isInteger(record.revision) || record.revision < 1))
+              throw new Error("Invalid installation revision");
+            installed[motion.id] = record;
+          }
         }
         let originalLibrary = storage.getItem(LEGACY_BACKUP_KEY);
         if (adjusted && !originalLibrary) {
@@ -69,6 +92,7 @@ export function createStore(storage) {
             ? data.active_id
             : motions[0].id,
           revisions,
+          installed,
           error: null,
         };
       } catch {
@@ -78,12 +102,13 @@ export function createStore(storage) {
           motions,
           active_id: motions[0].id,
           revisions: {},
+          installed: {},
           error:
             "Локальная библиотека недоступна или повреждена. Исходные данные сохранены без изменений. Работайте с экспортом JSON.",
         };
       }
     },
-    save({ motions, active_id, revisions }) {
+    save({ motions, active_id, revisions, installed = {} }) {
       if (!writable)
         return {
           ok: false,
@@ -97,6 +122,7 @@ export function createStore(storage) {
           active_id,
           motions: motions.map(validateMotion),
           revisions: clone(revisions),
+          installed: clone(installed),
         };
         storage.setItem(STORAGE_KEY, JSON.stringify(data));
         return { ok: true };

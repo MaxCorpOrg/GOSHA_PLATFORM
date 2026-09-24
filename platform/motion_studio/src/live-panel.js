@@ -767,8 +767,7 @@ export function mountLivePanel({
       ["ready", "init_required"].includes(state.state) &&
       isEditorMode(state) &&
       !state.packagePending;
-    const packageWritable =
-      state.state === "ready" && isEditorMode(state) && !state.packagePending;
+    const packageWritable = packageReadable;
     byId("live-package-refresh").disabled = !packageReadable;
     const storedPackage = state.storedPackage;
     const storedPackages = Array.isArray(state.storedPackages)

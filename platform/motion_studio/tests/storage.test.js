@@ -21,11 +21,15 @@ test("new motion and snapshots survive reopening with a fresh store instance", (
   state.revisions[edited.id] = [
     { saved_at: "2026-09-06T09:00:00Z", motion: custom },
   ];
+  state.installed[edited.id] = {
+    package_id: `motion-${edited.id}`, crc32: 1234, fingerprint: 5678,
+  };
   assert.equal(store.save(state).ok, true);
   const restored = createStore(storage).load();
   assert.deepEqual(restored.motions.at(-1), edited);
   assert.equal(restored.active_id, edited.id);
   assert.deepEqual(restored.revisions[edited.id][0].motion, custom);
+  assert.deepEqual(restored.installed[edited.id], state.installed[edited.id]);
 });
 test("corrupt library is preserved verbatim and subsequent saves cannot overwrite it", () => {
   for (const raw of [
