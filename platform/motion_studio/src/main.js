@@ -175,7 +175,8 @@ function motionFingerprint(value) {
 function updateRobotInstallStatus() {
   const record = library.installed[motion.id];
   const current = record && record.fingerprint === motionFingerprint(motion);
-  const packages = live?.snapshot?.storedPackages;
+  const freshCatalog = ["ready", "init_required"].includes(live?.snapshot?.state);
+  const packages = freshCatalog ? live.snapshot.storedPackages : null;
   const onRobot = Array.isArray(packages)
     ? packages.find((item) => item.package_id === record?.package_id)
     : null;
@@ -184,7 +185,7 @@ function updateRobotInstallStatus() {
   else if (record && Array.isArray(packages) && !onRobot) label = "Нет в роботе";
   else if (record && onRobot && onRobot.crc32 !== record.crc32)
     label = "Изменено в роботе";
-  else if (record) label = "Установлено";
+  else if (record) label = freshCatalog ? "Установлено" : "Записано ранее";
   $("robot-install-status").textContent = label;
   $("upload-robot-package").innerHTML =
     `${icon("upload")}${record ? "Обновить в роботе" : "Записать в робота"}`;
