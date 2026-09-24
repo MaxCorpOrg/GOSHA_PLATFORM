@@ -45,6 +45,10 @@ class LanguageGuardTests(unittest.TestCase):
             ("Как перевести фразу помаши рукой?", "How to translate wave your hand?", "builtin/hand_wave", "clarify"),
             ("Ты можешь помаши рукой?", "Can you wave your hand?", "builtin/hand_wave", "clarify"),
             ("ты можешь помаши рукой", "can you wave your hand", "builtin/hand_wave", "clarify"),
+            ("гоша как помахать рукой", "Gosha, wave your hand.", "builtin/hand_wave", "clarify"),
+            ("гоша я могу помахать рукой", "Gosha, wave your hand.", "builtin/hand_wave", "clarify"),
+            ("гоша покажи как идти вперед", "Gosha, walk forward.", "builtin/walk_forward", "clarify"),
+            ("а что если гоша помашешь рукой", "Gosha, wave your hand.", "builtin/hand_wave", "clarify"),
             ("Гоша, выключи питание.", "Gosha, stop.", "stop", "clarify"),
         )
         for source, translated, choice, expected in cases:
@@ -58,6 +62,7 @@ class LanguageGuardTests(unittest.TestCase):
 
     def test_priority_stop_is_direct_only(self):
         self.assertTrue(is_priority_stop("Гоша, останови движение."))
+        self.assertTrue(is_priority_stop("Гоша останови движение как можно скорее"))
         for phrase in ("Не останавливайся", "Как сказать стоп?", "Он сказал стоп",
                        "ты можешь остановить движение",
                        "Помаши рукой и остановись"):
@@ -95,6 +100,13 @@ class GuardedDispatchTests(unittest.IsolatedAsyncioTestCase):
             source_text="Гоша, помаши рукой.", english_text="Gosha, wave your hand.")
         self.assertEqual(result["status"], "in_progress")
         self.assertEqual(len(self.robot.calls), 1)
+
+    async def test_unpunctuated_explanation_never_calls_motion(self):
+        result = await self.dispatcher.dispatch(
+            "explanation", response("builtin/hand_wave"),
+            source_text="гоша как помахать рукой", english_text="Gosha, wave your hand.")
+        self.assertEqual(result["route"], "clarify")
+        self.assertEqual(self.robot.calls, [])
 
     async def test_source_is_mandatory_in_physical_mode(self):
         result = await self.dispatcher.dispatch("missing", response("builtin/hand_wave"))

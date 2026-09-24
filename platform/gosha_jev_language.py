@@ -19,6 +19,7 @@ _LEFT = re.compile(r"(?iu)\b(?:лев[а-я]*|left)\b")
 _COUNT = re.compile(r"(?iu)\b(?:\d+|один|одну|два|две|три|четыре|пять|one|two|three|four|five|twice)\b")
 _DISCUSSION = re.compile(r"(?iu)\b(?:цитат[а-я]*|фраз[а-я]*|перевед[а-я]*|перевести|означа[а-я]*|сказал[а-я]*|говорил[а-я]*|quote|quoted|translate|means|said)\b")
 _QUESTION = re.compile(r"(?iu)\b(?:можешь|умеешь|сможешь|сколько|почему|зачем|can you|could you|how many)\b")
+_MOTION_EXPLANATION = re.compile(r"(?iu)\b(?:как|что|если|когда|где|могу|можно|where|when|what|why|how|may i)\b")
 _MOTION_HINTS = {
     "builtin/hand_wave": re.compile(r"(?iu)\b(?:помаш[а-я]*|маш[а-я]*|помах[а-я]*|мах[а-я]*|взмах[а-я]*|wave)\b"),
     "builtin/walk_forward": re.compile(r"(?iu)\b(?:впер[её]д|forward)\b"),
@@ -62,7 +63,8 @@ def guard_physical_choice(source_text, english_text, choice):
         return "clarify"
     if choice in _MOTION_HINTS:
         if (_LEFT.search(source) or _COUNT.search(source) or _DISCUSSION.search(source)
-                or _QUESTION.search(source) or "?" in source or not _MOTION_HINTS[choice].search(source)
+                or _QUESTION.search(source) or _MOTION_EXPLANATION.search(source)
+                or "?" in source or not _MOTION_HINTS[choice].search(source)
                 or (choice in _OPPOSITE and _OPPOSITE[choice].search(source))):
             return "clarify"
     return choice
