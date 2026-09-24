@@ -590,8 +590,10 @@ class VoiceRouter:
             if not claim:
                 await robot.close(1008, "device_auth_required")
                 return
+            jev_trial = (os.environ.get("GOSHA_JEV_TRIAL_ROBOT_ID") == claim["robot_id"]
+                         and bool(os.environ.get("GOSHA_JEV_TRIAL_ROBOT_ID")))
             settings = live_settings(claim)
-            if settings is None:
+            if not jev_trial and settings is None:
                 await self.proxy(robot, path)
                 return
             if claim["robot_id"] in self.active or len(self.active) >= self.max_sessions:
@@ -599,8 +601,18 @@ class VoiceRouter:
                 return
             robot_id = claim["robot_id"]
             self.active.add(robot_id)
-            config, key = settings
-            await self.bridge_factory(robot, config, key).run()
+            if jev_trial:
+                # The named robot uses the existing provider key for model
+                # transcription/Luna, without creating a GPT-Live session.
+                from gosha_jev_voice import JevRobotBridge
+                await JevRobotBridge(
+                    robot,
+                    key_file=os.environ["GOSHA_JEV_TRIAL_KEY_FILE"],
+                    openai_key=settings[1],
+                ).run()
+            else:
+                config, key = settings
+                await self.bridge_factory(robot, config, key).run()
             await robot.close(1000, "voice_session_ended")
         except Exception as exc:
             # Exception messages, URLs, device IDs, transcripts and keys never enter logs.

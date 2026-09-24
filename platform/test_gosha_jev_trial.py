@@ -106,14 +106,14 @@ class TrialTests(unittest.IsolatedAsyncioTestCase):
             transport.return_value.request.side_effect = OSError("private provider message")
             client = JevTrialClient("unit-test-only")
             with self.assertRaisesRegex(TrialError, "provider_error_no_retry"):
-                client.evaluate("Помаши")
+                client.evaluate("Wave your hand.")
             self.assertEqual(transport.return_value.request.call_count, 1)
 
     def test_budget_blocks_network_before_call(self):
         with patch("gosha_jev_trial.http.client.HTTPSConnection") as transport:
             client = JevTrialClient("unit-test-only", max_calls=0)
             with self.assertRaisesRegex(TrialError, "budget"):
-                client.evaluate("Помаши")
+                client.evaluate("Wave your hand.")
             transport.return_value.request.assert_not_called()
 
 

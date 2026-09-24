@@ -13,6 +13,19 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "platform"))
 from gosha_jev_trial import JevTrialClient, MODEL, PROFILE, SimulatedRobot, TrialDispatcher, TrialError
+from gosha_jev_language import LanguageError, LocalEnglishTranslator, validate_english
+
+
+def english_for_case(case, translator):
+    if "english_text" in case:
+        return validate_english(case["english_text"])
+    source = case["text"]
+    try:
+        return validate_english(source)
+    except LanguageError:
+        if translator is None:
+            raise TrialError("translation_model_required") from None
+        return translator.translate(source)
 
 
 async def run(args):
@@ -26,19 +39,36 @@ async def run(args):
         raise TrialError("key_missing_use_key_file_or_TYPESAFE_API_KEY")
     cases = ([{"id": "manual", "text": args.text}] if args.text else
              json.loads((ROOT / "platform/fixtures/jev_trial_cases.json").read_text()))
+    # Load the offline model lazily, only for a Russian manual utterance.
+    translator = None
+    if any("english_text" not in case and isinstance(case.get("text"), str)
+           and not case["text"].isascii() for case in cases):
+        model_dir = args.translation_model or os.environ.get("GOSHA_JEV_TRANSLATION_MODEL")
+        if not model_dir:
+            raise TrialError("translation_model_required")
+        try:
+            translator = LocalEnglishTranslator(model_dir)
+        except (LanguageError, ImportError, OSError, RuntimeError):
+            raise TrialError("translation_unavailable") from None
     client = JevTrialClient(key, max_calls=len(cases))
     robot = SimulatedRobot()
     await robot.device.discover(retry_delays=())
-    dispatcher, results = TrialDispatcher(robot.device), []
+    dispatcher, results = TrialDispatcher(robot.device, require_source=True), []
     try:
         for case in cases:
             before = len(robot.calls)
-            response, elapsed = client.evaluate(case["text"])
-            result = await dispatcher.dispatch(case["id"], response)
+            try:
+                english_text = english_for_case(case, translator)
+            except LanguageError:
+                raise TrialError("english_translation_required") from None
+            response, elapsed = client.evaluate(english_text)
+            result = await dispatcher.dispatch(case["id"], response,
+                                               source_text=case["text"], english_text=english_text)
             choice = response["answers"]["skill"]["choice"]
             sent = robot.calls[before:]
             expected = case.get("expected")
-            row = {"id": case["id"], "text": case["text"], "choice": choice,
+            row = {"id": case["id"], "text": case["text"], "english_text": english_text,
+                   "choice": choice,
                    "probability": response["answers"]["skill"]["probabilities"][choice],
                    "latency_ms": elapsed, "result": result, "mcp_calls": sent,
                    "usage": response["usage"]}
@@ -71,6 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--key-file", help="Файл ключа TypeSafe; иначе TYPESAFE_API_KEY")
     parser.add_argument("--text", help="Одна завершённая реплика вместо набора примеров")
     parser.add_argument("--output", help="Сохранить результат в JSON")
+    parser.add_argument("--translation-model", help="Локальная модель перевода ru-en для русской реплики")
     args = parser.parse_args()
     try:
         raise SystemExit(asyncio.run(run(args)))

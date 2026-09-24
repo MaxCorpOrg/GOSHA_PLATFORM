@@ -156,6 +156,11 @@ echo "[13/13] Проверка GPT-Live, Opus и локальных WebSocket"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_voice.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_tools.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_trial.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_language.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_speech.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_intent.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_transcribe.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_jev_voice.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_echo.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_motion.py
 
