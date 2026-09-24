@@ -3,6 +3,27 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildRig, collectMeshes } from "./rig.js";
 
+function schematicMeshes() {
+  const named = new Map();
+  const add = (name, geometry, x, y, z) => {
+    geometry.translate(x, y, z);
+    const mesh = new THREE.Mesh(geometry);
+    mesh.name = name;
+    named.set(name, mesh);
+  };
+  const head = new THREE.SphereGeometry(38, 28, 18);
+  head.scale(1.15, 0.83, 0.84);
+  add("head", head, 0, 0, 63);
+  add("body", new THREE.BoxGeometry(96, 62, 84), 0, 0, -3);
+  for (const [suffix, sign] of [["negative_x", -1], ["positive_x", 1]]) {
+    add(`arm_${suffix}`, new THREE.BoxGeometry(19, 25, 53), sign * 59, 0, -42);
+    add(`hand_${suffix}`, new THREE.BoxGeometry(22, 27, 19), sign * 59, 0, -78);
+    add(`leg_${suffix}`, new THREE.BoxGeometry(27, 30, 45), sign * 23, 0, -64);
+    add(`foot_${suffix}`, new THREE.BoxGeometry(30, 48, 16), sign * 23, -13, -88);
+  }
+  return named;
+}
+
 export function createScene(container, onSelect, onStatus) {
   const scene = new THREE.Scene();
   let dirty = true;
@@ -39,6 +60,7 @@ export function createScene(container, onSelect, onStatus) {
   rim.position.set(170, 60, 160);
   scene.add(rim);
   let rig;
+  let schematic = false;
   const meshes = [];
   const axes = new THREE.AxesHelper(30);
   axes.visible = false;
@@ -57,50 +79,56 @@ export function createScene(container, onSelect, onStatus) {
     }
   }
   const resetView = (front = false) => {
-    camera.position.set(front ? 0 : 155, front ? -310 : -260, front ? -25 : 95);
-    controls.target.set(0, 0, -27);
+    camera.position.set(
+      front ? 0 : schematic ? 180 : 155,
+      front ? (schematic ? -420 : -310) : schematic ? -370 : -260,
+      front ? (schematic ? 0 : -25) : schematic ? 105 : 95,
+    );
+    controls.target.set(0, 0, schematic ? -2 : -27);
     controls.update();
   };
   resetView();
 
+  function attachModel(named, label) {
+    rig = buildRig(scene, named);
+    for (const [name, mesh] of named) {
+      const baseColor = name.startsWith("foot")
+        ? "#687381"
+        : name === "body"
+          ? "#b8c2ce"
+          : "#e5e7e9";
+      mesh.material = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        roughness: 0.54,
+        metalness: 0.08,
+        side: THREE.DoubleSide,
+      });
+      mesh.userData.baseColor = baseColor;
+      meshes.push(mesh);
+    }
+    if (currentPose) setPose(currentPose);
+    select(selected);
+    dirty = true;
+    onStatus(true, label);
+  }
+  const fallback = () => {
+    if (disposed || rig) return;
+    schematic = true;
+    attachModel(schematicMeshes(), "Схематичная 3D-модель · 10 деталей");
+    resetView();
+  };
   new GLTFLoader().load(
     `${import.meta.env.BASE_URL}models/gosha.glb`,
     (gltf) => {
       if (disposed) return;
-      let named;
       try {
-        named = collectMeshes(gltf.scene);
-        rig = buildRig(scene, named);
+        attachModel(collectMeshes(gltf.scene), "Ваша модель · 10 деталей");
       } catch (error) {
-        onStatus(false, error.message);
-        return;
+        fallback();
       }
-      for (const [name, mesh] of named) {
-        const baseColor = name.startsWith("foot")
-          ? "#687381"
-          : name === "body"
-            ? "#b8c2ce"
-            : "#e5e7e9";
-        mesh.material = new THREE.MeshStandardMaterial({
-          color: baseColor,
-          roughness: 0.54,
-          metalness: 0.08,
-          side: THREE.DoubleSide,
-        });
-        mesh.userData.baseColor = baseColor;
-        meshes.push(mesh);
-      }
-      if (currentPose) setPose(currentPose);
-      select(selected);
-      dirty = true;
-      onStatus(true, "Ваша модель · 10 деталей");
     },
     undefined,
-    () =>
-      onStatus(
-        false,
-        "Модель не загружена. Подготовьте models/gosha.glb по инструкции README.",
-      ),
+    fallback,
   );
 
   function setPose(pose) {
