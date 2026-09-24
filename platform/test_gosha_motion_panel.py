@@ -33,6 +33,61 @@ class FakeSocket:
 
 
 class MotionPanelTests(unittest.TestCase):
+    def test_envelope_fallback_happens_before_play(self):
+        sockets = []
+
+        class EnvelopeSocket(FakeSocket):
+            def recv(self, timeout=None):
+                del timeout
+                self.responses += 1
+                sent = self.sent[0 if self.responses == 1 else -1]
+                payload = sent["payload"]
+                result = ({"jsonrpc": "2.0", "id": payload["id"], "result": {}}
+                          if self.responses == 1 else {
+                              "jsonrpc": "2.0", "id": payload["id"],
+                              "result": {"content": [{"type": "text", "text":
+                                  json.dumps({"status": "in_progress"})}]},
+                          })
+                return json.dumps({"type": "mcp", "payload": result})
+
+        def connect(*_args, **_kwargs):
+            if not sockets:
+                sockets.append("raw_rejected")
+                class ClosedLink(Exception):
+                    pass
+                raise ClosedLink("raw format rejected")
+            socket = EnvelopeSocket({})
+            sockets.append(socket)
+            return socket
+
+        result = call_motion_tool("wss://example.test/mcp", "play", "stored/new-wave",
+                                  connect=connect)
+        self.assertEqual(result["status"], "in_progress")
+        self.assertEqual(len(sockets), 2)
+        self.assertEqual(sockets[1].sent[-1]["payload"]["params"]["name"],
+                         "self.motion.play")
+
+    def test_lost_play_response_never_retries(self):
+        sockets = []
+
+        class LostResponseSocket(FakeSocket):
+            def send(self, raw):
+                super().send(raw)
+                if self.sent[-1].get("method") == "tools/call":
+                    raise OSError("response unknown after play send")
+
+        def connect(*_args, **_kwargs):
+            socket = LostResponseSocket({})
+            sockets.append(socket)
+            return socket
+
+        with self.assertRaisesRegex(MotionPanelError, "motion_connection_failed"):
+            call_motion_tool("wss://example.test/mcp", "play", "stored/new-wave",
+                             connect=connect)
+        self.assertEqual(len(sockets), 1)
+        self.assertEqual(sum(item.get("method") == "tools/call"
+                             for item in sockets[0].sent), 1)
+
     def test_list_and_play_use_named_robot_tools(self):
         sockets = []
 

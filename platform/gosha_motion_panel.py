@@ -21,7 +21,8 @@ class MotionPanelError(Exception):
     pass
 
 
-def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
+def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0,
+                     _envelope=False, _allow_format_retry=True):
     if action not in TOOLS:
         raise MotionPanelError("invalid_action")
     if action == "play" and not MOTION_ID.fullmatch(motion_id):
@@ -50,8 +51,11 @@ def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
     }
     deadline = time.monotonic() + timeout
 
+    sent_call = False
+
     def send(ws, payload):
-        ws.send(json.dumps(payload, ensure_ascii=False))
+        outgoing = {"type": "mcp", "payload": payload} if _envelope else payload
+        ws.send(json.dumps(outgoing, ensure_ascii=False))
 
     try:
         with connect(
@@ -60,7 +64,6 @@ def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
         ) as ws:
             send(ws, initialize)
             sent_notice = False
-            sent_call = False
             while time.monotonic() < deadline:
                 try:
                     raw = ws.recv(timeout=min(2.0, deadline - time.monotonic()))
@@ -106,8 +109,8 @@ def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
                         send(ws, {"jsonrpc": "2.0", "method": "notifications/initialized"})
                         sent_notice = True
                     if not sent_call:
-                        send(ws, call)
                         sent_call = True
+                        send(ws, call)
                     continue
                 if method == "initialize" and request_id is not None:
                     send(ws, {
@@ -120,8 +123,8 @@ def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
                     })
                     continue
                 if method == "notifications/initialized" and not sent_call:
-                    send(ws, call)
                     sent_call = True
+                    send(ws, call)
                     continue
                 if method == "ping" and request_id is not None:
                     send(ws, {"jsonrpc": "2.0", "id": request_id, "result": {}})
@@ -129,7 +132,19 @@ def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0):
                 if method == "tools/list" and request_id is not None:
                     send(ws, {"jsonrpc": "2.0", "id": request_id, "result": {"tools": []}})
     except MotionPanelError:
+        if not sent_call and _allow_format_retry:
+            return call_motion_tool(endpoint, action, motion_id, connect=connect,
+                                    timeout=timeout, _envelope=True,
+                                    _allow_format_retry=False)
         raise
-    except (OSError, ValueError, RuntimeError, TypeError) as exc:
+    except Exception as exc:
+        if not sent_call and _allow_format_retry:
+            return call_motion_tool(endpoint, action, motion_id, connect=connect,
+                                    timeout=timeout, _envelope=True,
+                                    _allow_format_retry=False)
         raise MotionPanelError("motion_connection_failed") from exc
+    if not sent_call and _allow_format_retry:
+        return call_motion_tool(endpoint, action, motion_id, connect=connect,
+                                timeout=timeout, _envelope=True,
+                                _allow_format_retry=False)
     raise MotionPanelError("motion_timeout")
