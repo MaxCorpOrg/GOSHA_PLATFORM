@@ -564,9 +564,9 @@ export function examples() {
   return [
     make("example-small-greeting", "Малое приветствие", [
       [0, {}],
-      [1200, { arm_positive_x: 6 }],
-      [3600, { arm_positive_x: -6 }],
-      [4800, {}],
+      [2500, { arm_positive_x: 15 }],
+      [7500, { arm_positive_x: -15 }],
+      [10000, {}],
     ]),
     make("example-wave", "Приветствие", [
       [0, {}],

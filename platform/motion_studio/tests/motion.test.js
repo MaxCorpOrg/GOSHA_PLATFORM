@@ -62,8 +62,10 @@ test("small greeting example fits the current robot package limits", () => {
   const greeting = examples().find((motion) => motion.id === "example-small-greeting");
   const result = prepareRobotMotionPackage(greeting, liveEditorCaps());
   assert.equal(result.ok, true);
-  assert.equal(result.package.duration_ms, 4800);
-  assert.equal(result.package.safety.max_required_speed_dps, 7.5);
+  assert.equal(result.package.duration_ms, 10000);
+  assert.equal(result.package.safety.max_required_speed_dps, 9);
+  assert.deepEqual(result.package.keyframes.map((frame) => frame.target.arm_positive_x),
+    [0, 15, -15, 0]);
   assert.equal(prepareRobotPackageUpload(result.package).package_id,
     "motion-example-small-greeting");
 });
