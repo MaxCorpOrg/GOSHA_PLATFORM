@@ -16,6 +16,7 @@ from gosha_jev_language import LanguageError, guard_physical_choice, validate_en
 MODEL = "jev-1.13.0"
 PROFILE = "gosha-trial-v1"
 MIN_PROBABILITY = 0.90  # Experimental gate, not a calibrated production threshold.
+MIN_READ_ONLY_PROBABILITY = 0.80  # Battery/status have no actuator effect.
 MOTIONS = {
     "builtin/hand_wave": "Wave the available right hand",
     "builtin/walk_forward": "Play the built-in forward walk, with no requested step count",
@@ -213,7 +214,8 @@ class TrialDispatcher:
                 return {"status": "not_dispatched", "route": safe, "reason": "source_guard"}
         if chosen not in CALLS:
             return {"status": "not_dispatched", "route": chosen}
-        if confidence < MIN_PROBABILITY:
+        threshold = MIN_READ_ONLY_PROBABILITY if chosen in {"battery", "status"} else MIN_PROBABILITY
+        if confidence < threshold:
             return {"status": "not_dispatched", "route": "clarify", "reason": "low_probability"}
         name, args = CALLS[chosen]
         return await self.device.call(name, json.dumps(args))

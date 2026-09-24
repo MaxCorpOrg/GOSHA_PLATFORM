@@ -12,7 +12,7 @@ from pathlib import Path
 from gosha_jev_intent import LunaIntentClient
 from gosha_jev_language import is_priority_stop
 from gosha_jev_transcribe import ModelTranscriber
-from gosha_jev_trial import JevTrialClient, TrialDispatcher
+from gosha_jev_trial import JevTrialClient, TrialDispatcher, validate_response
 from gosha_live_audio import AUDIO_PARAMS, OpusCodec, SILENCE
 from gosha_voice_router import RobotLiveBridge, stop_tasks
 
@@ -58,13 +58,15 @@ class JevRobotBridge(RobotLiveBridge):
                 loop.run_in_executor(self.worker, self.jev.evaluate, english), 6)
             if generation != self.generation or self.stopped.is_set():
                 return
+            choice, probability = validate_response(response)
             await self.device_tools.ready.wait()
             if generation != self.generation or self.stopped.is_set():
                 return
             result = await self.dispatcher.dispatch(item_id, response,
                                                     source_text=source, english_text=english)
-            LOG.info("jev_trial_decision status=%s route=%s luna_ms=%s jev_ms=%s",
-                     result.get("status"), result.get("route", "tool"), luna_ms, jev_ms)
+            LOG.info("jev_trial_decision status=%s route=%s reason=%s choice=%s probability=%.3f luna_ms=%s jev_ms=%s",
+                     result.get("status"), result.get("route", "tool"),
+                     result.get("reason", "none"), choice, probability, luna_ms, jev_ms)
         except Exception as exc:
             # No provider payload, transcript, audio or credentials in normal logs.
             LOG.info("jev_trial_skipped category=%s", type(exc).__name__)

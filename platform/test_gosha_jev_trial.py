@@ -55,6 +55,14 @@ class TrialTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": "rejected", "reason": "operation_unavailable"})
         self.assertEqual(self.robot.calls, [])
 
+    async def test_read_only_confidence_can_be_lower_than_motion_confidence(self):
+        battery = await self.dispatcher.dispatch("battery", response("battery", .85))
+        motion = await self.dispatcher.dispatch("wave", response("builtin/hand_wave", .85))
+        self.assertEqual(battery["status"], "confirmed")
+        self.assertEqual(motion["reason"], "low_probability")
+        self.assertEqual([call["name"] for call in self.robot.calls],
+                         ["self.battery.get_level"])
+
     async def test_lost_ack_unknown_and_duplicate_cannot_replay(self):
         self.robot.drop_next_reply = True
         result = await self.dispatcher.dispatch("one", response("builtin/hand_wave"))
