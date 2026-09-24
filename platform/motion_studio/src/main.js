@@ -886,6 +886,7 @@ render();
 persist();
 if (library.error) notify(library.error, true);
 if (library.adjusted) notify("Предел опускания рук обновлён до 55°. Исходная библиотека сохранена отдельной копией.");
+if (library.templateUpgraded) notify("Пример «Малое приветствие» обновлён до ±15°. Прежний вариант сохранён в истории версий.");
 animation = requestAnimationFrame(tick);
 registerPreviewTools(
   document.modelContext,

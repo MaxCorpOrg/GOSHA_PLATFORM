@@ -1,8 +1,22 @@
-import { clone, validateMotion, examples, constrainLegacyArmMotion } from "./motion.js";
+import { clone, validateMotion, examples, constrainLegacyArmMotion, zeroPose } from "./motion.js";
 
 export const STORAGE_KEY = "ai-robots.motion-studio.v1";
 
 export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}.before-arm55`;
+
+function isUneditedSmallGreeting(motion) {
+  if (motion.name !== "Малое приветствие" ||
+      motion.duration_ms !== 4800 ||
+      motion.interpolation !== "smooth" ||
+      motion.keyframes.length !== 4) return false;
+  const expected = [[0, 0], [1200, 6], [3600, -6], [4800, 0]];
+  const joints = Object.keys(zeroPose());
+  return motion.keyframes.every((frame, index) =>
+    frame.time_ms === expected[index][0] &&
+    Object.keys(frame.pose).length === joints.length &&
+    joints.every((joint) => frame.pose[joint] ===
+      (joint === "arm_positive_x" ? expected[index][1] : 0)));
+}
 
 export function createStore(storage) {
   let writable = true;
@@ -35,7 +49,14 @@ export function createStore(storage) {
           adjusted ||= result.changed;
           return result.motion;
         };
-        const motions = data.motions.map(normalize);
+        const previousGreetings = new Map();
+        const motions = data.motions.map((value) => {
+          const motion = normalize(value);
+          if (!isUneditedSmallGreeting(motion)) return motion;
+          previousGreetings.set(motion.id, motion);
+          return { ...examples().find((item) => item.id === "example-small-greeting"),
+                   id: motion.id };
+        });
         if (new Set(motions.map((m) => m.id)).size !== motions.length)
           throw new Error("Duplicate ids");
         const revisions = Object.create(null);
@@ -57,6 +78,11 @@ export function createStore(storage) {
               throw new Error("Invalid revision identity");
             return { saved_at: r.saved_at, motion: snapshot };
           });
+          if (previousGreetings.has(motion.id))
+            revisions[motion.id] = [
+              ...revisions[motion.id].slice(-19),
+              { saved_at: new Date().toISOString(), motion: previousGreetings.get(motion.id) },
+            ];
           const record = Object.hasOwn(data.installed ?? {}, motion.id)
             ? data.installed[motion.id]
             : undefined;
@@ -87,6 +113,7 @@ export function createStore(storage) {
         return {
           originalLibrary,
           adjusted,
+          templateUpgraded: previousGreetings.size > 0,
           motions,
           active_id: motions.some((m) => m.id === data.active_id)
             ? data.active_id
