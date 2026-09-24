@@ -21,6 +21,7 @@ import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
 import gosha_runtime_events as runtime_events
+from gosha_motion_panel import MotionPanelError, call_motion_tool
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
 try:
@@ -3315,6 +3316,12 @@ def get_robot_runtime_snapshot(robot_id):
     }
 
 
+def robot_motion_action(robot_id, action, motion_id=""):
+    require_robot_dir(robot_id)
+    endpoint = get_robot_mcp_endpoint(robot_id)
+    return call_motion_tool(endpoint, action, motion_id, connect=ws_connect)
+
+
 def set_service(robot_id, action):
     if action not in {"start", "stop", "restart"}:
         return {"ok": False, "error": "invalid action"}
@@ -4320,6 +4327,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "plans": list(PLAN_CATALOG.values())})
             return
 
+        if len(effective_parts) == 4 and effective_parts[:2] == ["api", "robots"] and effective_parts[3] == "motions":
+            robot_id = effective_parts[2]
+            try:
+                result = robot_motion_action(robot_id, "list")
+                self._send_json(200, {"ok": True, "data": result})
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            except MotionPanelError as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
+            return
+
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "probe":
             robot_id = effective_parts[2]
             if not safe_robot_id(robot_id):
@@ -4810,6 +4828,22 @@ class Handler(BaseHTTPRequestHandler):
             action = str(payload.get("action", "")).strip().lower()
             result = set_service(robot_id, action)
             self._send_json(200 if result.get("ok") else 400, result)
+            return
+
+        if len(effective_parts) == 4 and effective_parts[:2] == ["api", "robots"] and effective_parts[3] == "motions":
+            robot_id = effective_parts[2]
+            try:
+                action = str(payload.get("action", ""))
+                if action not in {"play", "stop", "status"}:
+                    raise ValueError("invalid motion action")
+                motion_id = str(payload.get("motion_id", ""))
+                result = robot_motion_action(robot_id, action, motion_id)
+                self._send_json(200, {"ok": True, "data": result})
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            except MotionPanelError as exc:
+                status = 400 if str(exc).startswith("invalid_") else 502
+                self._send_json(status, {"ok": False, "error": str(exc)})
             return
 
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "assistant-config":

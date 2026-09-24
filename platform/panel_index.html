@@ -4802,6 +4802,17 @@
           </div>
           <div class="workspace-section-note">Все основные действия собраны отдельно, чтобы оператор не искал кнопки среди статусов и технических карточек.</div>
         </section>
+        <section class="robot-panel robot-panel-wide">
+          <h3>Движения</h3>
+          <div class="robot-action-grid">
+            <button class="btn" onclick="loadRobotMovements('${robot.robot_id}')">Обновить каталог</button>
+            <select id="robotMotionSelect" aria-label="Выбрать движение"><option value="">Сначала обновите каталог</option></select>
+            <button class="btn primary" onclick="playRobotMovement('${robot.robot_id}', this)">Запустить</button>
+            <button class="btn" onclick="stopRobotMovement('${robot.robot_id}')">Стоп</button>
+            <button class="btn" onclick="readRobotMotionStatus('${robot.robot_id}')">Состояние</button>
+          </div>
+          <div class="workspace-section-note" id="robotMotionStatus">Встроенные и установленные в роботе движения появятся после чтения каталога.</div>
+        </section>
         <div class="robot-overview-grid">
           <section class="robot-panel">
             <h3>Подключение</h3>
@@ -9408,6 +9419,61 @@
       }
       if (robotWorkspaceId) renderRobotWorkspace();
       setStatus(pageStatus);
+    }
+
+    async function loadRobotMovements(robotId) {
+      const status = document.getElementById("robotMotionStatus");
+      if (status) status.textContent = "Читаю каталог робота…";
+      const response = await apiGet(operatorUrl(`/robots/${robotId}/motions`));
+      if (robotWorkspaceId !== robotId) return;
+      const select = document.getElementById("robotMotionSelect");
+      if (!select || !status) return;
+      select.replaceChildren();
+      const movements = response.ok && Array.isArray(response.data?.movements)
+        ? response.data.movements : [];
+      for (const movement of movements) {
+        if (typeof movement.motion_id !== "string") continue;
+        select.add(new Option(
+          `${movement.name || movement.motion_id} · ${movement.source === "stored" ? "Studio" : "встроено"}`,
+          movement.motion_id,
+        ));
+      }
+      if (!movements.length) select.add(new Option("Нет доступных движений", ""));
+      status.textContent = response.ok
+        ? `Доступно движений: ${movements.length}.`
+        : `Не удалось прочитать каталог: ${response.error || "робот не ответил"}.`;
+    }
+
+    async function playRobotMovement(robotId, buttonEl) {
+      const motionId = document.getElementById("robotMotionSelect")?.value;
+      if (!motionId) { notify("Сначала выберите движение.", "bad"); return; }
+      buttonEl.disabled = true;
+      const response = await apiPost(operatorUrl(`/robots/${robotId}/motions`),
+        { action: "play", motion_id: motionId });
+      buttonEl.disabled = false;
+      const status = document.getElementById("robotMotionStatus");
+      if (robotWorkspaceId !== robotId || !status) return;
+      status.textContent = response.ok
+        ? `Движение ${motionId}: ${response.data?.status || "ответ получен"}.`
+        : `Запуск отклонён: ${response.error || "робот не ответил"}.`;
+    }
+
+    async function stopRobotMovement(robotId) {
+      const response = await apiPost(operatorUrl(`/robots/${robotId}/motions`), { action: "stop" });
+      const status = document.getElementById("robotMotionStatus");
+      if (robotWorkspaceId === robotId && status)
+        status.textContent = response.ok
+          ? `Остановка: ${response.data?.status || "ответ получен"}.`
+          : `Остановка не подтверждена: ${response.error || "робот не ответил"}.`;
+    }
+
+    async function readRobotMotionStatus(robotId) {
+      const response = await apiPost(operatorUrl(`/robots/${robotId}/motions`), { action: "status" });
+      const status = document.getElementById("robotMotionStatus");
+      if (robotWorkspaceId === robotId && status)
+        status.textContent = response.ok
+          ? `Состояние: ${response.data?.status || "неизвестно"}.`
+          : `Не удалось прочитать состояние: ${response.error || "робот не ответил"}.`;
     }
 
     async function serviceAction(robotId, action, buttonEl = null) {
