@@ -1561,6 +1561,18 @@ test("editor keeps all inspector targets editable while multiple joints are foll
   }
   assert.equal(liveInspectorJointViewModel(state,"arm_negative_x").disabled,true);
 });
+test("editor slider follows confirmed leg command after the target is chosen", () => {
+  const state={state:"armed",caps:validateCapabilities(editorCaps()),
+    telemetry:{commanded_pose:{...zeroPose(),leg_negative_x:2}},
+    target:{...zeroPose(),leg_negative_x:8}};
+  const tracking=liveInspectorJointViewModel(state,"leg_negative_x");
+  assert.equal(tracking.value,2);
+  assert.equal(tracking.command,2);
+  assert.equal(tracking.target,8);
+  const dragging=liveInspectorJointViewModel(state,"leg_negative_x",null,"leg_negative_x","leg_negative_x");
+  assert.equal(dragging.value,8);
+  assert.equal(liveInspectorJointViewModel(state,"foot_negative_x",null,"leg_negative_x","leg_negative_x").value,0);
+});
 test("editor rejects a disconnected arm and resolves sub-degree endpoint at PWM resolution", () => {
   const a=harness(editorCaps), sa=a.arm();
   assert.throws(()=>a.live.moveTo({...zeroPose(),arm_negative_x:10}));

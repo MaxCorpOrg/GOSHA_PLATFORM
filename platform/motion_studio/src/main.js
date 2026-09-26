@@ -800,10 +800,10 @@ function updateLiveView() {
     ends[2].textContent = view && !view.available ? "—" : `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
     const note = $("live-row-" + joint.id);
     note.hidden = !view;
-    note.textContent = view ? (view.available ? `Команда ${view.command}° · цель ${+view.value.toFixed(1)}°. ${view.reason}` : view.reason) : "";
+    note.textContent = view ? (view.available ? `Команда ${+view.command.toFixed(1)}° · цель ${+(view.target ?? view.value).toFixed(1)}°. ${view.reason}` : view.reason) : "";
   }
   document.querySelector(".inspector-intro").textContent = live?.enabled
-    ? "Откройте сессию слева и выберите угол. Робот плавно дойдёт до цели — удерживать мышь не нужно. STOP завершает сессию."
+    ? "Откройте сессию слева и выберите угол. После выбора ползунок и 3D показывают ход робота к цели. STOP завершает сессию."
     : "Измените угол — поза запишется на текущей отметке времени.";
   document.querySelector(".calibration-note").textContent = live?.enabled
     ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."

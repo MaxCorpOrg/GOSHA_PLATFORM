@@ -182,14 +182,15 @@ export function liveSliderViewModel(
   };
 }
 
-export function liveInspectorJointViewModel(state, jointId, activeStep = null, activeSliderJoint = null) {
+export function liveInspectorJointViewModel(state, jointId, activeStep = null, activeSliderJoint = null, editingJoint = null) {
   const joint = jointById(jointId);
   const limit = state.caps?.joint_limits.find((item) => item.id === jointId);
   const available = Boolean(limit) && !["disconnected", "fault"].includes(state.state);
   if (state.caps?.mode === MOTION_EDITOR_MODE) {
     const command = currentCommandedPose(state)?.[jointId] ?? 0;
+    const target = state.target?.[jointId] ?? command;
     return {min:limit?.min ?? joint.min,max:limit?.max ?? joint.max,command,
-      value:state.target?.[jointId] ?? command,available,numberEditable:true,
+      target,value:editingJoint === jointId ? target : command,available,numberEditable:true,
       disabled:!available || state.state !== "armed",
       reason:!available ? "Отключён в прошивке · настройка доступна в 3D" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : "Выберите угол · все суставы в одной сессии"};
   }
@@ -418,6 +419,9 @@ export function mountLivePanel({
   let pendingJoint = null;
   let running = false;
   let playbackScale = 1;
+  let sliderEditingJoint = null;
+  let sliderPointerDown = false;
+  let sliderEditTimer = null;
   let connectionState;
   let transport = "usb";
   let usbPorts = [];
@@ -432,6 +436,7 @@ export function mountLivePanel({
     "abort",
     () => {
       abort.abort();
+      clearTimeout(sliderEditTimer);
       session.disconnect();
       clearInterval(interval);
     },
@@ -925,6 +930,9 @@ export function mountLivePanel({
   }
   const session = new LiveSession({ onChange: render });
   function applyMode(value) {
+    clearTimeout(sliderEditTimer);
+    sliderEditingJoint = null;
+    sliderPointerDown = false;
     enabled = value;
     running = false;
     onPlayback(false);
@@ -1139,6 +1147,18 @@ export function mountLivePanel({
   };
   // Ordinary inspector controls set a destination. Pointer release/local blur
   // are not emergency stops; window loss, cancel and explicit STOP still are.
+  function clearSliderEditing() {
+    clearTimeout(sliderEditTimer);
+    sliderEditingJoint = null;
+    sliderPointerDown = false;
+    render(session.snapshot());
+  }
+  function markSliderEditing(jointId) {
+    sliderEditingJoint = jointId;
+    clearTimeout(sliderEditTimer);
+    if (!sliderPointerDown)
+      sliderEditTimer = setTimeout(clearSliderEditing, 500);
+  }
   function moveInspectorTarget(input, jointId) {
     guarded(() => {
       const view = liveInspectorJointViewModel(session.snapshot(), jointId, activeStep, activeSliderJoint);
@@ -1154,11 +1174,28 @@ export function mountLivePanel({
   }
   for (const joint of PROFILE.joints) {
     const input = document.getElementById(`range-${joint.id}`);
+    input.addEventListener("pointerdown", () => {
+      if (!enabled) return;
+      sliderPointerDown = true;
+      markSliderEditing(joint.id);
+    }, { signal: abort.signal });
     input.addEventListener("input", () => {
-      if (enabled) moveInspectorTarget(input, joint.id);
+      if (enabled) {
+        markSliderEditing(joint.id);
+        moveInspectorTarget(input, joint.id);
+      }
+    }, { signal: abort.signal });
+    input.addEventListener("pointerup", () => {
+      if (enabled) clearSliderEditing();
     }, { signal: abort.signal });
     input.addEventListener("pointercancel", () => {
-      if (enabled) release("Управление указателем отменено.");
+      if (enabled) {
+        clearSliderEditing();
+        release("Управление указателем отменено.");
+      }
+    }, { signal: abort.signal });
+    input.addEventListener("blur", () => {
+      if (enabled && sliderEditingJoint === joint.id) clearSliderEditing();
     }, { signal: abort.signal });
   }
   byId("live-stop").onclick = () => {
@@ -1259,7 +1296,7 @@ export function mountLivePanel({
     },
     stop: (reason) => release(reason),
     inspectorView(id) {
-      return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint) : null;
+      return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint, sliderEditingJoint) : null;
     },
     get editorMode() { return enabled && isEditorMode(session.snapshot()); },
     setInspectorAngle(id, value) {
