@@ -802,9 +802,16 @@ function updateLiveView() {
     note.hidden = !view;
     note.textContent = view ? (view.available ? `Команда ${+view.command.toFixed(1)}° · цель ${+(view.target ?? view.value).toFixed(1)}°. ${view.reason}` : view.reason) : "";
   }
-  document.querySelector(".inspector-intro").textContent = live?.enabled
-    ? "Откройте сессию слева и выберите угол. После выбора ползунок и 3D показывают ход робота к цели. STOP завершает сессию."
-    : "Измените угол — поза запишется на текущей отметке времени.";
+  const liveState = live?.snapshot?.state;
+  document.querySelector(".inspector-intro").textContent = !live?.enabled
+    ? "Измените угол — поза запишется на текущей отметке времени."
+    : liveState === "armed"
+      ? "Выберите сустав и двигайте ползунок. Робот идёт к заданному углу, 3D показывает подтверждённую команду. STOP завершает сессию."
+      : liveState === "ready"
+        ? "Ползунки заблокированы. Введите ключ Live слева и нажмите «Начать управление»."
+        : liveState === "init_required"
+          ? "Сначала введите ключ Live слева и включите правую руку. Затем откройте управление."
+          : "Подключите робота слева, чтобы открыть управление суставами.";
   document.querySelector(".calibration-note").textContent = live?.enabled
     ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."
     : "Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.";

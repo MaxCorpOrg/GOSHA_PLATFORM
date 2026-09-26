@@ -244,7 +244,7 @@
 }
 .live-step-joints {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 .live-step-joints button {
@@ -258,6 +258,20 @@
 .live-step-joints button.selected {
   border-color: #77d2a9;
   color: #dff8ec;
+}
+.live-step-joints button.unavailable {
+  border-style: dashed;
+  color: #9ca8b7;
+}
+.live-step-joints button.unavailable.selected {
+  border-color: #ffba73;
+  color: #ffe1bd;
+}
+#live-slider-gate {
+  display: block;
+  margin-top: 8px;
+  color: #c2cedd;
+  line-height: 1.4;
 }
 .live-step-status {
   display: grid;
