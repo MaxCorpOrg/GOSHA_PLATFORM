@@ -72,7 +72,7 @@ test("moving every joint slider right raises its visible 3D limb", () => {
     const [mesh, tip] = tips[joint.id];
     rig.setPose(zeroPose());
     const neutral = height(mesh, tip);
-    rig.setPose({ ...zeroPose(), [joint.id]: 15 });
+    rig.setPose({ ...zeroPose(), [joint.id]: joint.id === "arm_positive_x" ? -15 : 15 });
     assert.ok(height(mesh, tip) > neutral, `${joint.label} must rise at +15°`);
   }
 });

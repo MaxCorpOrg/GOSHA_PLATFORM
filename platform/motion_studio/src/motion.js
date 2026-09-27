@@ -23,7 +23,7 @@ export const PROFILE = Object.freeze({
       max: 55,
       pivot: [-51, 0, -14],
       axis: "y",
-      modelDirection: 1,
+      modelDirection: -1,
       meshes: ["arm_negative_x", "hand_negative_x"],
     },
     {
@@ -76,6 +76,18 @@ export const PROFILE = Object.freeze({
 });
 
 export const MAX_FILE_BYTES = 2_000_000;
+// The right arm's existing robot/profile angle is negative when raised.
+// Keep persisted motions and firmware angles unchanged; flip only controls.
+export const toControlAngle = (jointId, angle) => {
+  const value = jointId === "arm_positive_x" ? -angle : angle;
+  return value === 0 ? 0 : value;
+};
+export const toRobotAngle = toControlAngle;
+export const controlLimits = (jointId, min, max) => {
+  const a = toControlAngle(jointId, min);
+  const b = toControlAngle(jointId, max);
+  return { min: Math.min(a, b), max: Math.max(a, b) };
+};
 export const MAX_FRAMES = 1000;
 export const ROBOT_MOTION_PACKAGE_SCHEMA_VERSION = 1;
 export const ROBOT_MOTION_PACKAGE_TYPE =

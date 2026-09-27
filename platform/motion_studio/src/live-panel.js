@@ -6,7 +6,7 @@ import {
   commissioningDeltaLimit,
   listUsbBridgePorts,
 } from "./live.js";
-import { PROFILE } from "./motion.js";
+import { PROFILE, controlLimits, toRobotAngle } from "./motion.js";
 
 const formatDegrees = (value) =>
   `${value > 0 ? "+" : ""}${Number(value.toFixed(1))}°`;
@@ -516,7 +516,7 @@ export function mountLivePanel({
       jointId,
       state.commissioning_start_pose ?? state.caps.commanded_pose,
     );
-    const requested = Number(rawValue);
+    const requested = toRobotAngle(jointId, Number(rawValue));
     if (!Number.isFinite(requested))
       throw new Error("Выберите угол ползунком Live.");
     const value = clamp(requested, interval.min, interval.max);
@@ -1320,7 +1320,8 @@ export function mountLivePanel({
     setInspectorAngle(id, value) {
       guarded(() => {
         const limit = session.caps?.joint_limits.find(j=>j.id===id);
-        if (!limit || String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value)<limit.min || Number(value)>limit.max)
+        const limits = limit && controlLimits(id, limit.min, limit.max);
+        if (!limits || String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value)<limits.min || Number(value)>limits.max)
           throw new Error("Введите угол в пределах выбранного сустава.");
         moveInspectorTarget({value}, id);
       });

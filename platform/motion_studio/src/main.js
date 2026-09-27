@@ -3,6 +3,9 @@ import "./live.css";
 import { mountLivePanel } from "./live-panel.js";
 import {
   PROFILE,
+  toControlAngle,
+  toRobotAngle,
+  controlLimits,
   clone,
   zeroPose,
   createMotion,
@@ -127,7 +130,7 @@ document.querySelector("#app").innerHTML = `
       <h2>Суставы</h2>
       <p class="inspector-intro">Выберите сустав и двигайте его ползунок. В Live модель и доступный привод получают одну цель. Поза записывается на текущей отметке времени.</p>
       <p class="slider-direction-guide">← Опустить · вправо поднять →</p>
-      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}: влево опустить, вправо поднять"/><div class="range-ends"><span>${j.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${j.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`).join("")}</div>
+      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => { const limits = controlLimits(j.id, j.min, j.max); return `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}: влево опустить, вправо поднять"/><div class="range-ends"><span>${limits.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${limits.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`; }).join("")}</div>
       <div class="pose-actions"><button class="button quiet" id="neutral">${icon("reset")}Нулевая поза</button><button class="icon-button" id="mirror" title="Отразить позу" aria-label="Отразить позу">${icon("mirror")}</button></div>
       <div class="sequence-settings"><h3>Параметры движения</h3><label>Длительность <span><input id="duration" type="number" min="0.5" max="120" step="0.1" /> с</span></label><label>Переходы <select id="interpolation"><option value="smooth">Плавные</option><option value="linear">Линейные</option><option value="hold">Без перехода</option></select></label></div>
       <div class="version-actions"><button class="button quiet" id="save-version">${icon("save")}Сохранить версию</button><select id="versions" aria-label="Восстановить сохранённую версию"><option value="">История версий</option></select></div>
@@ -386,10 +389,10 @@ function renderPosition() {
     );
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
-    $("range-" + joint.id).value = view?.value ?? +pose[joint.id].toFixed(1);
+    $("range-" + joint.id).value = toControlAngle(joint.id, view?.value ?? +pose[joint.id].toFixed(1));
     const number = $("number-" + joint.id);
     if (!view?.numberEditable || view.disabled || (document.activeElement !== number && number.dataset.liveDraft === undefined))
-      number.value = view?.numberEditable ? +view.value.toFixed(1) : (view?.command ?? +pose[joint.id].toFixed(1));
+      number.value = toControlAngle(joint.id, view?.numberEditable ? +view.value.toFixed(1) : (view?.command ?? +pose[joint.id].toFixed(1)));
   }
 }
 function renderVersions() {
@@ -543,7 +546,7 @@ for (const j of PROFILE.joints) {
     setPlaying(false);
     time = Math.round(time);
     // Selection refreshes the inspector, so apply the captured value first.
-    pose[j.id] = value;
+    pose[j.id] = toRobotAngle(j.id, value);
     selectJoint(j.id);
     live?.updateTarget();
     renderPosition();
@@ -566,7 +569,7 @@ for (const j of PROFILE.joints) {
       const value = Number(number.value);
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
-      pose = validatePose({ ...pose, [j.id]: value });
+      pose = validatePose({ ...pose, [j.id]: toRobotAngle(j.id, value) });
       setPlaying(false);
       selectJoint(j.id);
       live?.updateTarget();
@@ -784,8 +787,9 @@ function updateLiveView() {
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
     const range = $("range-" + joint.id), number = $("number-" + joint.id);
-    range.min = number.min = view?.min ?? joint.min;
-    range.max = number.max = view?.max ?? joint.max;
+    const limits = controlLimits(joint.id, view?.min ?? joint.min, view?.max ?? joint.max);
+    range.min = number.min = limits.min;
+    range.max = number.max = limits.max;
     range.disabled = view?.disabled ?? false;
     number.disabled = view ? (!view.numberEditable || view.disabled) : false;
     if (view?.disabled) delete number.dataset.liveDraft;
@@ -801,7 +805,7 @@ function updateLiveView() {
     ends[2].textContent = view && !view.available ? "—" : `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
     const note = $("live-row-" + joint.id);
     note.hidden = !view;
-    note.textContent = view ? (view.available ? `Команда ${+view.command.toFixed(1)}° · цель ${+(view.target ?? view.value).toFixed(1)}°. ${view.reason}` : view.reason) : "";
+    note.textContent = view ? (view.available ? `Команда ${+toControlAngle(joint.id, view.command).toFixed(1)}° · цель ${+toControlAngle(joint.id, view.target ?? view.value).toFixed(1)}°. ${view.reason}` : view.reason) : "";
   }
   const liveState = live?.snapshot?.state;
   document.querySelector(".inspector-intro").textContent = !live?.enabled

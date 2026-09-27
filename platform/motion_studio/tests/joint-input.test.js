@@ -9,6 +9,9 @@ import {
   poseAt,
   putPose,
   validatePose,
+  toControlAngle,
+  toRobotAngle,
+  controlLimits,
 } from "../src/motion.js";
 
 const source = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
@@ -28,6 +31,9 @@ function editor() {
     poseAt,
     putPose,
     validatePose,
+    toControlAngle,
+    toRobotAngle,
+    controlLimits,
     motion: createMotion(),
     pose: zeroPose(),
     time: 0,
@@ -93,7 +99,7 @@ test("dragging every joint survives selection refresh and updates the 3D pose", 
     for (const value of [12, -17, index + 1]) {
       range.value = value;
       range.oninput();
-      expected[joint.id] = value;
+      expected[joint.id] = toRobotAngle(joint.id, value);
       assert.equal(range.value, String(value));
       assert.equal(ui.$("number-" + joint.id).value, String(value));
       assert.deepEqual(ui.scenePose, expected);
@@ -113,7 +119,7 @@ test("numeric edits survive selection refresh and are recorded for every joint",
     const number = ui.$("number-" + joint.id);
     number.value = -17.5;
     number.onchange();
-    expected[joint.id] = -17.5;
+    expected[joint.id] = toRobotAngle(joint.id, -17.5);
     assert.equal(number.value, "-17.5");
     assert.equal(ui.$("range-" + joint.id).value, "-17.5");
     assert.deepEqual(ui.scenePose, expected);
@@ -161,8 +167,8 @@ test("Live inspector render keeps target separate and never records on input rel
   ui.live.enabled = true;
   ui.live.inspectorView = (id) => ({min:-15,max:15,disabled:false,available:true,command:id === "arm_positive_x" ? -2 : 0,value:id === "arm_positive_x" ? -15 : 0,reason:"Держите"});
   ui.updateLiveView();
-  assert.equal(ui.$("range-arm_positive_x").value,"-15");
-  assert.equal(ui.$("number-arm_positive_x").value,"-2");
+  assert.equal(ui.$("range-arm_positive_x").value,"15");
+  assert.equal(ui.$("number-arm_positive_x").value,"2");
   ui.$("range-arm_positive_x").oninput();
   ui.$("range-arm_positive_x").onchange();
   assert.equal(ui.commits.length,0);

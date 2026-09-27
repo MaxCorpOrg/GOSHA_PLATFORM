@@ -8,6 +8,10 @@ import {
   poseAt,
   putPose,
   mirrorPose,
+  toControlAngle,
+  toRobotAngle,
+  controlLimits,
+  validatePose,
   validateMotion,
   parseMotion,
   prepareRobotMotionPackage,
@@ -119,6 +123,15 @@ test("mirror swaps corresponding joints with correct signs and is reversible", (
   assert.equal(mirrored.arm_negative_x, -pose.arm_positive_x);
   assert.equal(mirrored.foot_positive_x, -pose.foot_negative_x);
   assert.deepEqual(mirrorPose(mirrored), pose);
+});
+test("right arm control rises to the right while robot angles and stored poses remain unchanged", () => {
+  assert.deepEqual(controlLimits("arm_positive_x", -70, 55), { min: -55, max: 70 });
+  assert.equal(toRobotAngle("arm_positive_x", 15), -15);
+  assert.equal(toControlAngle("arm_positive_x", -15), 15);
+  assert.equal(toRobotAngle("leg_positive_x", 15), 15);
+  assert.ok(Number.isNaN(toRobotAngle("arm_positive_x", NaN)));
+  const stored = { ...zeroPose(), arm_positive_x: -15 };
+  assert.deepEqual(validatePose(stored), stored);
 });
 test("rejects invalid imports instead of silently changing the motion", () => {
   const cases = [
