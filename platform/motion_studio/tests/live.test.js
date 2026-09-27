@@ -16,6 +16,7 @@ import {
   createLiveStepPlan,
   formatStoredPackageFields,
   liveSafeIntervalForJoint,
+  liveSliderTargetPose,
   liveSliderViewModel,
   liveInspectorJointViewModel,
   livePlaybackScale,
@@ -231,6 +232,37 @@ test("USB Live connection uses the local bridge and still starts with hello only
     "protocol",
     "request_id",
   ]);
+});
+
+test("USB control frames leave 100 ms between telemetry replies while Wi-Fi keeps its advertised rate", () => {
+  const usb = harness();
+  usb.live.connectUsb("b".repeat(24));
+  const socket = usb.sockets.at(-1);
+  socket.readyState = 1;
+  socket.onopen();
+  socket.receive({ ...capabilities(), request_id: usb.live.requestId });
+  usb.live.arm("synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "armed",
+    request_id: usb.live.requestId,
+    session_id: "session-00000000001",
+    calibration_id: usb.live.caps.calibration_id,
+  });
+  usb.advance(50);
+  assert.equal(socket.sent.at(-1).op, "arm");
+  usb.advance(50);
+  assert.equal(socket.sent.at(-1).op, "keepalive");
+  usb.ack(socket);
+  usb.advance(99);
+  assert.equal(socket.sent.filter((message) => message.op === "keepalive").length, 1);
+  usb.advance(1);
+  assert.equal(socket.sent.filter((message) => message.op === "keepalive").length, 2);
+
+  const wifi = harness();
+  const wifiSocket = wifi.arm();
+  wifi.advance(50);
+  assert.equal(wifiSocket.sent.at(-1).op, "keepalive");
 });
 
 test("connection accepts LAN addresses only, never credentials, paths or public services", () => {
@@ -1491,6 +1523,8 @@ function editorCaps(initialized = true) {
 function editorCaps45() {
   return {
     ...editorCaps(),
+    package_features: { store_slots: 3, list: true, select: true,
+      delete_all: true, delete_by_id: true, hardware_run: true },
     joint_limits: [
       { id: "arm_positive_x", min: -70, max: 45, max_speed_dps: 10 },
       { id: "leg_negative_x", min: -35, max: 35, max_speed_dps: 10 },
@@ -1500,6 +1534,18 @@ function editorCaps45() {
     ],
   };
 }
+test("old two-slot firmware rejects uploads before replacing a package", async () => {
+  const h = harness(() => ({ ...editorCaps45(),
+    package_features: { store_slots: 2, list: true, select: true } }));
+  const socket = h.ready();
+  const motion = createMotion("Новый жест");
+  const draft = prepareRobotMotionPackage(motion, h.live.caps).package;
+  await assert.rejects(
+    () => h.live.uploadPackageDraft(draft, "synthetic-test-key-only"),
+    /хранит только два пакета/,
+  );
+  assert.equal(socket.sent.some((item) => item.op === "package_upload_begin"), false);
+});
 test("full editor declares uncalibrated owner limits separately from legacy commissioning", () => {
   const caps=validateCapabilities(editorCaps());
   assert.equal(caps.commissioning,false); assert.equal(caps.calibrated,false);
@@ -1546,6 +1592,26 @@ test("editor keeps all inspector targets editable while multiple joints are foll
     assert.equal(view.min,joint.min);assert.equal(view.max,joint.max);
   }
   assert.equal(liveInspectorJointViewModel(state,"arm_negative_x").disabled,true);
+});
+test("right arm Live slider sends the existing negative robot angle for an upward drag", () => {
+  const state = {state:"armed", caps:validateCapabilities(editorCaps()), target:zeroPose()};
+  const raised = liveSliderTargetPose(state, "arm_positive_x", 15);
+  assert.equal(raised.arm_positive_x, -15);
+  assert.equal(liveSliderTargetPose({...state,target:raised}, "arm_positive_x", 0).arm_positive_x, 0);
+  assert.equal(liveSliderTargetPose(state, "foot_positive_x", 15).foot_positive_x, 15);
+  assert.throws(() => liveSliderTargetPose(state, "arm_positive_x", "bad angle"));
+});
+test("editor slider follows confirmed leg command after the target is chosen", () => {
+  const state={state:"armed",caps:validateCapabilities(editorCaps()),
+    telemetry:{commanded_pose:{...zeroPose(),leg_negative_x:2}},
+    target:{...zeroPose(),leg_negative_x:8}};
+  const tracking=liveInspectorJointViewModel(state,"leg_negative_x");
+  assert.equal(tracking.value,2);
+  assert.equal(tracking.command,2);
+  assert.equal(tracking.target,8);
+  const dragging=liveInspectorJointViewModel(state,"leg_negative_x",null,"leg_negative_x","leg_negative_x");
+  assert.equal(dragging.value,8);
+  assert.equal(liveInspectorJointViewModel(state,"foot_negative_x",null,"leg_negative_x","leg_negative_x").value,0);
 });
 test("editor rejects a disconnected arm and resolves sub-degree endpoint at PWM resolution", () => {
   const a=harness(editorCaps), sa=a.arm();
@@ -1733,7 +1799,29 @@ test("editor uploads a robot package without arming or sending pose", async () =
     hardware_apply: false,
   });
 
+  await Promise.resolve();
+  await Promise.resolve();
+  const list = socket.sent.at(-1);
+  assert.equal(list.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "package_status",
+    request_id: list.request_id,
+    status: "listed",
+    count: 1,
+    packages: [{
+      package_id: begin.package_id,
+      profile_id: begin.profile_id,
+      calibration_id: begin.calibration_id,
+      payload_size: begin.total_size,
+      crc32: begin.crc32,
+      name: result.package.name,
+      active: true,
+    }],
+  });
+
   const meta = await upload;
+  assert.equal(meta.catalog.storedPackages.length, 1);
   assert.equal(meta.loaded.status, "loaded");
   assert.equal(meta.prepared.status, "prepared");
   assert.equal(meta.sampled.status, "sampled");
@@ -1972,11 +2060,21 @@ test("editor can read stored packages while right arm initialization is required
   const meta = await status;
   assert.equal(meta.storedPackage.package_id, "persisted-001");
   assert.equal(h.live.snapshot().state, "init_required");
-  await assert.rejects(
-    () => h.live.deleteStoredPackage("synthetic-test-key-only", "persisted-001"),
-    /требует включенной правой руки/,
-  );
-  assert.equal(socket.sent.some((item) => item.op === "package_delete"), false);
+  const remove = h.live.deleteStoredPackage("synthetic-test-key-only", "persisted-001");
+  const deleted = socket.sent.at(-1);
+  assert.equal(deleted.op, "package_delete");
+  socket.receive({
+    protocol: LIVE_PROTOCOL, op: "package_status", request_id: deleted.request_id,
+    status: "deleted", package_id: "persisted-001",
+  });
+  await Promise.resolve();
+  const after = socket.sent.at(-1);
+  assert.equal(after.op, "package_list");
+  socket.receive({
+    protocol: LIVE_PROTOCOL, op: "package_status", request_id: after.request_id,
+    status: "listed", count: 0, packages: [],
+  });
+  await remove;
   assert.equal(socket.sent.some((item) => item.op === "arm"), false);
   assert.equal(socket.sent.some((item) => item.op === "pose"), false);
 });
@@ -2491,7 +2589,7 @@ test("editor deletes a stored robot package without uploading, arming or sending
 });
 
 test("editor refuses targeted package delete when firmware does not advertise it", async () => {
-  const h = harness(editorCaps45);
+  const h = harness(() => ({ ...editorCaps45(), package_features: { store_slots: 2 } }));
   const socket = h.ready();
 
   await assert.rejects(

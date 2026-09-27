@@ -3,9 +3,13 @@ import "./live.css";
 import { mountLivePanel } from "./live-panel.js";
 import {
   PROFILE,
+  toControlAngle,
+  toRobotAngle,
+  controlLimits,
   clone,
   zeroPose,
   createMotion,
+  examples,
   poseAt,
   putPose,
   mirrorPose,
@@ -13,6 +17,8 @@ import {
   validatePose,
   parseMotion,
   prepareRobotMotionPackage,
+  prepareRobotPackageUpload,
+  robotPackageCrc32,
   newId,
   MAX_FILE_BYTES,
 } from "./motion.js";
@@ -72,6 +78,7 @@ document.querySelector("#app").innerHTML = `
     <span class="version">ПРОТОТИП 01</span>
     <div class="top-spacer"></div>
     <span class="save-state" id="save-status" role="status">Сохранено в браузере</span>
+    <span class="save-state" id="robot-install-status" role="status">Черновик</span>
     <button id="export-original" class="button quiet" hidden>Исходная библиотека</button>
     <button id="export-robot-package" class="button quiet">${icon("download")}Пакет робота</button>
     <button id="upload-robot-package" class="button quiet">${icon("upload")}Записать в робота</button>
@@ -87,6 +94,7 @@ document.querySelector("#app").innerHTML = `
       <div class="panel-heading"><span class="eyebrow">БИБЛИОТЕКА</span><span class="count" id="library-count"></span></div>
       <h1>Движения</h1>
       <button class="button new-motion" id="new">${icon("plus")}Новое движение</button>
+      <button class="button quiet new-motion" id="new-greeting">${icon("copy")}Малое приветствие</button>
       <label class="search-label"><span class="sr-only">Найти движение</span><input id="search" type="search" placeholder="Найти движение…" /></label>
       <div id="motion-list" class="motion-list"></div>
       <div class="library-footer"><span class="local-dot"></span><div>Локальная библиотека<small>Движения остаются в этом браузере. Для копии скачайте JSON.</small></div></div>
@@ -120,8 +128,9 @@ document.querySelector("#app").innerHTML = `
     <aside class="inspector panel">
       <div class="panel-heading"><span class="eyebrow">НАСТРОЙКА ПОЗЫ</span><span class="count">6</span></div>
       <h2>Суставы</h2>
-      <p class="inspector-intro">Измените угол — поза запишется на текущей отметке времени.</p>
-      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${j.min}" max="${j.max}" step="1" value="0" aria-label="${j.label}"/><div class="range-ends"><span>${j.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${j.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`).join("")}</div>
+      <p class="inspector-intro">Выберите сустав и двигайте его ползунок. В Live модель и доступный привод получают одну цель. Поза записывается на текущей отметке времени.</p>
+      <p class="slider-direction-guide">← Опустить · вправо поднять →</p>
+      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => { const limits = controlLimits(j.id, j.min, j.max); return `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}: влево опустить, вправо поднять"/><div class="range-ends"><span>${limits.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${limits.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`; }).join("")}</div>
       <div class="pose-actions"><button class="button quiet" id="neutral">${icon("reset")}Нулевая поза</button><button class="icon-button" id="mirror" title="Отразить позу" aria-label="Отразить позу">${icon("mirror")}</button></div>
       <div class="sequence-settings"><h3>Параметры движения</h3><label>Длительность <span><input id="duration" type="number" min="0.5" max="120" step="0.1" /> с</span></label><label>Переходы <select id="interpolation"><option value="smooth">Плавные</option><option value="linear">Линейные</option><option value="hold">Без перехода</option></select></label></div>
       <div class="version-actions"><button class="button quiet" id="save-version">${icon("save")}Сохранить версию</button><select id="versions" aria-label="Восстановить сохранённую версию"><option value="">История версий</option></select></div>
@@ -162,6 +171,29 @@ function attempt(action) {
     render();
   }
 }
+function motionFingerprint(value) {
+  return robotPackageCrc32(
+    new TextEncoder().encode(JSON.stringify(validateMotion(value))),
+  );
+}
+function updateRobotInstallStatus() {
+  const record = library.installed[motion.id];
+  const current = record && record.fingerprint === motionFingerprint(motion);
+  const freshCatalog = ["ready", "init_required"].includes(live?.snapshot?.state);
+  const packages = freshCatalog ? live.snapshot.storedPackages : null;
+  const onRobot = Array.isArray(packages)
+    ? packages.find((item) => item.package_id === record?.package_id)
+    : null;
+  let label = "Черновик";
+  if (record && !current) label = "Изменено";
+  else if (record && Array.isArray(packages) && !onRobot) label = "Нет в роботе";
+  else if (record && onRobot && onRobot.crc32 !== record.crc32)
+    label = "Изменено в роботе";
+  else if (record) label = freshCatalog ? "Установлено" : "Записано ранее";
+  $("robot-install-status").textContent = label;
+  $("upload-robot-package").innerHTML =
+    `${icon("upload")}${record ? "Обновить в роботе" : "Записать в робота"}`;
+}
 function persist() {
   library.active_id = motion.id;
   const index = library.motions.findIndex((m) => m.id === motion.id);
@@ -172,6 +204,7 @@ function persist() {
     ? "Сохранено в браузере"
     : "Сохраните JSON";
   $("save-status").classList.toggle("failed", !result.ok);
+  updateRobotInstallStatus();
   if (!result.ok) notify(result.error, true);
   return result.ok;
 }
@@ -255,6 +288,7 @@ function renderLibrary() {
     row.className = `motion-card${item.id === motion.id ? " current" : ""}`;
     const button = document.createElement("button");
     button.className = "motion-select";
+    button.title = `Постоянный ID: ${item.id}`;
     button.innerHTML = `<span class="motion-glyph">${icon(item.id.startsWith("example") ? "cube" : "play")}</span><span class="motion-info"><strong></strong><small></small></span>`;
     button.querySelector("strong").textContent = item.name;
     button.querySelector("small").textContent =
@@ -355,10 +389,10 @@ function renderPosition() {
     );
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
-    $("range-" + joint.id).value = view?.value ?? +pose[joint.id].toFixed(1);
+    $("range-" + joint.id).value = toControlAngle(joint.id, view?.value ?? +pose[joint.id].toFixed(1));
     const number = $("number-" + joint.id);
     if (!view?.numberEditable || view.disabled || (document.activeElement !== number && number.dataset.liveDraft === undefined))
-      number.value = view?.numberEditable ? +view.value.toFixed(1) : (view?.command ?? +pose[joint.id].toFixed(1));
+      number.value = toControlAngle(joint.id, view?.numberEditable ? +view.value.toFixed(1) : (view?.command ?? +pose[joint.id].toFixed(1)));
   }
 }
 function renderVersions() {
@@ -385,6 +419,7 @@ function render() {
   renderVersions();
   selectJoint(selectedJoint);
   renderPosition();
+  updateRobotInstallStatus();
 }
 function addMotion(value) {
   if (library.motions.length >= 100)
@@ -415,6 +450,11 @@ $("new").onclick = () =>
     addMotion(createMotion());
     $("motion-name").focus();
     $("motion-name").select();
+  });
+$("new-greeting").onclick = () =>
+  attempt(() => {
+    const template = examples().find((item) => item.id === "example-small-greeting");
+    addMotion({ ...template, id: newId() });
   });
 $("search").oninput = renderLibrary;
 $("motion-name").onchange = () =>
@@ -506,7 +546,7 @@ for (const j of PROFILE.joints) {
     setPlaying(false);
     time = Math.round(time);
     // Selection refreshes the inspector, so apply the captured value first.
-    pose[j.id] = value;
+    pose[j.id] = toRobotAngle(j.id, value);
     selectJoint(j.id);
     live?.updateTarget();
     renderPosition();
@@ -529,7 +569,7 @@ for (const j of PROFILE.joints) {
       const value = Number(number.value);
       if (number.value.trim() === "")
         throw new Error("Введите угол в градусах.");
-      pose = validatePose({ ...pose, [j.id]: value });
+      pose = validatePose({ ...pose, [j.id]: toRobotAngle(j.id, value) });
       setPlaying(false);
       selectJoint(j.id);
       live?.updateTarget();
@@ -572,6 +612,7 @@ $("confirm-delete").onclick = () => {
   live?.stop("Движение удалено из редактора.");
   library.motions = library.motions.filter((m) => m.id !== motion.id);
   delete library.revisions[motion.id];
+  delete library.installed[motion.id];
   if (!library.motions.length) library.motions.push(createMotion());
   motion = clone(library.motions[0]);
   time = 0;
@@ -627,7 +668,26 @@ $("upload-robot-package").onclick = () =>
         `Пакет робота не готов: ${result.issues[0].message}${rest}`,
       );
     }
-    await live.uploadPackage(result.package);
+    const previous = library.installed[motion.id];
+    const revision = (previous?.revision || 0) + 1;
+    const packageDraft = { ...result.package, revision };
+    const upload = prepareRobotPackageUpload(packageDraft);
+    await live.uploadPackage(packageDraft);
+    if (previous?.motion_snapshot &&
+        previous.fingerprint !== motionFingerprint(motion)) {
+      const revisions = library.revisions[motion.id] || [];
+      revisions.push({ saved_at: new Date().toISOString(), motion: previous.motion_snapshot });
+      library.revisions[motion.id] = revisions.slice(-20);
+    }
+    library.installed[motion.id] = {
+      package_id: upload.package_id,
+      crc32: upload.crc32,
+      fingerprint: motionFingerprint(motion),
+      revision,
+      motion_snapshot: clone(motion),
+    };
+    if (!persist()) throw new Error("Пакет записан, но локальная история не сохранилась. Скачайте JSON движения.");
+    renderVersions();
     notify(
       "Пакет записан, прочитан и программно проверен без движения приводов.",
     );
@@ -727,8 +787,9 @@ function updateLiveView() {
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
     const range = $("range-" + joint.id), number = $("number-" + joint.id);
-    range.min = number.min = view?.min ?? joint.min;
-    range.max = number.max = view?.max ?? joint.max;
+    const limits = controlLimits(joint.id, view?.min ?? joint.min, view?.max ?? joint.max);
+    range.min = number.min = limits.min;
+    range.max = number.max = limits.max;
     range.disabled = view?.disabled ?? false;
     number.disabled = view ? (!view.numberEditable || view.disabled) : false;
     if (view?.disabled) delete number.dataset.liveDraft;
@@ -744,16 +805,24 @@ function updateLiveView() {
     ends[2].textContent = view && !view.available ? "—" : `${Number(range.max) > 0 ? "+" : ""}${range.max}°`;
     const note = $("live-row-" + joint.id);
     note.hidden = !view;
-    note.textContent = view ? (view.available ? `Команда ${view.command}° · цель ${+view.value.toFixed(1)}°. ${view.reason}` : view.reason) : "";
+    note.textContent = view ? (view.available ? `Команда ${+toControlAngle(joint.id, view.command).toFixed(1)}° · цель ${+toControlAngle(joint.id, view.target ?? view.value).toFixed(1)}°. ${view.reason}` : view.reason) : "";
   }
-  document.querySelector(".inspector-intro").textContent = live?.enabled
-    ? "Откройте сессию слева и выберите угол. Робот плавно дойдёт до цели — удерживать мышь не нужно. STOP завершает сессию."
-    : "Измените угол — поза запишется на текущей отметке времени.";
+  const liveState = live?.snapshot?.state;
+  document.querySelector(".inspector-intro").textContent = !live?.enabled
+    ? "Измените угол — поза запишется на текущей отметке времени."
+    : liveState === "armed"
+      ? "Выберите сустав и двигайте ползунок. Робот идёт к заданному углу, 3D показывает подтверждённую команду. STOP завершает сессию."
+      : liveState === "ready"
+        ? "Ползунки заблокированы. Введите ключ Live слева и нажмите «Начать управление»."
+        : liveState === "init_required"
+          ? "Сначала введите ключ Live слева и включите правую руку. Затем откройте управление."
+          : "Подключите робота слева, чтобы открыть управление суставами.";
   document.querySelector(".calibration-note").textContent = live?.enabled
     ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."
     : "Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.";
   $("neutral").disabled = $("mirror").disabled = Boolean(live?.enabled);
   renderPosition();
+  if (typeof updateRobotInstallStatus === "function") updateRobotInstallStatus();
 }
 live = mountLivePanel({
   getPose: () => pose,
@@ -830,6 +899,7 @@ render();
 persist();
 if (library.error) notify(library.error, true);
 if (library.adjusted) notify("Предел опускания рук обновлён до 55°. Исходная библиотека сохранена отдельной копией.");
+if (library.templateUpgraded) notify("Пример «Малое приветствие» обновлён до ±15°. Прежний вариант сохранён в истории версий.");
 animation = requestAnimationFrame(tick);
 registerPreviewTools(
   document.modelContext,

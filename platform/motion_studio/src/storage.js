@@ -1,8 +1,22 @@
-import { clone, validateMotion, examples, constrainLegacyArmMotion } from "./motion.js";
+import { clone, validateMotion, examples, constrainLegacyArmMotion, zeroPose } from "./motion.js";
 
 export const STORAGE_KEY = "ai-robots.motion-studio.v1";
 
 export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}.before-arm55`;
+
+function isUneditedSmallGreeting(motion) {
+  if (motion.name !== "Малое приветствие" ||
+      motion.duration_ms !== 4800 ||
+      motion.interpolation !== "smooth" ||
+      motion.keyframes.length !== 4) return false;
+  const expected = [[0, 0], [1200, 6], [3600, -6], [4800, 0]];
+  const joints = Object.keys(zeroPose());
+  return motion.keyframes.every((frame, index) =>
+    frame.time_ms === expected[index][0] &&
+    Object.keys(frame.pose).length === joints.length &&
+    joints.every((joint) => frame.pose[joint] ===
+      (joint === "arm_positive_x" ? expected[index][1] : 0)));
+}
 
 export function createStore(storage) {
   let writable = true;
@@ -17,6 +31,7 @@ export function createStore(storage) {
             motions,
             active_id: motions[0].id,
             revisions: {},
+            installed: {},
             error: null,
           };
         }
@@ -34,10 +49,18 @@ export function createStore(storage) {
           adjusted ||= result.changed;
           return result.motion;
         };
-        const motions = data.motions.map(normalize);
+        const previousGreetings = new Map();
+        const motions = data.motions.map((value) => {
+          const motion = normalize(value);
+          if (!isUneditedSmallGreeting(motion)) return motion;
+          previousGreetings.set(motion.id, motion);
+          return { ...examples().find((item) => item.id === "example-small-greeting"),
+                   id: motion.id };
+        });
         if (new Set(motions.map((m) => m.id)).size !== motions.length)
           throw new Error("Duplicate ids");
         const revisions = Object.create(null);
+        const installed = Object.create(null);
         for (const motion of motions) {
           const saved = Object.hasOwn(data.revisions ?? {}, motion.id)
             ? data.revisions[motion.id]
@@ -55,6 +78,32 @@ export function createStore(storage) {
               throw new Error("Invalid revision identity");
             return { saved_at: r.saved_at, motion: snapshot };
           });
+          if (previousGreetings.has(motion.id))
+            revisions[motion.id] = [
+              ...revisions[motion.id].slice(-19),
+              { saved_at: new Date().toISOString(), motion: previousGreetings.get(motion.id) },
+            ];
+          const record = Object.hasOwn(data.installed ?? {}, motion.id)
+            ? data.installed[motion.id]
+            : undefined;
+          if (record !== undefined) {
+            if (
+              !record ||
+              !/^[a-zA-Z0-9_.-]{1,64}$/.test(record.package_id ?? "") ||
+              !Number.isInteger(record.crc32) ||
+              record.crc32 < 0 || record.crc32 > 0xffffffff ||
+              !Number.isInteger(record.fingerprint) ||
+              record.fingerprint < 0 || record.fingerprint > 0xffffffff
+            ) throw new Error("Invalid installation record");
+            if (record.motion_snapshot) {
+              const snapshot = validateMotion(record.motion_snapshot);
+              if (snapshot.id !== motion.id) throw new Error("Invalid installation identity");
+            }
+            if (record.revision !== undefined &&
+                (!Number.isInteger(record.revision) || record.revision < 1))
+              throw new Error("Invalid installation revision");
+            installed[motion.id] = record;
+          }
         }
         let originalLibrary = storage.getItem(LEGACY_BACKUP_KEY);
         if (adjusted && !originalLibrary) {
@@ -64,11 +113,13 @@ export function createStore(storage) {
         return {
           originalLibrary,
           adjusted,
+          templateUpgraded: previousGreetings.size > 0,
           motions,
           active_id: motions.some((m) => m.id === data.active_id)
             ? data.active_id
             : motions[0].id,
           revisions,
+          installed,
           error: null,
         };
       } catch {
@@ -78,12 +129,13 @@ export function createStore(storage) {
           motions,
           active_id: motions[0].id,
           revisions: {},
+          installed: {},
           error:
             "Локальная библиотека недоступна или повреждена. Исходные данные сохранены без изменений. Работайте с экспортом JSON.",
         };
       }
     },
-    save({ motions, active_id, revisions }) {
+    save({ motions, active_id, revisions, installed = {} }) {
       if (!writable)
         return {
           ok: false,
@@ -97,6 +149,7 @@ export function createStore(storage) {
           active_id,
           motions: motions.map(validateMotion),
           revisions: clone(revisions),
+          installed: clone(installed),
         };
         storage.setItem(STORAGE_KEY, JSON.stringify(data));
         return { ok: true };

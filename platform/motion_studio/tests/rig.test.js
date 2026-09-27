@@ -33,10 +33,9 @@ test("foot follows its leg and retains independent ankle rotation; opposite side
   const rig = buildRig(root, meshes);
   rig.setPose({ ...zeroPose(), leg_positive_x: 20 });
   root.updateMatrixWorld(true);
-  assert.deepEqual(
-    meshes.get("foot_positive_x").matrixWorld.elements,
-    meshes.get("leg_positive_x").matrixWorld.elements,
-  );
+  for (const [actual, expected] of meshes.get("foot_positive_x").matrixWorld.elements
+    .map((value, index) => [value, meshes.get("leg_positive_x").matrixWorld.elements[index]]))
+    assert.ok(Math.abs(actual - expected) < 1e-10);
   assert.deepEqual(
     meshes.get("foot_negative_x").matrixWorld.elements,
     new THREE.Matrix4().elements,
@@ -52,6 +51,41 @@ test("foot follows its leg and retains independent ankle rotation; opposite side
     meshes.get("foot_positive_x").matrixWorld.elements,
     legBefore.elements,
   );
+});
+test("moving every joint slider right raises its visible 3D limb", () => {
+  const root = new THREE.Group();
+  const meshes = synthetic();
+  const rig = buildRig(root, meshes);
+  const tips = {
+    arm_negative_x: ["hand_positive_x", [59, 0, -78]],
+    arm_positive_x: ["hand_negative_x", [-59, 0, -78]],
+    leg_negative_x: ["leg_negative_x", [-23, 0, -87]],
+    leg_positive_x: ["leg_positive_x", [23, 0, -87]],
+    foot_negative_x: ["foot_negative_x", [-23, -36, -88]],
+    foot_positive_x: ["foot_positive_x", [23, -36, -88]],
+  };
+  const height = (mesh, point) => {
+    root.updateMatrixWorld(true);
+    return meshes.get(mesh).localToWorld(new THREE.Vector3(...point)).z;
+  };
+  for (const joint of PROFILE.joints) {
+    const [mesh, tip] = tips[joint.id];
+    rig.setPose(zeroPose());
+    const neutral = height(mesh, tip);
+    rig.setPose({ ...zeroPose(), [joint.id]: joint.id === "arm_positive_x" ? -15 : 15 });
+    assert.ok(height(mesh, tip) > neutral, `${joint.label} must rise at +15°`);
+  }
+});
+test("the connected right arm selects the robot's right mesh in front view", () => {
+  const root = new THREE.Group();
+  const meshes = synthetic();
+  buildRig(root, meshes);
+  assert.equal(meshes.get("arm_negative_x").userData.joint, "arm_positive_x");
+  assert.equal(meshes.get("hand_negative_x").userData.joint, "arm_positive_x");
+  assert.equal(meshes.get("arm_positive_x").userData.joint, "arm_negative_x");
+  assert.equal(meshes.get("hand_positive_x").userData.joint, "arm_negative_x");
+  for (const side of ["negative_x", "positive_x"])
+    assert.equal(meshes.get(`leg_${side}`).userData.joint, `leg_${side}`);
 });
 test("missing part is rejected before changing the scene graph", () => {
   const root = new THREE.Group();

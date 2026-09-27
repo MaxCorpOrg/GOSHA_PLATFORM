@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createStore, STORAGE_KEY, LEGACY_BACKUP_KEY } from "../src/storage.js";
-import { createMotion, putPose, zeroPose } from "../src/motion.js";
+import { createMotion, examples, putPose, zeroPose } from "../src/motion.js";
 
 const memory = () => {
   const values = new Map();
@@ -10,6 +10,50 @@ const memory = () => {
     setItem: (k, v) => values.set(k, v),
   };
 };
+test("only the untouched 6-degree greeting upgrades to 15 degrees with a recoverable revision", () => {
+  const original = examples().find((motion) => motion.id === "example-small-greeting");
+  const legacy = {
+    ...original,
+    duration_ms: 4800,
+    keyframes: [[0, 0], [1200, 6], [3600, -6], [4800, 0]].map(
+      ([time_ms, angle]) => ({ time_ms, pose: { ...zeroPose(), arm_positive_x: angle } }),
+    ),
+  };
+  const storage = memory();
+  storage.setItem(STORAGE_KEY, JSON.stringify({
+    schema_version: 1, motions: [legacy], active_id: legacy.id,
+    revisions: {}, installed: {},
+  }));
+  const store = createStore(storage);
+  const state = store.load();
+  assert.equal(state.templateUpgraded, true);
+  assert.equal(state.motions[0].duration_ms, 10000);
+  assert.deepEqual(state.motions[0].keyframes.map((frame) => frame.pose.arm_positive_x),
+    [0, 15, -15, 0]);
+  assert.deepEqual(state.revisions[legacy.id][0].motion, legacy);
+  assert.equal(store.save(state).ok, true);
+  assert.equal(createStore(storage).load().revisions[legacy.id].length, 1);
+
+  const copiedStorage = memory();
+  const copied = { ...legacy, id: "local-copy-of-greeting" };
+  copiedStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schema_version: 1, motions: [copied], active_id: copied.id,
+  }));
+  const upgradedCopy = createStore(copiedStorage).load();
+  assert.equal(upgradedCopy.templateUpgraded, true);
+  assert.equal(upgradedCopy.motions[0].id, copied.id);
+  assert.equal(upgradedCopy.motions[0].keyframes[1].pose.arm_positive_x, 15);
+  assert.deepEqual(upgradedCopy.revisions[copied.id][0].motion, copied);
+
+  const editedStorage = memory();
+  editedStorage.setItem(STORAGE_KEY, JSON.stringify({
+    schema_version: 1, motions: [{ ...legacy, name: "Мой жест" }],
+    active_id: legacy.id,
+  }));
+  const edited = createStore(editedStorage).load();
+  assert.equal(edited.templateUpgraded, false);
+  assert.equal(edited.motions[0].duration_ms, 4800);
+});
 test("new motion and snapshots survive reopening with a fresh store instance", () => {
   const storage = memory();
   const store = createStore(storage);
@@ -21,11 +65,15 @@ test("new motion and snapshots survive reopening with a fresh store instance", (
   state.revisions[edited.id] = [
     { saved_at: "2026-09-06T09:00:00Z", motion: custom },
   ];
+  state.installed[edited.id] = {
+    package_id: `motion-${edited.id}`, crc32: 1234, fingerprint: 5678,
+  };
   assert.equal(store.save(state).ok, true);
   const restored = createStore(storage).load();
   assert.deepEqual(restored.motions.at(-1), edited);
   assert.equal(restored.active_id, edited.id);
   assert.deepEqual(restored.revisions[edited.id][0].motion, custom);
+  assert.deepEqual(restored.installed[edited.id], state.installed[edited.id]);
 });
 test("corrupt library is preserved verbatim and subsequent saves cannot overwrite it", () => {
   for (const raw of [

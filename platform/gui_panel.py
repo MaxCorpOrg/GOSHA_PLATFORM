@@ -21,6 +21,7 @@ import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
 import gosha_runtime_events as runtime_events
+from gosha_motion_panel import MotionPanelError, call_motion_tool
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
 try:
@@ -1556,8 +1557,12 @@ def upsert_assistant_profile(payload):
     profile_id = str(payload.get("profile_id", "") or "").strip()
     if not agent_store.safe_profile_id(profile_id):
         raise ValueError("invalid profile_id")
+    previous = assistant_store.get_assistant_profile(profile_id) or {}
     profile = assistant_store.save_assistant_profile(profile_id, payload)
-    apply_result = refresh_backend_runtime(f"assistant_profile:{profile_id}")
+    if profile.get("voice_engine") == "openai_live" or previous.get("voice_engine") == "openai_live":
+        apply_result = {"ok": True, "activation": "next_voice_connection", "runtime_verified": False, "service_state": "not_checked"}
+    else:
+        apply_result = refresh_backend_runtime(f"assistant_profile:{profile_id}")
     return {
         "ok": True,
         "profile": assistant_store.public_assistant_profile(profile),
@@ -1689,13 +1694,18 @@ def save_robot_assistant_config(robot_id, payload):
     if not safe_robot_id(robot_id):
         raise ValueError("invalid robot_id")
     require_robot_dir(robot_id)
+    previous = assistant_store.effective_robot_assistant_config(robot_id)
     binding = assistant_store.save_robot_binding(robot_id, payload if isinstance(payload, dict) else {})
-    apply_result = refresh_backend_runtime(f"robot_assistant_config:{robot_id}")
+    current = assistant_store.effective_robot_assistant_config(robot_id)
+    if any((item.get("assistant_profile") or {}).get("voice_engine") == "openai_live" for item in (previous, current)):
+        apply_result = {"ok": True, "activation": "next_voice_connection", "runtime_verified": False, "service_state": "not_checked"}
+    else:
+        apply_result = refresh_backend_runtime(f"robot_assistant_config:{robot_id}")
     return {
         "ok": True,
         "gateway": agent_gateway_status(),
         "binding": binding,
-        "config": assistant_store.effective_robot_assistant_config(robot_id),
+        "config": current,
         "apply": apply_result,
     }
 
@@ -3306,6 +3316,12 @@ def get_robot_runtime_snapshot(robot_id):
     }
 
 
+def robot_motion_action(robot_id, action, motion_id=""):
+    require_robot_dir(robot_id)
+    endpoint = get_robot_mcp_endpoint(robot_id)
+    return call_motion_tool(endpoint, action, motion_id, connect=ws_connect)
+
+
 def set_service(robot_id, action):
     if action not in {"start", "stop", "restart"}:
         return {"ok": False, "error": "invalid action"}
@@ -4311,6 +4327,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "plans": list(PLAN_CATALOG.values())})
             return
 
+        if len(effective_parts) == 4 and effective_parts[:2] == ["api", "robots"] and effective_parts[3] == "motions":
+            robot_id = effective_parts[2]
+            try:
+                result = robot_motion_action(robot_id, "list")
+                self._send_json(200, {"ok": True, "data": result})
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            except MotionPanelError as exc:
+                self._send_json(502, {"ok": False, "error": str(exc)})
+            return
+
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "probe":
             robot_id = effective_parts[2]
             if not safe_robot_id(robot_id):
@@ -4801,6 +4828,22 @@ class Handler(BaseHTTPRequestHandler):
             action = str(payload.get("action", "")).strip().lower()
             result = set_service(robot_id, action)
             self._send_json(200 if result.get("ok") else 400, result)
+            return
+
+        if len(effective_parts) == 4 and effective_parts[:2] == ["api", "robots"] and effective_parts[3] == "motions":
+            robot_id = effective_parts[2]
+            try:
+                action = str(payload.get("action", ""))
+                if action not in {"play", "stop", "status"}:
+                    raise ValueError("invalid motion action")
+                motion_id = str(payload.get("motion_id", ""))
+                result = robot_motion_action(robot_id, action, motion_id)
+                self._send_json(200, {"ok": True, "data": result})
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            except MotionPanelError as exc:
+                status = 400 if str(exc).startswith("invalid_") else 502
+                self._send_json(status, {"ok": False, "error": str(exc)})
             return
 
         if len(effective_parts) == 4 and effective_parts[0] == "api" and effective_parts[1] == "robots" and effective_parts[3] == "assistant-config":

@@ -28,6 +28,17 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install voice contract test dependencies
+        run: |
+          python -m pip install -r platform/requirements.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y libopus0 libspeexdsp1
+
       - name: Run repository validation
         env:
           PYTHONDONTWRITEBYTECODE: "1"

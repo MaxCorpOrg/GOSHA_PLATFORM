@@ -6,7 +6,7 @@ import {
   commissioningDeltaLimit,
   listUsbBridgePorts,
 } from "./live.js";
-import { PROFILE } from "./motion.js";
+import { PROFILE, controlLimits, toRobotAngle } from "./motion.js";
 
 const formatDegrees = (value) =>
   `${value > 0 ? "+" : ""}${Number(value.toFixed(1))}°`;
@@ -130,6 +130,21 @@ export function liveSafeIntervalForJoint(caps, jointId, baselinePose = null) {
   };
 }
 
+export function liveSliderTargetPose(state, jointId, rawValue) {
+  const interval = liveSafeIntervalForJoint(
+    state.caps,
+    jointId,
+    state.commissioning_start_pose ?? state.caps.commanded_pose,
+  );
+  const requested = toRobotAngle(jointId, Number(rawValue));
+  if (!Number.isFinite(requested))
+    throw new Error("Выберите угол ползунком Live.");
+  return {
+    ...(state.target ?? currentCommandedPose(state)),
+    [jointId]: clamp(requested, interval.min, interval.max),
+  };
+}
+
 export function liveSliderViewModel(
   state,
   selectedJoint,
@@ -182,16 +197,17 @@ export function liveSliderViewModel(
   };
 }
 
-export function liveInspectorJointViewModel(state, jointId, activeStep = null, activeSliderJoint = null) {
+export function liveInspectorJointViewModel(state, jointId, activeStep = null, activeSliderJoint = null, editingJoint = null) {
   const joint = jointById(jointId);
   const limit = state.caps?.joint_limits.find((item) => item.id === jointId);
   const available = Boolean(limit) && !["disconnected", "fault"].includes(state.state);
   if (state.caps?.mode === MOTION_EDITOR_MODE) {
     const command = currentCommandedPose(state)?.[jointId] ?? 0;
+    const target = state.target?.[jointId] ?? command;
     return {min:limit?.min ?? joint.min,max:limit?.max ?? joint.max,command,
-      value:state.target?.[jointId] ?? command,available,numberEditable:true,
+      target,value:editingJoint === jointId ? target : command,available,numberEditable:true,
       disabled:!available || state.state !== "armed",
-      reason:!available ? "Отключён в прошивке · настройка доступна в 3D" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : "Выберите угол · все суставы в одной сессии"};
+      reason:!available ? "Привод недоступен для Live · только 3D" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : "Выберите угол · все суставы в одной сессии"};
   }
   const view = available ? liveSliderViewModel(state, jointId, activeStep, activeSliderJoint) : null;
   const command = currentCommandedPose(state)?.[jointId] ?? 0;
@@ -347,6 +363,7 @@ export function mountLivePanel({
     <div id="live-joint-picker" class="live-joint-picker" hidden>
       <div class="live-step-title"><h3>Сустав</h3><span>один за сессию</span></div>
       <div id="live-step-joints" class="live-step-joints"></div>
+      <small id="live-slider-gate">Подключите робота, чтобы узнать доступные приводы.</small>
     </div>
     <details id="live-step-details" class="live-details live-step-details" hidden>
       <summary id="live-step-summary">Пошаговый тест ±</summary>
@@ -418,6 +435,9 @@ export function mountLivePanel({
   let pendingJoint = null;
   let running = false;
   let playbackScale = 1;
+  let sliderEditingJoint = null;
+  let sliderPointerDown = false;
+  let sliderEditTimer = null;
   let connectionState;
   let transport = "usb";
   let usbPorts = [];
@@ -432,6 +452,7 @@ export function mountLivePanel({
     "abort",
     () => {
       abort.abort();
+      clearTimeout(sliderEditTimer);
       session.disconnect();
       clearInterval(interval);
     },
@@ -504,21 +525,6 @@ export function mountLivePanel({
       if (active.includes(id)) return id;
     return null;
   };
-  const sliderTargetPose = (state, jointId, rawValue) => {
-    const interval = liveSafeIntervalForJoint(
-      state.caps,
-      jointId,
-      state.commissioning_start_pose ?? state.caps.commanded_pose,
-    );
-    const requested = Number(rawValue);
-    if (!Number.isFinite(requested))
-      throw new Error("Выберите угол ползунком Live.");
-    const value = clamp(requested, interval.min, interval.max);
-    return {
-      ...(state.target ?? currentCommandedPose(state)),
-      [jointId]: value,
-    };
-  };
   function renderStep(state) {
     const step = byId("live-step");
     const picker = byId("live-joint-picker");
@@ -537,17 +543,26 @@ export function mountLivePanel({
     const jointButtons = byId("live-step-joints");
     // Keep the same buttons between telemetry updates so pointerdown/up and
     // keyboard focus are not lost while ACKs arrive.
-    if ([...jointButtons.children].map((button) => button.dataset.liveJoint).join() !== view.active.join()) {
-      jointButtons.replaceChildren(...view.active.map((id) => {
+    const shownJointIds = isEditorMode(state)
+      ? PROFILE.joints.map((joint) => joint.id)
+      : view.active;
+    if ([...jointButtons.children].map((button) => button.dataset.liveJoint).join() !== shownJointIds.join()) {
+      jointButtons.replaceChildren(...shownJointIds.map((id) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "text-button";
-        button.textContent = jointById(id).short;
         button.dataset.liveJoint = id;
         button.onclick = () => onSelectJoint(id);
         return button;
       }));
     }
+    byId("live-slider-gate").textContent = state.state === "armed"
+      ? "Выберите сустав и задайте угол ползунком справа. Отключённый привод доступен только в 3D."
+      : state.state === "ready"
+        ? "Ползунки справа заблокированы. Введите ключ Live выше и нажмите «Начать управление»."
+        : state.state === "init_required"
+          ? "Сначала включите правую руку с ключом Live; затем откройте управление."
+          : "Ползунки станут доступны после открытия сессии управления.";
     if (!view.visible || !view.active.length) {
       activeStep = null;
       byId("live-step-joint").textContent = "—";
@@ -557,18 +572,24 @@ export function mountLivePanel({
       byId("live-step-hold").disabled = true;
       return;
     }
-    const selected = isEditorMode(state) ? selectedLiveJoint(state) : view.jointId;
+    const selected = isEditorMode(state) ? getJoint() : view.jointId;
     for (const button of jointButtons.children) {
+      const available = view.active.includes(button.dataset.liveJoint);
+      button.textContent = `${jointById(button.dataset.liveJoint).short}${available ? "" : " · отключена"}`;
       button.classList.toggle("selected", button.dataset.liveJoint === selected);
+      button.classList.toggle("unavailable", !available);
       button.disabled = ["arming", "initializing_right_arm", "stopping"].includes(state.state);
-      button.title = view.locked && button.dataset.liveJoint !== selected
+      button.title = !available
+        ? "Привод не подключён к Live. Выбор покажет деталь в 3D; физического движения не будет."
+        : view.locked && button.dataset.liveJoint !== selected
         ? "Остановить текущую сессию и выбрать этот сустав" : "Выбрать сустав";
     }
-    const targetText = view.target
+    const targetText = view.active.includes(selected) && view.target
       ? formatDegrees(view.target[selected])
       : "Вне предела";
     byId("live-step-joint").textContent = jointById(selected).label;
-    byId("live-step-current").textContent = formatDegrees(view.current);
+    byId("live-step-current").textContent = view.active.includes(selected)
+      ? formatDegrees(view.current) : "—";
     byId("live-step-target").textContent = targetText;
     byId("live-step-target").title = view.targetError;
     byId("live-step-size").textContent =
@@ -678,7 +699,9 @@ export function mountLivePanel({
       : state.state === "fault"
         ? "fault"
         : "";
-    byId("live-reason").textContent = state.reason;
+    byId("live-reason").textContent = state.state === "ready" && isEditorMode(state)
+      ? "Робот подключён. Введите ключ Live и нажмите «Начать управление» — затем заработают ползунки справа."
+      : state.reason;
     renderUsbPorts();
     byId("live-transport-usb").setAttribute(
       "aria-pressed",
@@ -713,7 +736,7 @@ export function mountLivePanel({
       state.state !== "init_required" || !keyReady;
     byId("live-arm").hidden = rightArmInitState;
     byId("live-arm").textContent = isEditorMode(state) ? "Начать управление" : `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
-    byId("live-arm").disabled = state.state !== "ready";
+    byId("live-arm").disabled = state.state !== "ready" || !keyReady;
     byId("live-host").disabled = !canChangeTransport(state);
     byId("live-connect").textContent = ["disconnected", "fault"].includes(
       state.state,
@@ -767,8 +790,7 @@ export function mountLivePanel({
       ["ready", "init_required"].includes(state.state) &&
       isEditorMode(state) &&
       !state.packagePending;
-    const packageWritable =
-      state.state === "ready" && isEditorMode(state) && !state.packagePending;
+    const packageWritable = packageReadable;
     byId("live-package-refresh").disabled = !packageReadable;
     const storedPackage = state.storedPackage;
     const storedPackages = Array.isArray(state.storedPackages)
@@ -926,6 +948,9 @@ export function mountLivePanel({
   }
   const session = new LiveSession({ onChange: render });
   function applyMode(value) {
+    clearTimeout(sliderEditTimer);
+    sliderEditingJoint = null;
+    sliderPointerDown = false;
     enabled = value;
     running = false;
     onPlayback(false);
@@ -1140,6 +1165,18 @@ export function mountLivePanel({
   };
   // Ordinary inspector controls set a destination. Pointer release/local blur
   // are not emergency stops; window loss, cancel and explicit STOP still are.
+  function clearSliderEditing() {
+    clearTimeout(sliderEditTimer);
+    sliderEditingJoint = null;
+    sliderPointerDown = false;
+    render(session.snapshot());
+  }
+  function markSliderEditing(jointId) {
+    sliderEditingJoint = jointId;
+    clearTimeout(sliderEditTimer);
+    if (!sliderPointerDown)
+      sliderEditTimer = setTimeout(clearSliderEditing, 500);
+  }
   function moveInspectorTarget(input, jointId) {
     guarded(() => {
       const view = liveInspectorJointViewModel(session.snapshot(), jointId, activeStep, activeSliderJoint);
@@ -1148,18 +1185,35 @@ export function mountLivePanel({
       onSelectJoint(jointId);
       activeStep = null;
       activeSliderJoint = jointId;
-      session.moveTo(sliderTargetPose(session.snapshot(), jointId, requestedValue));
+      session.moveTo(liveSliderTargetPose(session.snapshot(), jointId, requestedValue));
       running = false;
       onPlayback(false);
     });
   }
   for (const joint of PROFILE.joints) {
     const input = document.getElementById(`range-${joint.id}`);
+    input.addEventListener("pointerdown", () => {
+      if (!enabled) return;
+      sliderPointerDown = true;
+      markSliderEditing(joint.id);
+    }, { signal: abort.signal });
     input.addEventListener("input", () => {
-      if (enabled) moveInspectorTarget(input, joint.id);
+      if (enabled) {
+        markSliderEditing(joint.id);
+        moveInspectorTarget(input, joint.id);
+      }
+    }, { signal: abort.signal });
+    input.addEventListener("pointerup", () => {
+      if (enabled) clearSliderEditing();
     }, { signal: abort.signal });
     input.addEventListener("pointercancel", () => {
-      if (enabled) release("Управление указателем отменено.");
+      if (enabled) {
+        clearSliderEditing();
+        release("Управление указателем отменено.");
+      }
+    }, { signal: abort.signal });
+    input.addEventListener("blur", () => {
+      if (enabled && sliderEditingJoint === joint.id) clearSliderEditing();
     }, { signal: abort.signal });
   }
   byId("live-stop").onclick = () => {
@@ -1260,13 +1314,14 @@ export function mountLivePanel({
     },
     stop: (reason) => release(reason),
     inspectorView(id) {
-      return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint) : null;
+      return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint, sliderEditingJoint) : null;
     },
     get editorMode() { return enabled && isEditorMode(session.snapshot()); },
     setInspectorAngle(id, value) {
       guarded(() => {
         const limit = session.caps?.joint_limits.find(j=>j.id===id);
-        if (!limit || String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value)<limit.min || Number(value)>limit.max)
+        const limits = limit && controlLimits(id, limit.min, limit.max);
+        if (!limits || String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value)<limits.min || Number(value)>limits.max)
           throw new Error("Введите угол в пределах выбранного сустава.");
         moveInspectorTarget({value}, id);
       });
@@ -1297,8 +1352,8 @@ export function mountLivePanel({
       if (!enabled || id === getJoint()) return true;
       const state = session.snapshot();
       if (!activeJointIds(state).includes(id)) {
-        notify("Этот сустав отключён в прошивке. Его модель можно настроить в режиме 3D.", true);
-        return false;
+        notify("Привод этого сустава недоступен для Live. Его модель можно настроить в режиме 3D.", true);
+        return isEditorMode(state);
       }
       if (["arming", "initializing_right_arm", "stopping"].includes(state.state)) return false;
       const locked = activeLockedJoint(state);

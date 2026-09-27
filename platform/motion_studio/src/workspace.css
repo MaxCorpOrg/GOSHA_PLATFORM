@@ -618,6 +618,12 @@
   color: #8d9aaa;
   margin-top: 1px;
 }
+.slider-direction-guide {
+  margin: 10px 0 12px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
 /* Zero follows the actual angle scale, including asymmetric arm ranges. */
 .joint-control > input[type="range"] { margin-inline: 0; }
 .joint-control .range-ends { position: relative; }

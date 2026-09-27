@@ -593,6 +593,55 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(observed["stop_seen"])
         self.assertTrue(await wait_for_condition(lambda: fake.closed))
 
+    async def test_stop_survives_immediate_websocket_close_and_skips_queued_poses(self):
+        info = port_info()
+        port_id = list_allowed_ports(lambda: [info])[0].port_id
+        fake = FakeSerial()
+        pose_write_started = threading.Event()
+
+        def delayed_pose_writer(serial_obj, raw, _timeout_seconds, should_stop):
+            if b'"op":"pose"' in raw:
+                pose_write_started.set()
+                time.sleep(0.08)
+            if should_stop():
+                raise BridgeError("serial_error")
+            return serial_obj.write(raw)
+
+        server = await self.start_bridge(
+            infos=[info],
+            serial_factory=lambda _device: fake,
+            serial_writer=delayed_pose_writer,
+            hello_timeout=1,
+        )
+        ws = await self.ws_connect(server, port_id)
+        await ws.send_str(json.dumps({"protocol": LIVE_PROTOCOL, "op": "hello", "request_id": "r-stop"}))
+        self.assertEqual(json.loads((await ws.receive(timeout=1)).data)["op"], "capabilities")
+
+        for seq in (1, 2):
+            await ws.send_str(json.dumps({
+                "protocol": LIVE_PROTOCOL,
+                "op": "pose",
+                "session_id": "active-session",
+                "seq": seq,
+            }))
+            if seq == 1:
+                self.assertTrue(await asyncio.to_thread(pose_write_started.wait, 0.5))
+        await ws.send_str(json.dumps({
+            "protocol": LIVE_PROTOCOL,
+            "op": "stop",
+            "session_id": "active-session",
+            "seq": 3,
+        }))
+        await ws.close()
+        self.assertTrue(await wait_for_condition(lambda: fake.closed, 1))
+
+        written_ops = [
+            json.loads(raw[raw.index(WIRE_PREFIX) + len(WIRE_PREFIX):].strip())["op"]
+            for raw in fake.writes
+        ]
+        self.assertEqual(written_ops[-1], "stop")
+        self.assertNotIn("pose", written_ops[2:])
+
     async def test_partial_prefixed_response_times_out_while_chunks_continue(self):
         info = port_info()
         port_id = list_allowed_ports(lambda: [info])[0].port_id

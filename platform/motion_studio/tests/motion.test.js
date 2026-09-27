@@ -8,6 +8,10 @@ import {
   poseAt,
   putPose,
   mirrorPose,
+  toControlAngle,
+  toRobotAngle,
+  controlLimits,
+  validatePose,
   validateMotion,
   parseMotion,
   prepareRobotMotionPackage,
@@ -57,6 +61,17 @@ test("JSON round trip preserves every frame, duration, name and profile", () => 
     arm_positive_x: -37.25,
   });
   assert.deepEqual(parseMotion(JSON.stringify(motion)), motion);
+});
+test("small greeting example fits the current robot package limits", () => {
+  const greeting = examples().find((motion) => motion.id === "example-small-greeting");
+  const result = prepareRobotMotionPackage(greeting, liveEditorCaps());
+  assert.equal(result.ok, true);
+  assert.equal(result.package.duration_ms, 10000);
+  assert.equal(result.package.safety.max_required_speed_dps, 9);
+  assert.deepEqual(result.package.keyframes.map((frame) => frame.target.arm_positive_x),
+    [0, 15, -15, 0]);
+  assert.equal(prepareRobotPackageUpload(result.package).package_id,
+    "motion-example-small-greeting");
 });
 test("pose edits retain surrounding frames and never mutate the original motion", () => {
   const original = examples()[0];
@@ -108,6 +123,15 @@ test("mirror swaps corresponding joints with correct signs and is reversible", (
   assert.equal(mirrored.arm_negative_x, -pose.arm_positive_x);
   assert.equal(mirrored.foot_positive_x, -pose.foot_negative_x);
   assert.deepEqual(mirrorPose(mirrored), pose);
+});
+test("right arm control rises to the right while robot angles and stored poses remain unchanged", () => {
+  assert.deepEqual(controlLimits("arm_positive_x", -70, 55), { min: -55, max: 70 });
+  assert.equal(toRobotAngle("arm_positive_x", 15), -15);
+  assert.equal(toControlAngle("arm_positive_x", -15), 15);
+  assert.equal(toRobotAngle("leg_positive_x", 15), 15);
+  assert.ok(Number.isNaN(toRobotAngle("arm_positive_x", NaN)));
+  const stored = { ...zeroPose(), arm_positive_x: -15 };
+  assert.deepEqual(validatePose(stored), stored);
 });
 test("rejects invalid imports instead of silently changing the motion", () => {
   const cases = [
@@ -369,6 +393,9 @@ test("robot package upload plan is bounded, deterministic and CRC checked", () =
   assert.equal(upload.calibration_id, "a".repeat(64));
   assert.equal(upload.total_size, payload.length);
   assert.equal(upload.crc32, robotPackageCrc32(payload));
+  const changed = prepareRobotPackageUpload({ ...result.package, name: "Новая версия" });
+  assert.equal(changed.package_id, upload.package_id);
+  assert.notEqual(changed.crc32, upload.crc32);
   assert.deepEqual(decoded, payload);
   assert.ok(
     upload.chunks.every(

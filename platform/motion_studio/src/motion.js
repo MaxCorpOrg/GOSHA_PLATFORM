@@ -10,9 +10,10 @@ export const PROFILE = Object.freeze({
       short: "Рука слева",
       min: -55,
       max: 70,
-      pivot: [-51, 0, -14],
+      pivot: [51, 0, -14],
       axis: "y",
-      meshes: ["arm_negative_x", "hand_negative_x"],
+      modelDirection: -1,
+      meshes: ["arm_positive_x", "hand_positive_x"],
     },
     {
       id: "arm_positive_x",
@@ -20,9 +21,10 @@ export const PROFILE = Object.freeze({
       short: "Рука справа",
       min: -70,
       max: 55,
-      pivot: [51, 0, -14],
+      pivot: [-51, 0, -14],
       axis: "y",
-      meshes: ["arm_positive_x", "hand_positive_x"],
+      modelDirection: -1,
+      meshes: ["arm_negative_x", "hand_negative_x"],
     },
     {
       id: "leg_negative_x",
@@ -31,7 +33,8 @@ export const PROFILE = Object.freeze({
       min: -35,
       max: 35,
       pivot: [-22, 0, -41],
-      axis: "z",
+      axis: "x",
+      modelDirection: -1,
       meshes: ["leg_negative_x"],
     },
     {
@@ -41,7 +44,8 @@ export const PROFILE = Object.freeze({
       min: -35,
       max: 35,
       pivot: [22, 0, -41],
-      axis: "z",
+      axis: "x",
+      modelDirection: -1,
       meshes: ["leg_positive_x"],
     },
     {
@@ -51,7 +55,8 @@ export const PROFILE = Object.freeze({
       min: -30,
       max: 30,
       pivot: [-22, 0, -69],
-      axis: "y",
+      axis: "x",
+      modelDirection: -1,
       parent: "leg_negative_x",
       meshes: ["foot_negative_x"],
     },
@@ -62,7 +67,8 @@ export const PROFILE = Object.freeze({
       min: -30,
       max: 30,
       pivot: [22, 0, -69],
-      axis: "y",
+      axis: "x",
+      modelDirection: -1,
       parent: "leg_positive_x",
       meshes: ["foot_positive_x"],
     },
@@ -70,6 +76,18 @@ export const PROFILE = Object.freeze({
 });
 
 export const MAX_FILE_BYTES = 2_000_000;
+// The right arm's existing robot/profile angle is negative when raised.
+// Keep persisted motions and firmware angles unchanged; flip only controls.
+export const toControlAngle = (jointId, angle) => {
+  const value = jointId === "arm_positive_x" ? -angle : angle;
+  return value === 0 ? 0 : value;
+};
+export const toRobotAngle = toControlAngle;
+export const controlLimits = (jointId, min, max) => {
+  const a = toControlAngle(jointId, min);
+  const b = toControlAngle(jointId, max);
+  return { min: Math.min(a, b), max: Math.max(a, b) };
+};
 export const MAX_FRAMES = 1000;
 export const ROBOT_MOTION_PACKAGE_SCHEMA_VERSION = 1;
 export const ROBOT_MOTION_PACKAGE_TYPE =
@@ -440,14 +458,15 @@ function bytesToBase64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
-function safeRobotPackageId(packageDraft, crc32) {
+function safeRobotPackageId(packageDraft) {
   const raw = String(packageDraft.source_motion_id || "motion");
-  const prefix =
-    raw
-      .replace(/[^a-zA-Z0-9_.-]/g, "_")
-      .replace(/^\.\.?$/, "motion")
-      .slice(0, 48) || "motion";
-  return `${prefix}-${crc32.toString(16).padStart(8, "0")}`;
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(raw))
+    fail("Некорректный постоянный идентификатор движения.");
+  if (raw.length <= 56) return `motion-${raw}`;
+  const suffix = robotPackageCrc32(textEncoder.encode(raw))
+    .toString(16)
+    .padStart(8, "0");
+  return `motion-${raw.slice(0, 46)}-${suffix}`;
 }
 
 export function prepareRobotPackageUpload(packageDraft) {
@@ -467,7 +486,7 @@ export function prepareRobotPackageUpload(packageDraft) {
     chunks.push({ offset, size: chunk.length, data_b64: bytesToBase64(chunk) });
   }
   return {
-    package_id: safeRobotPackageId(packageDraft, crc32),
+    package_id: safeRobotPackageId(packageDraft),
     profile_id: packageDraft.profile_id,
     calibration_id: packageDraft.calibration_id,
     total_size: bytes.length,
@@ -561,6 +580,12 @@ export function examples() {
       })),
     });
   return [
+    make("example-small-greeting", "Малое приветствие", [
+      [0, {}],
+      [2500, { arm_positive_x: 15 }],
+      [7500, { arm_positive_x: -15 }],
+      [10000, {}],
+    ]),
     make("example-wave", "Приветствие", [
       [0, {}],
       [600, { arm_positive_x: -55 }],

@@ -42,10 +42,6 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 node_path="$(command -v node)"
-if [[ ! -f local_only/public/models/gosha.glb ]]; then
-  echo 'Сначала подготовьте модель командой из README.md.' >&2
-  exit 1
-fi
 if [[ "$mode" == --serve ]]; then
   if [[ ! -d node_modules || ! -x "$venv_dir/bin/python" ]]; then
     echo 'Служба не подготовлена. Сначала запустите bash start.sh или bash start.sh --background.' >&2
