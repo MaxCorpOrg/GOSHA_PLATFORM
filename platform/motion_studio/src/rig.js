@@ -58,7 +58,7 @@ export function buildRig(root, named, profile = PROFILE) {
     setPose(pose) {
       for (const joint of profile.joints)
         groups.get(joint.id).rotation[joint.axis] = THREE.MathUtils.degToRad(
-          pose[joint.id],
+          pose[joint.id] * (joint.modelDirection ?? 1),
         );
     },
   };
