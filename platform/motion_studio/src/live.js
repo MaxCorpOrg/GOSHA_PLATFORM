@@ -21,6 +21,9 @@ const RIGHT_ARM_COMMISSIONING_JOINTS = Object.freeze([
   ...LEG_COMMISSIONING_JOINTS,
 ]);
 const COMMAND_LOG_LIMIT = 16;
+// USB serial shares its 115200-baud channel with complete telemetry ACKs.
+// Leave headroom for those replies while staying well inside the 300 ms lease.
+const USB_CONTROL_RATE_HZ = 10;
 const USB_PORT_ID_PATTERN = /^[a-f0-9]{24}$/;
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 const assert = (condition, message) => {
@@ -1502,7 +1505,10 @@ export class LiveSession {
       );
       return;
     }
-    if (this.pending || now - this.lastSentAt < 1000 / this.caps.max_rate_hz)
+    const rateHz = this.transport === "usb"
+      ? Math.min(this.caps.max_rate_hz, USB_CONTROL_RATE_HZ)
+      : this.caps.max_rate_hz;
+    if (this.pending || now - this.lastSentAt < 1000 / rateHz)
       return;
     const seq = ++this.seq;
     const op = this.holding && this.target ? "pose" : "keepalive";

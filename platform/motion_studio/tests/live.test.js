@@ -233,6 +233,37 @@ test("USB Live connection uses the local bridge and still starts with hello only
   ]);
 });
 
+test("USB control frames leave 100 ms between telemetry replies while Wi-Fi keeps its advertised rate", () => {
+  const usb = harness();
+  usb.live.connectUsb("b".repeat(24));
+  const socket = usb.sockets.at(-1);
+  socket.readyState = 1;
+  socket.onopen();
+  socket.receive({ ...capabilities(), request_id: usb.live.requestId });
+  usb.live.arm("synthetic-test-key-only");
+  socket.receive({
+    protocol: LIVE_PROTOCOL,
+    op: "armed",
+    request_id: usb.live.requestId,
+    session_id: "session-00000000001",
+    calibration_id: usb.live.caps.calibration_id,
+  });
+  usb.advance(50);
+  assert.equal(socket.sent.at(-1).op, "arm");
+  usb.advance(50);
+  assert.equal(socket.sent.at(-1).op, "keepalive");
+  usb.ack(socket);
+  usb.advance(99);
+  assert.equal(socket.sent.filter((message) => message.op === "keepalive").length, 1);
+  usb.advance(1);
+  assert.equal(socket.sent.filter((message) => message.op === "keepalive").length, 2);
+
+  const wifi = harness();
+  const wifiSocket = wifi.arm();
+  wifi.advance(50);
+  assert.equal(wifiSocket.sent.at(-1).op, "keepalive");
+});
+
 test("connection accepts LAN addresses only, never credentials, paths or public services", () => {
   assert.equal(robotSocketUrl("010.000.0.1"), "ws://10.0.0.1:8080/ws");
   for (const host of [
