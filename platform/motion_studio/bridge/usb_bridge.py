@@ -533,6 +533,8 @@ class BridgeController:
         first_response = asyncio.Event()
         tasks: list[asyncio.Task[Any]] = []
         hello_task: asyncio.Task[Any] | None = None
+        stop_line: bytes | None = None
+        stop_written = False
 
         async def close_with_error(
             code: str,
@@ -619,6 +621,7 @@ class BridgeController:
                     await ws.send_str(response)
 
         async def serial_writer() -> None:
+            nonlocal stop_written
             assert serial_obj is not None
             while not stop_event.is_set():
                 frame = await write_queue.get()
@@ -652,6 +655,8 @@ class BridgeController:
                 if written != len(frame.line):
                     await close_with_error("serial_error")
                     return
+                if frame.line == stop_line:
+                    stop_written = True
 
         try:
             async for message in ws:
@@ -666,6 +671,14 @@ class BridgeController:
                         raise BridgeError("usb_bridge_invalid_request")
                     if not await ensure_serial(request_id):
                         break
+                    if data.get("op") == "stop":
+                        # A STOP must overtake queued poses. The browser may
+                        # close its WebSocket immediately after sending it.
+                        stop_line = line
+                        stop_written = False
+                        while not write_queue.empty():
+                            with contextlib.suppress(asyncio.QueueEmpty):
+                                write_queue.get_nowait()
                     if write_queue.full():
                         raise BridgeError("usb_bridge_queue_full")
                     write_queue.put_nowait(
@@ -715,6 +728,20 @@ class BridgeController:
             with contextlib.suppress(asyncio.QueueFull):
                 write_queue.put_nowait(None)
             await run_cleanup(drain_io_tasks)
+            if serial_obj is not None and stop_line is not None and not stop_written:
+                # The normal writer stops during teardown. Finish only the
+                # explicit STOP, after the writer has exited, before closing
+                # the port. A newline discards any partially written frame.
+                with contextlib.suppress(Exception):
+                    await run_cleanup(
+                        lambda: asyncio.to_thread(
+                            self.serial_writer,
+                            serial_obj,
+                            b"\n" + stop_line,
+                            SERIAL_WRITE_TIMEOUT,
+                            lambda: False,
+                        )
+                    )
             if serial_obj is not None:
                 with contextlib.suppress(Exception):
                     serial_obj.close()
