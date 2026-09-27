@@ -16,6 +16,7 @@ import {
   createLiveStepPlan,
   formatStoredPackageFields,
   liveSafeIntervalForJoint,
+  liveSliderTargetPose,
   liveSliderViewModel,
   liveInspectorJointViewModel,
   livePlaybackScale,
@@ -1591,6 +1592,14 @@ test("editor keeps all inspector targets editable while multiple joints are foll
     assert.equal(view.min,joint.min);assert.equal(view.max,joint.max);
   }
   assert.equal(liveInspectorJointViewModel(state,"arm_negative_x").disabled,true);
+});
+test("right arm Live slider sends the existing negative robot angle for an upward drag", () => {
+  const state = {state:"armed", caps:validateCapabilities(editorCaps()), target:zeroPose()};
+  const raised = liveSliderTargetPose(state, "arm_positive_x", 15);
+  assert.equal(raised.arm_positive_x, -15);
+  assert.equal(liveSliderTargetPose({...state,target:raised}, "arm_positive_x", 0).arm_positive_x, 0);
+  assert.equal(liveSliderTargetPose(state, "foot_positive_x", 15).foot_positive_x, 15);
+  assert.throws(() => liveSliderTargetPose(state, "arm_positive_x", "bad angle"));
 });
 test("editor slider follows confirmed leg command after the target is chosen", () => {
   const state={state:"armed",caps:validateCapabilities(editorCaps()),

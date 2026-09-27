@@ -130,6 +130,21 @@ export function liveSafeIntervalForJoint(caps, jointId, baselinePose = null) {
   };
 }
 
+export function liveSliderTargetPose(state, jointId, rawValue) {
+  const interval = liveSafeIntervalForJoint(
+    state.caps,
+    jointId,
+    state.commissioning_start_pose ?? state.caps.commanded_pose,
+  );
+  const requested = toRobotAngle(jointId, Number(rawValue));
+  if (!Number.isFinite(requested))
+    throw new Error("Выберите угол ползунком Live.");
+  return {
+    ...(state.target ?? currentCommandedPose(state)),
+    [jointId]: clamp(requested, interval.min, interval.max),
+  };
+}
+
 export function liveSliderViewModel(
   state,
   selectedJoint,
@@ -509,21 +524,6 @@ export function mountLivePanel({
     ])
       if (active.includes(id)) return id;
     return null;
-  };
-  const sliderTargetPose = (state, jointId, rawValue) => {
-    const interval = liveSafeIntervalForJoint(
-      state.caps,
-      jointId,
-      state.commissioning_start_pose ?? state.caps.commanded_pose,
-    );
-    const requested = toRobotAngle(jointId, Number(rawValue));
-    if (!Number.isFinite(requested))
-      throw new Error("Выберите угол ползунком Live.");
-    const value = clamp(requested, interval.min, interval.max);
-    return {
-      ...(state.target ?? currentCommandedPose(state)),
-      [jointId]: value,
-    };
   };
   function renderStep(state) {
     const step = byId("live-step");
@@ -1185,7 +1185,7 @@ export function mountLivePanel({
       onSelectJoint(jointId);
       activeStep = null;
       activeSliderJoint = jointId;
-      session.moveTo(sliderTargetPose(session.snapshot(), jointId, requestedValue));
+      session.moveTo(liveSliderTargetPose(session.snapshot(), jointId, requestedValue));
       running = false;
       onPlayback(false);
     });
