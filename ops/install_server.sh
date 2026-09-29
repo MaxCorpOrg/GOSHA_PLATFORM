@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Family transport staging is explicit and does not start the bot.
+if [[ "${1:-}" == "--family-messages-stage" && $# == 1 ]]; then
+  exec bash "$(dirname "${BASH_SOURCE[0]}")/install_family_messages.sh" --stage
+fi
+
 # GPT-Live staging is opt-in and doesn't change the existing public voice route.
 if [[ "${1:-}" == "--voice-router-stage" && $# == 1 ]]; then
   exec bash "$(dirname "${BASH_SOURCE[0]}")/install_voice_router.sh" --stage

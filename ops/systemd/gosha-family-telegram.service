@@ -1,0 +1,25 @@
+[Unit]
+Description=GOSHA family messages Telegram transport (opt-in)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/gosha_platform/runtime/env/family-messages.env
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/gosha_platform/app/platform
+Environment=APP_ROOT=/opt/gosha_platform/runtime/app_root
+EnvironmentFile=/opt/gosha_platform/runtime/env/family-messages.env
+ExecCondition=/usr/bin/test ${GOSHA_FAMILY_TELEGRAM_ENABLED} = 1
+ExecStart=/usr/bin/python3 /opt/gosha_platform/app/platform/gosha_family_telegram.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gosha_platform/runtime/app_root
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Семейные сообщения · Гоша</title>
+<style>
+:root{color-scheme:light;font:17px/1.5 system-ui,sans-serif;color:#182330;background:#f4f5f7}*{box-sizing:border-box}body{margin:0}main{max-width:880px;margin:auto;padding:24px}h1{font-size:32px;line-height:1.2}h2{font-size:22px}h3{margin:0}section,.contact{background:white;border:1px solid #dde2e7;border-radius:18px;padding:22px;margin:18px 0}a{color:#155986}label{display:block;margin:12px 0}input,textarea,select,button{font:inherit;border:1px solid #b7c2cd;border-radius:10px;padding:11px;max-width:100%}input:not([type=checkbox]),textarea,select{width:100%;background:white;color:inherit}input[type=checkbox]{width:22px;height:22px;vertical-align:middle}button{cursor:pointer;background:#eaf1f7;color:#183b58;margin:5px 8px 5px 0}button.primary{background:#184e72;color:white}button:disabled{opacity:.55;cursor:default}small,.muted{color:#536476}#status{padding:12px;border-radius:10px;background:#eaf1f7;white-space:pre-wrap}.error{color:#9a2626}#invite{overflow-wrap:anywhere}.message{padding:14px 0;border-top:1px solid #e2e7ec;white-space:pre-wrap}.tag{display:inline-block;font-size:14px;padding:4px 10px;background:#eef2f6;border-radius:20px}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.row>label{flex:1;min-width:200px}nav{display:flex;justify-content:space-between}button:focus-visible,a:focus-visible{outline:3px solid #c77f28}@media(max-width:480px){main{padding:14px}section,.contact{padding:16px}h1{font-size:28px}}
+</style>
+<main>
+<nav><a href="/">← Панель роботов</a><span id="robot" class="muted"></span></nav>
+<h1>Семейные сообщения</h1>
+<p>Ребёнок передаёт сообщение через Гошу, родители получают его в подключённых мессенджерах и могут ответить.</p>
+<p id="status" role="status" aria-live="polite">Загрузка…</p>
+<section><h2>Режим общения с семьёй</h2>
+<form id="settings"><label><input id="enabled" type="checkbox"> Включить семейные сообщения</label>
+<label>Как Гоша читает входящие<select id="readMode"><option value="ask">Сначала спросить ребёнка</option><option value="auto">Прочитать сразу</option></select></label>
+<p class="muted">Озвучивание станет доступно после подключения этого режима в роботе. Пока сообщения сохраняются в его очереди.</p>
+<button class="primary">Сохранить настройки</button></form></section>
+<section><h2>Родители и мессенджеры</h2><p class="muted">Одна просьба отправляется во все подключённые каналы выбранного родителя.</p>
+<div class="row"><span class="tag">Telegram · первый этап</span><span class="tag">MAX · следующий этап</span><span class="tag">WhatsApp · следующий этап</span></div>
+<div id="contacts"></div>
+<form id="addContact"><div class="row"><label>Имя<input id="contactName" required maxlength="80" autocomplete="name"></label><label>Кем приходится ребёнку<select id="role"><option value="mother">Мама</option><option value="father">Папа</option><option value="guardian">Другой взрослый</option></select></label></div>
+<label>Телефон, необязательно<input id="phone" type="tel" placeholder="+79991234567" pattern="\+[1-9][0-9]{6,14}" autocomplete="tel"></label><small>Телефон сохраняется как контакт. Для подключения мессенджера нужно отдельное подтверждение.</small><br><button>Добавить взрослого</button></form>
+<p id="invite" role="status"></p></section>
+<section><h2>Написать ребёнку</h2><form id="sendMessage"><label>От кого<select id="sender" required></select></label><label>Сообщение<textarea id="body" rows="3" maxlength="2000" required></textarea></label><button class="primary" id="sendButton">Передать Гоше</button></form></section>
+<section><div class="row"><h2>Сообщения и доставка</h2><button id="refresh">Обновить</button></div><small>Принято мессенджером, озвучено Гошей и подтверждено получателем — разные состояния.</small><div id="messages"></div></section>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), robot=new URLSearchParams(location.search).get('robot')||'';
+const base='/api/operator/robots/'+encodeURIComponent(robot)+'/family';
+const states={queued:'В очереди',received:'Получено роботом',spoken:'Озвучено роботом',sent:'Принято Telegram',pending:'Ждёт подтверждения',active:'Подключён',revoked:'Отключён',cancelled:'Отменено',expired:'Срок доставки истёк',sending:'Отправляется',unknown:'Результат отправки неизвестен',failed:'Ошибка доставки',partial:'Статусы каналов различаются'};
+const roles={mother:'Мама',father:'Папа',guardian:'Взрослый'};
+let busy=false,requestId=crypto.randomUUID();
+$('robot').textContent=robot;
+function node(tag,text,parent,cls){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;parent.append(e);return e;}
+function status(text,error=false){$('status').textContent=text;$('status').className=error?'error':'';}
+async function api(action='',data){const r=await fetch(base+(action?'/'+action:''),{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined,cache:'no-store',redirect:'error'});const j=await r.json();if(!r.ok){const errors={family_mode_disabled:'Сначала включите семейные сообщения.',telegram_not_configured:'Telegram пока не настроен на платформе.',invalid_phone:'Введите телефон в международном формате, например +79991234567.',disconnect_before_pairing:'Сначала отключите прежний аккаунт.',message_rate_limit:'Слишком много сообщений. Попробуйте через минуту.'};throw new Error(r.status===401?'Войдите в панель роботов, затем откройте этот экран.':errors[j.error]||'Не удалось выполнить действие. Обновите экран и попробуйте ещё раз.');}return j.data;}
+async function action(fn){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn();await refresh();}catch(e){status(e.message,true);}finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=b.dataset.unavailable==='true');}}
+function button(text,parent,fn,disabled=false){const b=node('button',text,parent);b.type='button';b.dataset.unavailable=String(disabled);b.disabled=disabled;b.onclick=()=>action(fn);return b;}
+async function refresh(){const selected=$('sender').value;const d=await api();$('enabled').checked=!!d.settings.enabled;$('readMode').value=d.settings.read_mode;$('contacts').replaceChildren();$('sender').replaceChildren();
+for(const c of d.contacts){const card=node('div','',$('contacts'),'contact');node('h3',c.name+' · '+roles[c.role],card);if(c.phone)node('p',c.phone,card,'muted');node('option',c.name,$('sender')).value=c.id;const channels=c.channels.filter(b=>b.state!=='revoked');
+for(const b of channels){node('p','Telegram: '+states[b.state]+' · '+b.label,card);if(b.state==='pending'){node('small','Подтверждайте только аккаунт нужного взрослого.',card);button('Подтвердить аккаунт',card,()=>api('binding',{binding_id:b.id,action:'approve'}));}button('Отключить',card,()=>api('binding',{binding_id:b.id,action:'revoke'}));}
+if(!channels.some(b=>b.state==='active'))button(d.providers.telegram.configured?'Подключить Telegram':'Telegram ещё не настроен',card,async()=>{const i=await api('invite',{contact_id:c.id});$('invite').replaceChildren();node('p','Откройте ссылку с аккаунта этого взрослого, нажмите «Начать», затем обновите экран и подтвердите подключение. Ссылка действует 10 минут.',$('invite'));const a=node('a','Открыть Telegram',$('invite'));a.href=i.url;a.target='_blank';a.rel='noopener noreferrer';},!d.providers.telegram.configured);
+}
+if([...$('sender').options].some(o=>o.value===selected))$('sender').value=selected;
+$('messages').replaceChildren();if(!d.messages.length)node('p','Здесь появятся сообщения семьи.',$('messages'),'muted');for(const m of d.messages){const card=node('div','',$('messages'),'message');node('strong',(m.direction==='to_child'?'Ребёнку · ':'Родителям · ')+m.author,card);node('div',m.body,card);node('small',new Date(m.created*1000).toLocaleString('ru')+' · '+(states[m.state]||m.state),card);for(const x of m.deliveries)node('div',x.name+' · '+x.channel+' · '+(states[x.state]||x.state),card,'muted');}status('Настройки и сообщения загружены.');}
+$('settings').onsubmit=e=>{e.preventDefault();action(()=>api('settings',{enabled:$('enabled').checked,read_mode:$('readMode').value}));};
+$('addContact').onsubmit=e=>{e.preventDefault();action(async()=>{await api('contacts',{name:$('contactName').value,role:$('role').value,phone:$('phone').value});$('addContact').reset();});};
+$('body').oninput=()=>{requestId=crypto.randomUUID();};$('sender').onchange=()=>{requestId=crypto.randomUUID();};
+$('sendMessage').onsubmit=e=>{e.preventDefault();action(async()=>{await api('messages',{contact_id:$('sender').value,text:$('body').value,request_id:requestId});$('body').value='';requestId=crypto.randomUUID();});};
+$('refresh').onclick=()=>action(async()=>{});
+if(!/^[a-zA-Z0-9_-]+$/.test(robot))status('Откройте семейные сообщения из карточки нужного робота.',true);else refresh().catch(e=>status(e.message,true));
+</script>
+</html>

@@ -21,6 +21,7 @@ import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
 import gosha_runtime_events as runtime_events
+import gosha_family_http as family_http
 from gosha_motion_panel import MotionPanelError, call_motion_tool
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
@@ -4080,7 +4081,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json_head(404, {"ok": False, "error": "not found"})
 
     def do_GET(self):
+        if family_http.handle(self, sys.modules[__name__]):
+            return
         parsed, parts = self._path_parts()
+        if parsed.path == "/family":
+            self._send_html(Path(__file__).with_name("family_index.html").read_text(encoding="utf-8"))
+            return
         if parsed.path == "/":
             if not HTML_PATH.exists():
                 self._send_html("<h1>panel_index.html not found</h1>")
@@ -4450,6 +4456,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if family_http.handle(self, sys.modules[__name__], post=True):
+            return
         parsed, parts = self._path_parts()
         payload = self._body_json()
 

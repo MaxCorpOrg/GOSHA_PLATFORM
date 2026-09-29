@@ -107,3 +107,12 @@
 cd <SERVER_APP_ROOT>
 bash ops/install_server.sh --phase backend
 ```
+
+## Семейные сообщения — кандидат 29 сентября 2026
+
+Подготовлен отдельный opt-in транспорт `gosha-family-telegram.service`.
+`bash ops/install_server.sh --family-messages-stage` только устанавливает unit,
+не запускает бота. Файл конфигурации: `runtime/env/family-messages.env`;
+ключ бота — отдельный закрытый файл, имя бота также задаётся панели.
+Точный порядок, HTTPS, ограничения и откат: [FAMILY_MESSAGING_RU.md](FAMILY_MESSAGING_RU.md).
+Рабочий сервер в этом этапе не обновлялся.
