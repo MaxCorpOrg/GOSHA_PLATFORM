@@ -294,6 +294,30 @@ class OTATests(Fixture, unittest.TestCase):
             self.store.configure('a', False, 'ask')
             self.assertTrue(claims.family_device_config(claim, 'https://host')['enabled'])
 
+    def test_complete_ota_keeps_legacy_routes_and_adds_separate_family_https(self):
+        import selfhost_xiaozhi_common as claims
+        device = 'aa:bb:cc:dd:ee:ff'
+        state = {'backend': {'public_http_base': 'http://legacy:18876',
+                             'websocket_url': 'ws://legacy:18080/xiaozhi/v1/'},
+                 'claims': {device: {'device_id': device, 'robot_id': 'a',
+                                     'websocket_token': 'test-device-token'}}}
+        environment = {'GOSHA_FAMILY_DEVICE_ENABLED': '1',
+                       'GOSHA_FAMILY_PUBLIC_BASE': 'https://family.example'}
+        with patch.object(claims, 'load_state', return_value=state), patch.dict(os.environ, environment):
+            result = claims.ota_payload_for_device(device)
+            self.assertEqual(result['family_messages'], {
+                'enabled': True, 'base_url': 'https://family.example/gosha/family',
+                'poll_interval_seconds': 15})
+            self.assertEqual(result['websocket']['url'], 'ws://legacy:18080/xiaozhi/v1/')
+            self.assertEqual(result['runtime_events']['url'], 'http://legacy:18876/gosha/events')
+            self.assertEqual(result['websocket']['token'], 'test-device-token')
+            self.assertNotIn('token', result['family_messages'])
+            os.environ['GOSHA_FAMILY_DEVICE_ENABLED'] = '0'
+            disabled = claims.ota_payload_for_device(device)
+            self.assertEqual(disabled['family_messages'], {'enabled': False})
+            self.assertEqual(disabled['websocket'], result['websocket'])
+            self.assertEqual(disabled['runtime_events'], result['runtime_events'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4087,7 +4087,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/family":
             self._send_html(Path(__file__).with_name("family_index.html").read_text(encoding="utf-8"))
             return
-        if parsed.path == "/":
+        if parsed.path in ("/", "/platform"):
             if not HTML_PATH.exists():
                 self._send_html("<h1>panel_index.html not found</h1>")
                 return
