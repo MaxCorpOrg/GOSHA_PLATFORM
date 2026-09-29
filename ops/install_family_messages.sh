@@ -11,7 +11,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 family_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 family_app_dir=/opt/gosha_platform/app
-for family_file in gosha_family_http.py gosha_family_store.py gosha_family_telegram.py family_index.html; do
+for family_file in gosha_family_http.py gosha_family_store.py gosha_family_telegram.py gosha_family_voice.py gosha_family_audio.py family_index.html; do
   [[ -f "${family_app_dir}/platform/${family_file}" ]] || { echo "Deploy the reviewed family application files first."; exit 1; }
 done
 install -m 644 "${family_repo_root}/ops/systemd/gosha-family-telegram.service" /etc/systemd/system/gosha-family-telegram.service

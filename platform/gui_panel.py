@@ -5015,7 +5015,9 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def log_message(self, fmt, *args):
-        sys.stdout.write("panel: " + (fmt % args) + "\n")
+        line = fmt % args
+        line = re.sub(r'(/gosha/family/audio)\?[^\s"]*', r'\1?[redacted]', line)
+        sys.stdout.write("panel: " + line + "\n")
         sys.stdout.flush()
 
 

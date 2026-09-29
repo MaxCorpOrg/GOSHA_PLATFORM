@@ -63,7 +63,8 @@ async def stop_tasks(tasks):
 
 
 class RobotLiveBridge:
-    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=120):
+    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=120,
+                 family_robot_id=None):
         self.robot, self.config, self.key = robot, config, key
         self.session_factory = session_factory
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
@@ -80,6 +81,15 @@ class RobotLiveBridge:
         self.version = 1
         self.mcp_supported = False
         self.device_tools = DeviceTools(self.send_json)
+        self.family_tools = None
+        self.execution_tools = self.device_tools
+        if family_robot_id:
+            from gosha_family_store import FamilyStore
+            from gosha_family_voice import ConversationTools, FamilyVoiceTools
+            self.family_tools = FamilyVoiceTools(FamilyStore(claims.APP_ROOT / 'family/messages.sqlite3', timeout=0.1),
+                                                family_robot_id, lambda: self.accept_output
+                                                and not self.restart.is_set() and not self.stopped.is_set())
+            self.execution_tools = ConversationTools(self.device_tools, self.family_tools)
         self.duplex = False
         self.echo = self.reference_codec = None
         self.playback_timestamp = 0
@@ -173,9 +183,15 @@ class RobotLiveBridge:
                 "сессии (не повторять без нового явного поручения; unknown означает отсутствие подтверждения): "
                 + json.dumps(list(self.device_tools.journal), ensure_ascii=False),
             }]})
-        responses = {**self.config["delegation"]["responses"], "tools": self.device_tools.definitions()}
+        responses = {**self.config["delegation"]["responses"], "tools": self.execution_tools.definitions()}
+        instructions = self.config.get('instructions', '')
+        if self.family_tools:
+            from gosha_family_voice import INSTRUCTIONS
+            responses['instructions'] = responses.get('instructions', '') + '\n' + INSTRUCTIONS
+            instructions += '\n' + INSTRUCTIONS
         responses["tool_choice"] = "auto" if responses["tools"] else "none"
-        return {**self.config, "input": history, "delegation": {"type": "responses", "responses": responses}}
+        return {**self.config, "instructions": instructions, "input": history,
+                "delegation": {"type": "responses", "responses": responses}}
 
     async def publish_tools(self, session, tool_runner):
         await self.device_tools.ready.wait()
@@ -185,7 +201,7 @@ class RobotLiveBridge:
         if not self.mcp_supported:
             await self.stopped.wait()
             return
-        definitions = self.device_tools.definitions()
+        definitions = self.execution_tools.definitions()
         await session.send("session.update", session={"delegation": {"type": "responses", "responses": {
             "tools": definitions, "tool_choice": "auto" if definitions else "none",
         }}})
@@ -245,6 +261,8 @@ class RobotLiveBridge:
                         self.listening = False
                     # Wake-word 'detect' text isn't sent as a fabricated user utterance.
                 elif kind == "abort":
+                    if self.family_tools:
+                        self.family_tools.interrupt()
                     self.user_turn_generation += 1
                     self.idle_farewell = None
                     self.accept_output = False
@@ -351,6 +369,8 @@ class RobotLiveBridge:
             elif kind in {"session.input_transcript.delta", "session.output_transcript.delta"}:
                 role = "user" if kind == "session.input_transcript.delta" else "assistant"
                 self.remember(role, event.get("delta", ""))
+                if self.family_tools:
+                    self.family_tools.transcript(role, event.get('delta', ''))
                 if role == "user":
                     self.audio_flow["transcript_events"] += 1
                     if isinstance(event.get("delta"), str) and event["delta"].strip():
@@ -379,6 +399,8 @@ class RobotLiveBridge:
             self.speaking = False
             self.audio_flow["tts_stops"] += 1
             await self.send_json("tts", state="stop")
+            if self.family_tools:
+                self.family_tools.output_drained()
 
     async def send_audio_frame(self, pcm):
         opus = self.codec.encode(pcm)
@@ -482,7 +504,7 @@ class RobotLiveBridge:
                     else:
                         self.device_tools.ready.set()
                     initial = False
-                tool_runner = LiveToolRunner(session, self.device_tools,
+                tool_runner = LiveToolRunner(session, self.execution_tools,
                                             lambda: self.accept_output and not self.restart.is_set() and not self.stopped.is_set())
                 reader = asyncio.create_task(self.read_live(session, tool_runner))
                 tool_worker = asyncio.create_task(tool_runner.run())
@@ -499,6 +521,8 @@ class RobotLiveBridge:
                     for task in done:
                         task.result()
                 finally:
+                    if self.family_tools:
+                        self.family_tools.interrupt()
                     self.accept_output = False
                     await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher])
                     await self.device_tools.stop_movement()
@@ -612,7 +636,10 @@ class VoiceRouter:
                 ).run()
             else:
                 config, key = settings
-                await self.bridge_factory(robot, config, key).run()
+                family_options = {}
+                if os.environ.get('GOSHA_FAMILY_VOICE_ENABLED') == '1':
+                    family_options['family_robot_id'] = claim['robot_id']
+                await self.bridge_factory(robot, config, key, **family_options).run()
             await robot.close(1000, "voice_session_ended")
         except Exception as exc:
             # Exception messages, URLs, device IDs, transcripts and keys never enter logs.

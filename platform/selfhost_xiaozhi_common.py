@@ -494,6 +494,22 @@ def build_robot_runtime_claim(robot_id, env=None, state=None):
     }
 
 
+def family_device_config(claim, public_http_base):
+    disabled = {'enabled': False}
+    if os.environ.get('GOSHA_FAMILY_DEVICE_ENABLED') != '1':
+        return disabled
+    url = urlparse(public_http_base)
+    if (url.scheme != 'https' or not url.hostname or url.username or url.password
+            or url.query or url.fragment or url.path not in ('', '/')):
+        return disabled
+    if not claim.get('robot_id') or not claim.get('websocket_token'):
+        return disabled
+    # This grants transport configuration only. The mailbox checks the user's
+    # mode on every poll, so changing the mode does not require rebooting Gosha.
+    return {'enabled': True, 'base_url': public_http_base.rstrip('/') + '/gosha/family',
+            'poll_interval_seconds': 15}
+
+
 def ota_payload_for_device(device_id):
     state = load_state()
     backend = state.get("backend") or default_backend_config()
@@ -513,6 +529,7 @@ def ota_payload_for_device(device_id):
         runtime_events_url = f"{public_http_base}/gosha/events" if public_http_base else ""
         return {
             "activation": {},
+            "family_messages": family_device_config(claim, public_http_base),
             "websocket": {
                 "url": claim.get("websocket_url") or backend.get("websocket_url", ""),
                 "token": claim.get("websocket_token", ""),

@@ -48,14 +48,15 @@ def uid():
 
 
 class FamilyStore:
-    def __init__(self, path, clock=time.time):
+    def __init__(self, path, clock=time.time, timeout=10):
         self.path = Path(path)
         self.clock = clock
+        self.timeout = timeout
 
     @contextmanager
     def db(self):
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        db = sqlite3.connect(self.path, timeout=10)
+        db = sqlite3.connect(self.path, timeout=self.timeout)
         self.path.chmod(0o600)
         db.row_factory = sqlite3.Row
         try:
@@ -224,9 +225,36 @@ class FamilyStore:
         with self.db() as db:
             self._enabled(db, robot)
             mode = db.execute('SELECT read_mode FROM settings WHERE robot=?', (robot,)).fetchone()[0]
-            return {'read_mode': mode, 'messages': [dict(r) for r in db.execute(
+            rows = db.execute(
                 "SELECT id,author,body,expires,state FROM messages WHERE robot=? AND direction='to_child' "
-                "AND state IN ('queued','received') AND expires>? ORDER BY created LIMIT 20", (robot, self.clock()))]}
+                "AND state IN ('queued','received') AND expires>? ORDER BY created LIMIT 20", (robot, self.clock()))
+            result = {'read_mode': mode, 'messages': []}
+            for row in rows:
+                result['messages'].append(dict(row))
+                # Conservative ASCII JSON budget also covers gateways escaping
+                # Cyrillic, envelope/indent overhead and the MCU's 32 KiB cap.
+                if len(json.dumps(result, ensure_ascii=True).encode()) > 24 * 1024:
+                    result['messages'].pop()
+                    break
+            return result
+
+    def recipients(self, robot):
+        with self.db() as db:
+            self._enabled(db, robot)
+            return [dict(r) for r in db.execute(
+                "SELECT c.id,c.name,c.role FROM contacts c WHERE c.robot=? AND EXISTS "
+                "(SELECT 1 FROM bindings b WHERE b.contact=c.id AND b.state='active') ORDER BY c.rowid", (robot,))]
+
+    def audio_message(self, robot, message):
+        message = clean(message, 'message_id', 64)
+        with self.db() as db:
+            self._enabled(db, robot)
+            row = db.execute("SELECT id,author,body,expires FROM messages WHERE robot=? AND id=? "
+                             "AND direction='to_child' AND state IN ('queued','received') AND expires>?",
+                             (robot, message, self.clock())).fetchone()
+            if not row:
+                raise ValueError('message_not_available')
+            return dict(row)
 
     def acknowledge(self, robot, message, state):
         if state not in ('received', 'spoken'):

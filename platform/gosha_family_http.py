@@ -1,6 +1,7 @@
 """Dedicated, fail-closed family API. Existing onboarding/OTA are unchanged."""
 import json
 import re
+from urllib.parse import parse_qs
 
 from gosha_family_store import FamilyStore
 
@@ -8,7 +9,7 @@ from gosha_family_store import FamilyStore
 def handle(handler, panel, post=False):
     parsed, _ = handler._path_parts()
     match = re.fullmatch(r'/api/(operator|mobile)/robots/([a-zA-Z0-9_-]+)/family(?:/([a-z-]+))?', parsed.path)
-    device = re.fullmatch(r'/gosha/family/(contacts|send|mailbox|receipt)', parsed.path)
+    device = re.fullmatch(r'/gosha/family/(contacts|send|mailbox|receipt|audio)', parsed.path)
     if not match and not device:
         return False
     if panel.PANEL_PUBLIC_SCHEME != 'https' and handler.client_address[0] not in ('127.0.0.1', '::1'):
@@ -39,14 +40,28 @@ def handle(handler, panel, post=False):
             robot, action = claim['robot_id'], device[1]
             if 'robot_id' in payload and payload['robot_id'] != robot:
                 raise ValueError('robot_scope_mismatch')
-            if not post and action == 'mailbox':
+            if not post and action == 'audio':
+                from gosha_family_audio import SERVICE, CONTENT_TYPE
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                if set(query) != {'message_id'} or len(query['message_id']) != 1:
+                    raise ValueError('invalid_message_id')
+                audio = SERVICE.audio(store, robot, query['message_id'][0])
+                current_claim = panel.authenticate_selfhost_runtime_event(handler.headers, {})
+                if not current_claim or current_claim.get('robot_id') != robot:
+                    handler._send_json(401, {'ok': False, 'error': 'device_auth_required'})
+                    return True
+                handler.send_response(200)
+                handler.send_header('Content-Type', CONTENT_TYPE)
+                handler.send_header('Content-Length', str(len(audio)))
+                handler.send_header('Cache-Control', 'no-store')
+                handler.send_header('X-Content-Type-Options', 'nosniff')
+                handler.end_headers()
+                handler.wfile.write(audio)
+                return True
+            elif not post and action == 'mailbox':
                 result = store.mailbox(robot)
             elif not post and action == 'contacts':
-                snapshot = store.snapshot(robot)
-                result = {'enabled': bool(snapshot['settings']['enabled']), 'contacts': [
-                    {'id': c['id'], 'name': c['name'], 'role': c['role'],
-                     'available': any(b['state'] == 'active' for b in c['channels'])}
-                    for c in snapshot['contacts']]}
+                result = {'enabled': True, 'contacts': [{**c, 'available': True} for c in store.recipients(robot)]}
             elif post and action == 'send':
                 result = {'message_id': store.child_send(robot, payload.get('recipients'), payload.get('text'), payload.get('request_id', ''))}
             elif post and action == 'receipt':

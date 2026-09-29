@@ -234,6 +234,37 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request(path+'/contacts',{'name':'x'*20000,'role':'mother'},self.auth)[0],413)
         self.assertEqual(self.request(path+'/contacts',['not an object'],self.auth)[0],422)
 
+    def test_audio_auth_scope_frame_download_and_separate_receipt(self):
+        from gosha_family_audio import FamilySpeech, packetize, CONTENT_TYPE
+        import gosha_family_audio
+        store = FamilyStore(Path(self.tmp.name)/'family/messages.sqlite3')
+        store.configure('robot-a', True, 'ask')
+        contact = store.add_contact('robot-a', 'Мама', 'mother')
+        message = store.parent_send('robot-a', contact, 'Скоро буду', 'audio')
+        calls = []
+        wire = packetize(bytes(1920))
+        service = FamilySpeech(lambda text, config: calls.append(text) or wire, lambda: ('test','voice','fake-key'))
+        headers = []
+        for device, robot in (('test-a','robot-a'), ('test-b','robot-b')):
+            self.panel.selfhost_xiaozhi.record_device_contact(device_id=device, client_id='test')
+            self.panel.selfhost_xiaozhi.claim_device_to_robot(device, robot, websocket_token='test-token')
+            headers.append({'Device-Id':device, 'Authorization':'Bearer test-token'})
+        path = '/gosha/family/audio?message_id='+message
+        with patch.object(gosha_family_audio, 'SERVICE', service):
+            self.assertEqual(self.request(path)[0], 401)
+            self.assertEqual(self.request(path, headers=headers[1])[0], 422)
+            self.assertEqual(self.request(path+'&text=arbitrary', headers=headers[0])[0], 422)
+            self.assertEqual(calls, [])
+            with urlopen(Request(self.base+path, headers=headers[0]), timeout=5) as response:
+                self.assertEqual(response.headers['Content-Type'], CONTENT_TYPE)
+                self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                self.assertEqual(response.read(), wire)
+            self.assertEqual(store.mailbox('robot-a')['messages'][0]['state'], 'queued')
+            store.acknowledge('robot-a', message, 'received')
+            store.acknowledge('robot-a', message, 'spoken')
+            self.assertEqual(self.request(path, headers=headers[0])[0], 422)
+            self.assertEqual(len(calls), 1)
+
 
 if __name__ == '__main__':
     unittest.main()
