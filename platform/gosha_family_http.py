@@ -1,9 +1,24 @@
 """Dedicated, fail-closed family API. Existing onboarding/OTA are unchanged."""
 import json
 import re
+import os
+import ipaddress
 from urllib.parse import parse_qs
 
 from gosha_family_store import FamilyStore
+
+
+def trusted_transport(handler, panel):
+    peer = handler.client_address[0]
+    if peer in ('127.0.0.1', '::1'):
+        return True
+    try:
+        trusted = {str(ipaddress.ip_address(v.strip())) for v in
+                   os.environ.get('GOSHA_FAMILY_HTTPS_PROXIES', '').split(',') if v.strip()}
+        return (str(ipaddress.ip_address(peer)) in trusted and panel.PANEL_PUBLIC_SCHEME == 'https'
+                and handler.headers.get('X-Forwarded-Proto') == 'https')
+    except ValueError:
+        return False
 
 
 def handle(handler, panel, post=False):
@@ -12,7 +27,7 @@ def handle(handler, panel, post=False):
     device = re.fullmatch(r'/gosha/family/(contacts|send|mailbox|receipt|audio)', parsed.path)
     if not match and not device:
         return False
-    if panel.PANEL_PUBLIC_SCHEME != 'https' and handler.client_address[0] not in ('127.0.0.1', '::1'):
+    if not trusted_transport(handler, panel):
         handler.close_connection = True
         handler._send_json(503, {'ok': False, 'error': 'family_https_required'})
         return True

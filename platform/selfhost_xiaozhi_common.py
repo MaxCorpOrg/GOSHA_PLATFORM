@@ -498,6 +498,7 @@ def family_device_config(claim, public_http_base):
     disabled = {'enabled': False}
     if os.environ.get('GOSHA_FAMILY_DEVICE_ENABLED') != '1':
         return disabled
+    public_http_base = os.environ.get('GOSHA_FAMILY_PUBLIC_BASE', public_http_base)
     url = urlparse(public_http_base)
     if (url.scheme != 'https' or not url.hostname or url.username or url.password
             or url.query or url.fragment or url.path not in ('', '/')):

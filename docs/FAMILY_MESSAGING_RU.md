@@ -52,9 +52,12 @@ Android не передаются. iOS — отдельный репозитор
 пароле старой панели. POST принимает только JSON до 16 КиБ; проверяется
 Origin браузера. Ответы не кэшируются, содержание не записывается в журнал HTTP.
 Android отклоняет HTTP вне loopback и перенаправления до передачи токена.
-На сервере обращения извне требуют `PANEL_PUBLIC_SCHEME=https`.
-Это декларация TLS-терминатора: прямой порт панели нужно закрыть снаружи,
-чтобы значение настройки не позволяло обходить HTTPS.
+На сервере обращения извне требуют `PANEL_PUBLIC_SCHEME=https`, адреса
+HTTPS-прокси в `GOSHA_FAMILY_HTTPS_PROXIES` и переданного им
+`X-Forwarded-Proto: https`. Подстановка заголовка прямым внешним клиентом
+не даёт доступ. Это позволяет сохранить старый HTTP-порт OTA, закрыв
+семейные API на нём. Прокси должен принудительно заменять заголовок;
+после смены его адреса список обновляется, иначе доступ закрывается.
 
 | API устройства | Назначение |
 |---|---|
@@ -178,6 +181,9 @@ Android: assembleClientDebug + testClientDebugUnitTest (157) + lintClientDebug.
 GOSHA_FAMILY_VOICE_ENABLED=1
 # panel.env: маршрут mailbox в OTA для привязанных устройств
 GOSHA_FAMILY_DEVICE_ENABLED=1
+# Адрес HTTPS семейного API отдельно от прежнего OTA/runtime URL
+GOSHA_FAMILY_PUBLIC_BASE=https://platform.example
+GOSHA_FAMILY_HTTPS_PROXIES=172.17.0.2
 # panel.env: отдельный синтез входящих сообщений
 GOSHA_FAMILY_TTS_ENABLED=1
 GOSHA_FAMILY_TTS_KEY_FILE=/opt/gosha_platform/runtime/env/family-tts.key

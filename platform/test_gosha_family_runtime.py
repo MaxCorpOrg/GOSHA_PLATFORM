@@ -267,6 +267,19 @@ class SpeechTests(Fixture, unittest.TestCase):
 
 
 class OTATests(Fixture, unittest.TestCase):
+    def test_only_configured_https_proxy_can_reach_family_over_network(self):
+        from types import SimpleNamespace
+        from gosha_family_http import trusted_transport
+        panel = SimpleNamespace(PANEL_PUBLIC_SCHEME='https')
+        def handler(peer, proto='https'):
+            return SimpleNamespace(client_address=(peer,18876),headers={'X-Forwarded-Proto':proto})
+        with patch.dict(os.environ, {'GOSHA_FAMILY_HTTPS_PROXIES':'172.22.0.5'}):
+            self.assertTrue(trusted_transport(handler('127.0.0.1'),panel))
+            self.assertTrue(trusted_transport(handler('172.22.0.5'),panel))
+            self.assertFalse(trusted_transport(handler('172.22.0.5','http'),panel))
+            self.assertFalse(trusted_transport(handler('203.0.113.4'),panel))
+            self.assertFalse(trusted_transport(handler('172.22.0.6'),panel))
+
     def test_route_requires_optin_https_and_claim_not_user_mode(self):
         import selfhost_xiaozhi_common as claims
         claim = {'robot_id': 'a', 'websocket_token': 'test'}
