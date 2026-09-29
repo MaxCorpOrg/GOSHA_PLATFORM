@@ -105,6 +105,20 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         self.tools.transcript('user', ', нет, не надо')
         self.assertEqual((await send)['status'], 'rejected')
 
+    async def test_voice_diagnostics_do_not_log_family_content_or_ids(self):
+        private_text = 'Личное сообщение семьесекрет'
+        with self.assertLogs('gosha.family.voice', level='INFO') as captured:
+            draft = await self.prepare(text=private_text)
+            self.readback('Папа. '+private_text+'. Отправить?')
+            self.tools.transcript('user', 'Нет, семьесекрет не отправляй')
+            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            await self.tools.call('invalid-семьесекрет', '{}')
+        joined = '\n'.join(captured.output)
+        self.assertIn('phrase_matches=False', joined)
+        self.assertIn('operation=invalid', joined)
+        for secret in ('семьесекрет', self.dad, draft, private_text, 'Папа'):
+            self.assertNotIn(secret, joined)
+
     async def test_family_tools_do_not_wait_for_mcp(self):
         from gosha_live_tools import DeviceTools
         async def unused(*a, **kw):

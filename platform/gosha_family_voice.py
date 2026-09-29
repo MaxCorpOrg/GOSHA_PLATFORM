@@ -4,11 +4,14 @@ Incoming parent messages never enter this tool set or the model context.
 """
 import asyncio
 import json
+import logging
 import re
 import time
 import uuid
 
 from gosha_family_store import clean
+
+LOG = logging.getLogger('gosha.family.voice')
 
 INSTRUCTIONS = """Семейные сообщения: сначала family_list_recipients, затем family_prepare_message
 с точными ID выбранных пользователем родителей и дословным текстом. Не добавляй другого
@@ -73,6 +76,9 @@ class FamilyVoiceTools:
         if not self.draft or self.armed or self.draft.get('message_id'):
             return
         spoken = normalized(self.assistant_text)
+        LOG.info('family_readback text_matches=%s recipients_match=%s question_present=%s',
+                 normalized(self.draft['text']) in spoken,
+                 all(normalized(n) in spoken for n in self.draft['names']), 'отправ' in spoken)
         # Fail closed if the model omitted/changed the content or any recipient.
         if (normalized(self.draft['text']) in spoken
                 and all(normalized(n) in spoken for n in self.draft['names'])
@@ -81,6 +87,12 @@ class FamilyVoiceTools:
             self.user_text = ''
 
     async def call(self, name, encoded):
+        result = await self._call(name, encoded)
+        operation = name if any(d['name'] == name for d in DEFINITIONS) else 'invalid'
+        LOG.info('family_call operation=%s status=%s armed=%s', operation, result['status'], self.armed)
+        return result
+
+    async def _call(self, name, encoded):
         try:
             definition = next((d for d in DEFINITIONS if d['name'] == name), None)
             args = json.loads(encoded)
@@ -117,6 +129,10 @@ class FamilyVoiceTools:
                 return {'status': 'queued', 'message_id': draft['message_id']}
             generation = self.generation
             await asyncio.sleep(max(0, self.last_input + self.quiet_seconds - self.clock()))
+            LOG.info('family_confirmation active=%s same_draft=%s stable=%s expired=%s armed=%s phrase_matches=%s',
+                     bool(self.active()), self.draft is draft, generation == self.generation,
+                     self.clock() >= draft['expires'], self.armed,
+                     normalized(self.user_text) in ('да отправь', 'да отправляй'))
             if (not self.active() or self.draft is not draft or generation != self.generation
                     or self.clock() >= draft['expires'] or not self.armed
                     or normalized(self.user_text) not in ('да отправь', 'да отправляй')):
