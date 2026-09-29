@@ -151,7 +151,7 @@ class FamilySpeech:
             if self.failed.get(key, 0) > now:
                 raise RuntimeError('family_speech_cooldown')
             try:
-                audio = self.render('Сообщение от '+message['author']+'. '+message['body'], config)
+                audio = self.render(message['author']+' пишет: '+message['body'], config)
                 store.audio_message(robot, message_id)  # Disable/expiry during generation: no audio served.
             except Exception:
                 self.failed[key] = self.clock() + 60

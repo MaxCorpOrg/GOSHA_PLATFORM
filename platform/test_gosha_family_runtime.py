@@ -116,6 +116,38 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         result = await asyncio.wait_for(combined.call('family_list_recipients', '{}'), 1)
         self.assertEqual(len(result['recipients']), 2)
 
+    async def test_complete_offline_parent_roundtrip(self):
+        from gosha_family_telegram import deliver_one
+        draft = await self.prepare()
+        self.readback()
+        self.tools.transcript('user', 'да отправь')
+        outgoing = await self.send(draft)
+        class Telegram:
+            def call(inner, method, payload):
+                self.assertEqual(method, 'sendMessage')
+                self.assertEqual(payload['chat_id'], '2')
+                self.assertIn('Я дома', payload['text'])
+                return {'message_id': 777}
+        self.assertTrue(deliver_one(self.store, Telegram()))
+        self.assertFalse(deliver_one(self.store, Telegram()))
+        update = {'update_id': 999, 'message': {'text': 'Скоро буду, жди дома',
+            'chat': {'id': 2, 'type': 'private'}, 'reply_to_message': {'message_id': 777}}}
+        self.assertEqual(self.store.telegram_update(update), 'queued')
+        self.assertEqual(self.store.telegram_update(update), 'duplicate')
+        incoming = self.store.mailbox('a')['messages'][0]
+        self.assertEqual(incoming['author'], 'Папа')
+        self.store.acknowledge('a', incoming['id'], 'received')
+        spoken_text = []
+        audio = FamilySpeech(lambda text, _: spoken_text.append(text) or packetize(bytes(1920)), lambda: ())
+        self.assertTrue(audio.audio(self.store, 'a', incoming['id']).startswith(b'GFM1'))
+        self.assertEqual(spoken_text, ['Папа пишет: Скоро буду, жди дома'])
+        self.assertEqual(self.store.mailbox('a')['messages'][0]['state'], 'received')
+        self.store.acknowledge('a', incoming['id'], 'spoken')
+        self.store.acknowledge('a', incoming['id'], 'spoken')
+        self.assertEqual(self.store.mailbox('a')['messages'], [])
+        delivered = next(m for m in self.store.snapshot('a')['messages'] if m['id'] == outgoing['message_id'])
+        self.assertEqual(delivered['deliveries'][0]['state'], 'sent')
+
     async def test_bridge_transcripts_and_stop_arm_readback(self):
         from gosha_voice_router import RobotLiveBridge
         class Robot:
