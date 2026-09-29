@@ -207,7 +207,7 @@ class RobotLiveBridge:
         }}})
         await session.send("session.instructions.append", delegation_id=None,
                            content="Проверка функций робота завершена. Доступные backend-функции: "
-                           + (", ".join(self.device_tools.available) or "нет")
+                           + (", ".join(d["name"] for d in definitions) or "нет")
                            + ". Любые просьбы об управлении передавай backend; не имитируй результат словами.")
         await self.stopped.wait()
 

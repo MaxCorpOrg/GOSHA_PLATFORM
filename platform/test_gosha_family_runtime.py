@@ -83,6 +83,63 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.send(draft))['status'], 'rejected')
         self.assertEqual(self.store.snapshot('a')['messages'], [])
 
+    async def test_canonical_readback_preserves_contact_names_and_requires_new_consent(self):
+        for ids in ([self.dad], [self.mom, self.dad]):
+            result = await self.tools.call('family_prepare_message', json.dumps({
+                'recipient_ids': ids, 'text': 'Я дома'}))
+            draft = result['draft_id']
+            # Consent given before the complete readback remains insufficient.
+            self.tools.transcript('user', 'Да, отправь')
+            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            self.readback(result['readback_text'])
+            self.assertTrue(self.tools.armed)
+            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            self.tools.transcript('user', 'Да, отправь')
+            self.assertEqual((await self.send(draft))['status'], 'queued')
+        messages = self.store.snapshot('a')['messages']
+        self.assertEqual(sorted(len(m['deliveries']) for m in messages), [1, 2])
+
+    async def test_parent_inflections_keep_exact_recipient_scope(self):
+        for phrase in ('Передать папе', 'Сообщение для папы', 'Отправить маме', 'Папайя'):
+            draft = await self.prepare()
+            self.readback(phrase + '. Я дома. Отправить?')
+            self.tools.transcript('user', 'Да, отправь')
+            expected = 'queued' if phrase in ('Передать папе', 'Сообщение для папы') else 'rejected'
+            self.assertEqual((await self.send(draft))['status'], expected)
+        draft = await self.prepare([self.mom, self.dad])
+        self.readback('Передать папе. Я дома. Отправить?')
+        self.tools.transcript('user', 'Да, отправь')
+        self.assertEqual((await self.send(draft))['status'], 'rejected')
+        self.readback('Передать маме и папе. Я дома. Отправить?')
+        self.assertEqual((await self.send(draft))['status'], 'rejected')
+        self.tools.transcript('user', 'Да, отправь')
+        self.assertEqual((await self.send(draft))['status'], 'queued')
+
+    async def test_published_inventory_includes_family_after_device_discovery(self):
+        from gosha_voice_router import RobotLiveBridge
+        class Robot:
+            async def send(self, text):
+                pass
+        bridge = RobotLiveBridge(Robot(), {'delegation': {'responses': {}}}, 'unused')
+        bridge.family_tools = self.tools
+        bridge.execution_tools = ConversationTools(bridge.device_tools, self.tools)
+        bridge.mcp_supported = True
+        bridge.device_tools.ready.set()
+        bridge.stopped.set()
+        sent = []
+        class Session:
+            async def send(self, kind, **payload):
+                sent.append((kind, payload))
+        class Runner:
+            disabled = False
+        await bridge.publish_tools(Session(), Runner())
+        definitions = sent[0][1]['session']['delegation']['responses']['tools']
+        instruction = sent[1][1]['content']
+        for definition in definitions:
+            self.assertIn(definition['name'], instruction)
+        self.assertIn('family_prepare_message', instruction)
+        self.assertIn('family_send_message', instruction)
+
     async def test_recipient_readback_scope_and_revocation(self):
         result = await self.tools.call('family_prepare_message', json.dumps({'recipient_ids': ['foreign'], 'text': 'test'}))
         self.assertEqual(result['status'], 'rejected')
