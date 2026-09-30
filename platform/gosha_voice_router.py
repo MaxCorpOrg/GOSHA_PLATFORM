@@ -86,9 +86,13 @@ class RobotLiveBridge:
         if family_robot_id:
             from gosha_family_store import FamilyStore
             from gosha_family_voice import ConversationTools, FamilyVoiceTools
+            from gosha_family_consent import FamilyConsentJudge
+            responses = config['delegation']['responses']
             self.family_tools = FamilyVoiceTools(FamilyStore(claims.APP_ROOT / 'family/messages.sqlite3', timeout=0.1),
                                                 family_robot_id, lambda: self.accept_output
-                                                and not self.restart.is_set() and not self.stopped.is_set())
+                                                and not self.restart.is_set() and not self.stopped.is_set(),
+                                                consent=FamilyConsentJudge(key, responses.get('model', ''),
+                                                                           responses.get('reasoning', {})))
             self.execution_tools = ConversationTools(self.device_tools, self.family_tools)
         self.duplex = False
         self.echo = self.reference_codec = None
@@ -448,6 +452,8 @@ class RobotLiveBridge:
                     self.idle_farewell["audible"] = True
                     self.idle_farewell["last_audible"] = self.last_activity
                 if not self.speaking:
+                    if self.family_tools:
+                        self.family_tools.output_started()
                     self.speaking = True
                     self.audio_flow["tts_starts"] += 1
                     if self.duplex:

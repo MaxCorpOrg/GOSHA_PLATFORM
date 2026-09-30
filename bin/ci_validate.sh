@@ -167,5 +167,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_live_motion.py
 echo "[14/14] Проверка семейных сообщений, доступа и доставки"
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family_runtime.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family_consent.py
 
 echo "Проверка репозитория завершена успешно."

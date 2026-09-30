@@ -9,7 +9,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from gosha_family_store import FamilyStore
 from gosha_family_voice import FamilyVoiceTools, ConversationTools
@@ -41,12 +41,13 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         super().setUp()
-        self.tools = FamilyVoiceTools(self.store, 'a', quiet_seconds=0)
+        self.judge = AsyncMock(return_value={'readback_matches': True, 'decision': 'send'})
+        self.tools = FamilyVoiceTools(self.store, 'a', quiet_seconds=0, consent=self.judge)
 
     async def send(self, draft):
         return await self.tools.call('family_send_message', json.dumps({'draft_id': draft}))
 
-    def readback(self, text='Папа. Я дома. Отправить? Скажи: да, отправь.'):
+    def readback(self, text='Передать папе: Я дома. Отправить?'):
         self.tools.transcript('assistant', text)
         self.tools.output_drained()
 
@@ -66,11 +67,13 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual([d['name'] for d in snapshot[0]['deliveries']], ['Папа'])
 
     async def test_correction_negation_interrupt_and_expiry(self):
-        for phrase in ('да, не отправляй', 'да, отправь маме', 'нет', 'да', 'да, отправь, хотя нет'):
+        for phrase, decision in (('да, не отправляй', 'cancel'), ('да, отправь маме', 'revise'),
+                                 ('нет', 'cancel'), ('да, отправь, хотя нет', 'cancel')):
+            self.judge.return_value = {'readback_matches': True, 'decision': decision}
             draft = await self.prepare()
             self.readback()
             self.tools.transcript('user', phrase)
-            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            self.assertEqual((await self.send(draft))['status'], 'cancelled' if decision == 'cancel' else 'rejected')
         draft = await self.prepare()
         self.readback()
         self.tools.transcript('user', 'да отправь')
@@ -81,6 +84,114 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         self.tools.transcript('user', 'да отправь')
         self.tools.draft['expires'] = 0
         self.assertEqual((await self.send(draft))['status'], 'rejected')
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
+
+    async def test_natural_reply_is_passed_whole_without_phrase_filter(self):
+        for reply in ('Да', 'Отправляй', 'Давай быстрее, отправь уже',
+                      'Конечно', 'Ну сделай это', 'Передай как есть'):
+            draft = await self.prepare()
+            self.readback()
+            self.tools.transcript('user', reply)
+            self.assertEqual((await self.send(draft))['status'], 'queued')
+            self.assertEqual(self.judge.await_args.args[2], reply)
+        self.assertEqual(len(self.store.snapshot('a')['messages']), 6)
+
+    async def test_late_readback_transcript_after_audio_is_accepted(self):
+        draft = await self.prepare()
+        self.tools.output_started()
+        self.tools.output_drained()
+        self.tools.transcript('assistant', 'Передать папе: Я дома. Отправить?')
+        self.tools.transcript('user', 'Отправляй')
+        self.assertEqual((await self.send(draft))['status'], 'queued')
+        self.assertEqual(self.judge.await_args.args[1], 'Передать папе: Я дома. Отправить?')
+
+    async def test_acknowledgement_audio_keeps_question_and_fresh_reply(self):
+        draft = await self.prepare()
+        self.readback()
+        self.tools.transcript('user', 'Да')
+        self.tools.output_started()
+        self.tools.transcript('assistant', 'Хорошо, сейчас передам.')
+        self.tools.output_drained()
+        self.assertEqual((await self.send(draft))['status'], 'queued')
+        self.assertEqual(self.judge.await_args.args[1:], ('Передать папе: Я дома. Отправить?', 'Да'))
+
+    async def test_new_audio_segment_closes_gate_until_drained(self):
+        draft = await self.prepare()
+        self.readback('Передать папе:')
+        self.tools.output_started()
+        self.tools.transcript('user', 'Да')
+        self.assertEqual((await self.send(draft))['status'], 'rejected')
+        self.tools.transcript('assistant', ' Я дома. Отправить?')
+        self.tools.output_drained()
+        self.tools.transcript('user', 'Да')
+        self.assertEqual((await self.send(draft))['status'], 'queued')
+
+    async def test_correction_during_judgement_prevents_enqueue(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        async def judge(*args):
+            started.set()
+            await release.wait()
+            return {'readback_matches': True, 'decision': 'send'}
+        self.tools.consent = judge
+        draft = await self.prepare()
+        self.readback()
+        self.tools.transcript('user', 'Да')
+        pending = asyncio.create_task(self.send(draft))
+        await started.wait()
+        self.tools.transcript('user', ', нет, не надо')
+        release.set()
+        self.assertEqual((await pending)['status'], 'rejected')
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
+
+    async def test_replaced_draft_during_judgement_prevents_old_send(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        async def judge(*args):
+            started.set()
+            await release.wait()
+            return {'readback_matches': True, 'decision': 'send'}
+        self.tools.consent = judge
+        old_draft = await self.prepare()
+        self.readback()
+        self.tools.transcript('user', 'Да')
+        pending = asyncio.create_task(self.send(old_draft))
+        await started.wait()
+        new_draft = await self.prepare([self.mom], text='Приходи скорее')
+        release.set()
+        self.assertEqual((await pending)['status'], 'rejected')
+        self.assertEqual(self.tools.draft['id'], new_draft)
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
+
+    async def test_unavailable_judge_never_enqueues_and_can_retry_naturally(self):
+        from gosha_family_consent import ConsentError
+        self.judge.side_effect = ConsentError('consent_provider_unavailable')
+        draft = await self.prepare()
+        self.readback()
+        self.tools.transcript('user', 'Да')
+        result = await self.send(draft)
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
+        self.judge.side_effect = None
+        self.tools.transcript('user', '. Отправляй')
+        self.assertEqual((await self.send(draft))['status'], 'queued')
+
+    async def test_question_or_revision_does_not_enqueue(self):
+        for decision in ('clarify', 'revise'):
+            draft = await self.prepare()
+            self.readback()
+            self.tools.transcript('user', 'Новая реплика')
+            self.judge.return_value = {'readback_matches': True, 'decision': decision}
+            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            self.assertIsNone(self.tools.draft)
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
+
+    async def test_refusal_or_revision_is_honoured_even_for_bad_readback(self):
+        for decision in ('cancel', 'revise'):
+            draft = await self.prepare()
+            self.readback('Передать маме: Я дома. Отправить?')
+            self.tools.transcript('user', 'Отмена или исправление')
+            self.judge.return_value = {'readback_matches': False, 'decision': decision}
+            result = await self.send(draft)
+            self.assertEqual(result['reason'], 'message_'+decision)
         self.assertEqual(self.store.snapshot('a')['messages'], [])
 
     async def test_canonical_readback_preserves_contact_names_and_requires_new_consent(self):
@@ -101,15 +212,20 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
 
     async def test_parent_inflections_keep_exact_recipient_scope(self):
         for phrase in ('Передать папе', 'Сообщение для папы', 'Отправить маме', 'Папайя'):
+            matches = phrase in ('Передать папе', 'Сообщение для папы')
+            self.judge.return_value = {'readback_matches': matches, 'decision': 'send'}
             draft = await self.prepare()
             self.readback(phrase + '. Я дома. Отправить?')
             self.tools.transcript('user', 'Да, отправь')
             expected = 'queued' if phrase in ('Передать папе', 'Сообщение для папы') else 'rejected'
             self.assertEqual((await self.send(draft))['status'], expected)
         draft = await self.prepare([self.mom, self.dad])
+        self.judge.return_value = {'readback_matches': False, 'decision': 'send'}
         self.readback('Передать папе. Я дома. Отправить?')
         self.tools.transcript('user', 'Да, отправь')
         self.assertEqual((await self.send(draft))['status'], 'rejected')
+        draft = await self.prepare([self.mom, self.dad])
+        self.judge.return_value = {'readback_matches': True, 'decision': 'send'}
         self.readback('Передать маме и папе. Я дома. Отправить?')
         self.assertEqual((await self.send(draft))['status'], 'rejected')
         self.tools.transcript('user', 'Да, отправь')
@@ -144,34 +260,41 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         result = await self.tools.call('family_prepare_message', json.dumps({'recipient_ids': ['foreign'], 'text': 'test'}))
         self.assertEqual(result['status'], 'rejected')
         draft = await self.prepare([self.mom, self.dad])
+        self.judge.return_value = {'readback_matches': False, 'decision': 'send'}
         self.readback()  # Omits mother.
         self.tools.transcript('user', 'да отправь')
         self.assertEqual((await self.send(draft))['status'], 'rejected')
-        self.readback(' Мама. Я дома. Отправить?')
+        draft = await self.prepare([self.mom, self.dad])
+        self.judge.return_value = {'readback_matches': True, 'decision': 'send'}
+        self.readback(' Мама и папа. Я дома. Отправить?')
         self.tools.transcript('user', 'да отправь')
         self.store.configure('a', False, 'ask')
         self.assertEqual((await self.send(draft))['status'], 'rejected')
 
     async def test_late_transcript_invalidates_inflight_confirmation(self):
         self.tools.quiet_seconds = 0.04
+        self.judge.return_value = {'readback_matches': True, 'decision': 'cancel'}
         draft = await self.prepare()
         self.readback()
         self.tools.transcript('user', 'да отправь')
         send = asyncio.create_task(self.send(draft))
         await asyncio.sleep(0.01)
         self.tools.transcript('user', ', нет, не надо')
-        self.assertEqual((await send)['status'], 'rejected')
+        self.assertEqual((await send)['status'], 'cancelled')
+        self.assertEqual(self.judge.await_args.args[2], 'да отправь, нет, не надо')
+        self.assertEqual(self.store.snapshot('a')['messages'], [])
 
     async def test_voice_diagnostics_do_not_log_family_content_or_ids(self):
         private_text = 'Личное сообщение семьесекрет'
+        self.judge.return_value = {'readback_matches': True, 'decision': 'cancel'}
         with self.assertLogs('gosha.family.voice', level='INFO') as captured:
             draft = await self.prepare(text=private_text)
             self.readback('Папа. '+private_text+'. Отправить?')
             self.tools.transcript('user', 'Нет, семьесекрет не отправляй')
-            self.assertEqual((await self.send(draft))['status'], 'rejected')
+            self.assertEqual((await self.send(draft))['status'], 'cancelled')
             await self.tools.call('invalid-семьесекрет', '{}')
         joined = '\n'.join(captured.output)
-        self.assertIn('phrase_matches=False', joined)
+        self.assertIn('decision=cancel', joined)
         self.assertIn('operation=invalid', joined)
         for secret in ('семьесекрет', self.dad, draft, private_text, 'Папа'):
             self.assertNotIn(secret, joined)
