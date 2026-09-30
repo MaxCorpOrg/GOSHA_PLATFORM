@@ -130,6 +130,9 @@ class AudioPartTests(unittest.TestCase):
         service.audio(self.store,'robot',self.message,'notice')
         self.assertEqual(texts, ['Папа прислал тебе сообщение. Двойное нажатие — прочитать.'])
         self.assertEqual(self.store.mailbox('robot')['messages'][0]['state'],'queued')
+        service.audio(self.store,'robot',self.message,'offer')
+        self.assertEqual(texts[-1], 'Папа прислал тебе сообщение. Прочитать его?')
+        self.assertNotIn('Секретное', texts[-1])
         service.audio(self.store,'robot',self.message,'reading')
         self.assertIn('Сейчас я тебе его прочитаю. Папа пишет: Секретное сообщение', texts[-1])
         self.assertEqual(self.store.mailbox('robot')['messages'][0]['state'],'queued')
@@ -197,10 +200,87 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.bridge.family_playback_supported=False
         self.assertEqual((await self.inbox.request_read())['status'],'rejected')
         self.bridge.family_playback_supported=True
+        self.assertEqual((await self.inbox.request_read())['reason'],'fresh_reading_request_required')
+        self.bridge.family_tools.transcript('user','Прочитай сообщение')
         self.assertEqual((await self.inbox.request_read())['status'],'requested')
         self.assertTrue(self.inbox.explicit)
         self.bridge.family_tools.read_messages=self.inbox.request_read
         self.assertEqual((await self.bridge.family_tools.call('family_read_messages','{}'))['status'],'requested')
+
+    async def finish(self, task):
+        for _ in range(30):
+            if self.inbox.pending and self.bridge.send_json.await_args:
+                break
+            await asyncio.sleep(.001)
+        request = self.bridge.send_json.await_args.kwargs['payload']
+        self.inbox.receive({'payload':{'request_id':request['request_id'],'state':'finished'}})
+        return await task
+
+    async def test_offer_requires_a_reply_after_its_audio_and_targets_that_message(self):
+        self.bridge.family_tools.transcript('user','давай')  # Before the offer: no consent.
+        session = SimpleNamespace(send=AsyncMock())
+        task = asyncio.create_task(self.inbox.read(session,self.message,False,notice=True,author='Папа'))
+        self.assertEqual(await self.finish(task),'finished')
+        self.assertEqual(self.bridge.send_json.await_args.kwargs['payload']['action'],'notice')
+        self.assertEqual((await self.inbox.request_read())['reason'],'fresh_reading_request_required')
+        self.bridge.family_tools.interrupt()  # Generation alone must not constitute an answer.
+        self.assertEqual((await self.inbox.request_read())['status'],'rejected')
+        self.bridge.family_tools.transcript('user','Ну давай уже, читай')
+        self.assertEqual((await self.inbox.request_read())['status'],'requested')
+        self.assertEqual(self.inbox.requested_id,self.message)
+        self.assertNotIn('private-inbox-body',str(session.send.await_args_list))
+        self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
+
+    async def test_refusal_keeps_unread_and_button_can_read_without_voice_reply(self):
+        session=SimpleNamespace(send=AsyncMock())
+        await self.finish(asyncio.create_task(self.inbox.read(session,self.message,False,notice=True,author='Папа')))
+        self.bridge.family_tools.defer_reading=self.inbox.defer_reading
+        self.assertEqual((await self.bridge.family_tools.call('family_defer_reading','{}'))['status'],'rejected')
+        self.bridge.family_tools.transcript('user','Попозже, сейчас занят')
+        self.assertEqual((await self.bridge.family_tools.call('family_defer_reading','{}'))['status'],'confirmed')
+        self.assertIsNone(self.inbox.offered)
+        self.assertIn(self.message,self.inbox.announced)
+        self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
+        self.inbox.receive({'payload':{'state':'read_requested'}})
+        self.assertTrue(self.inbox.explicit)
+
+    async def test_ask_loop_offers_once_without_automatic_reading(self):
+        self.bridge.robot_listening_ready.set()
+        self.inbox.interval=.002
+        self.inbox.read=AsyncMock()
+        async def offer(session, message_id, explicit, **kwargs):
+            self.inbox.announced.add(message_id)
+            self.inbox.offered={'id':message_id,'generation':0,'at':time.monotonic()}
+            return 'finished'
+        self.inbox.read.side_effect=offer
+        task=asyncio.create_task(self.inbox.run(None))
+        await asyncio.sleep(.03)
+        self.bridge.stopped.set()
+        await task
+        self.inbox.read.assert_awaited_once_with(None,self.message,False,notice=True,author='Папа')
+
+    async def test_auto_reads_and_manual_request_uses_the_offered_id(self):
+        store=self.bridge.family_tools.store
+        parent=store.add_contact('robot','Мама','mother')
+        other=store.parent_send('robot',parent,'second-private','second')
+        self.inbox.offered={'id':other,'generation':0,'at':time.monotonic()}
+        self.inbox.receive({'payload':{'state':'read_requested'}})
+        self.assertEqual(self.inbox.requested_id,other)
+        self.bridge.robot_listening_ready.set()
+        self.inbox.interval=.002
+        async def read(*args, **kwargs):
+            self.bridge.stopped.set()
+            return 'finished'
+        self.inbox.read=AsyncMock(side_effect=read)
+        await self.inbox.run(None)
+        self.inbox.read.assert_awaited_once_with(None,other,True,notice=False,author='Мама')
+        self.bridge.stopped.clear()
+        self.inbox.explicit=False
+        self.inbox.attempted.clear()
+        store.configure('robot',True,'auto')
+        self.inbox.read.reset_mock()
+        await self.inbox.run(None)
+        self.inbox.read.assert_awaited_once_with(None,self.message,False,notice=False,author='Папа')
 
     async def test_incoming_defers_speech_draft_and_pending_backend_actions(self):
         self.assertTrue(self.inbox.idle())

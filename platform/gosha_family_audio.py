@@ -135,6 +135,8 @@ def spoken_text(message, part):
         notice = 'Новое сообщение. Отправитель: '+author+'.'
     if part == 'notice':
         return notice+' Двойное нажатие — прочитать.'
+    if part == 'offer':
+        return notice+' Прочитать его?'
     if part == 'reading':
         return notice+' Сейчас я тебе его прочитаю. '+author+' пишет: '+message['body']
     if part != 'message':

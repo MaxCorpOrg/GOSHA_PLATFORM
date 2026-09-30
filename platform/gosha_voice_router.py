@@ -102,6 +102,7 @@ class RobotLiveBridge:
             from gosha_family_incoming import FamilyIncoming
             self.family_incoming = FamilyIncoming(self)
             self.family_tools.read_messages = self.family_incoming.request_read
+            self.family_tools.defer_reading = self.family_incoming.defer_reading
         self.duplex = False
         self.echo = self.reference_codec = None
         self.playback_timestamp = 0
