@@ -167,6 +167,7 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
             device_tools=SimpleNamespace(pending={}), tool_runner=None, backend_responses=set(),
             idle_farewell=None, accept_output=True, restart=asyncio.Event(), stopped=asyncio.Event(),
             family_paused=False, last_activity=0, robot_listening_ready=asyncio.Event(),
+            fresh_config=lambda: {'delegation':{'responses':{'instructions':'Базовые инструкции'}}},
             send_json=AsyncMock())
         self.inbox = FamilyIncoming(self.bridge, timeout=.1)
 
@@ -229,6 +230,11 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.inbox.request_read())['status'],'requested')
         self.assertEqual(self.inbox.requested_id,self.message)
         self.assertNotIn('private-inbox-body',str(session.send.await_args_list))
+        update = next(call.kwargs['session'] for call in session.send.await_args_list if call.args[0]=='session.update')
+        context=update['delegation']['responses']['instructions']
+        self.assertIn('Прочитать его?',context)
+        self.assertIn('Папа',context)
+        self.assertNotIn('private-inbox-body',context)
         self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
 
     async def test_refusal_keeps_unread_and_button_can_read_without_voice_reply(self):
@@ -243,6 +249,20 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
         self.inbox.receive({'payload':{'state':'read_requested'}})
         self.assertTrue(self.inbox.explicit)
+
+    async def test_deferred_offer_clears_backend_context(self):
+        session=SimpleNamespace(send=AsyncMock())
+        self.inbox.backend_offer_active=True
+        self.inbox.announced.add(self.message)
+        self.bridge.robot_listening_ready.set()
+        self.inbox.interval=.002
+        task=asyncio.create_task(self.inbox.run(session))
+        await asyncio.sleep(.02)
+        self.bridge.stopped.set();await task
+        self.assertFalse(self.inbox.backend_offer_active)
+        update=session.send.await_args_list[0]
+        self.assertEqual(update.args[0],'session.update')
+        self.assertEqual(update.kwargs['session']['delegation']['responses']['instructions'], 'Базовые инструкции\n')
 
     async def test_ask_loop_offers_once_without_automatic_reading(self):
         self.bridge.robot_listening_ready.set()
