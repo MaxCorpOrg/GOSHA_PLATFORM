@@ -58,9 +58,12 @@ def handle(handler, panel, post=False):
             if not post and action == 'audio':
                 from gosha_family_audio import SERVICE, CONTENT_TYPE
                 query = parse_qs(parsed.query, keep_blank_values=True)
-                if set(query) != {'message_id'} or len(query['message_id']) != 1:
+                if (set(query) not in ({'message_id'}, {'message_id', 'part'})
+                        or len(query.get('message_id', [])) != 1
+                        or len(query.get('part', ['message'])) != 1):
                     raise ValueError('invalid_message_id')
-                audio = SERVICE.audio(store, robot, query['message_id'][0])
+                part = query.get('part', ['message'])[0]
+                audio = SERVICE.audio(store, robot, query['message_id'][0], part)
                 current_claim = panel.authenticate_selfhost_runtime_event(handler.headers, {})
                 if not current_claim or current_claim.get('robot_id') != robot:
                     handler._send_json(401, {'ok': False, 'error': 'device_auth_required'})

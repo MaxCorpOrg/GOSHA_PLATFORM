@@ -125,18 +125,37 @@ def synthesize(text, config):
     return packetize(resample(bytes(pcm)))
 
 
+def spoken_text(message, part):
+    author = message['author']
+    if author.casefold() == 'мама':
+        notice = author+' прислала тебе сообщение.'
+    elif author.casefold() == 'папа':
+        notice = author+' прислал тебе сообщение.'
+    else:
+        notice = 'Новое сообщение. Отправитель: '+author+'.'
+    if part == 'notice':
+        return notice+' Двойное нажатие — прочитать.'
+    if part == 'reading':
+        return notice+' Сейчас я тебе его прочитаю. '+author+' пишет: '+message['body']
+    if part != 'message':
+        raise ValueError('invalid_audio_part')
+    return author+' пишет: '+message['body']
+
+
 class FamilySpeech:
-    def __init__(self, render=synthesize, configuration=speech_config, clock=time.monotonic):
+    def __init__(self, render=synthesize, configuration=speech_config, clock=time.monotonic, *, robot_configuration=None):
         self.render, self.configuration, self.clock = render, configuration, clock
+        self.robot_configuration = robot_configuration
         self.lock = threading.Lock()
         self.cache = OrderedDict()
         self.failed = OrderedDict()
 
-    def audio(self, store, robot, message_id):
+    def audio(self, store, robot, message_id, part='message'):
         message = store.audio_message(robot, message_id)  # Scope/mode/expiry checked even on a cache hit.
-        config = self.configuration()
+        text = spoken_text(message, part)
+        config = self.robot_configuration(robot) if self.robot_configuration else self.configuration()
         signature = hashlib.sha256(json.dumps(config).encode()).digest()
-        key = (str(store.path.resolve()), robot, message_id, signature)
+        key = (str(store.path.resolve()), robot, message_id, part, signature)
         # Single in-flight renderer avoids duplicate billing and bounds RAM. A
         # contending request can retry later; never enqueue unlimited TTS jobs.
         if not self.lock.acquire(blocking=False):
@@ -151,7 +170,7 @@ class FamilySpeech:
             if self.failed.get(key, 0) > now:
                 raise RuntimeError('family_speech_cooldown')
             try:
-                audio = self.render(message['author']+' пишет: '+message['body'], config)
+                audio = self.render(text, config)
                 store.audio_message(robot, message_id)  # Disable/expiry during generation: no audio served.
             except Exception:
                 self.failed[key] = self.clock() + 60
@@ -166,4 +185,5 @@ class FamilySpeech:
             self.lock.release()
 
 
-SERVICE = FamilySpeech()
+from gosha_family_live_speech import profile_config, synthesize_profile
+SERVICE = FamilySpeech(render=synthesize_profile, robot_configuration=profile_config)

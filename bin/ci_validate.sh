@@ -168,5 +168,6 @@ echo "[14/14] Проверка семейных сообщений, доступ
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family_runtime.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family_consent.py
+PYTHONDONTWRITEBYTECODE=1 python3 -B platform/test_gosha_family_incoming.py
 
 echo "Проверка репозитория завершена успешно."

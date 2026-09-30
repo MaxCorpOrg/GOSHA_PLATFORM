@@ -82,6 +82,11 @@ class RobotLiveBridge:
         self.mcp_supported = False
         self.device_tools = DeviceTools(self.send_json)
         self.family_tools = None
+        self.family_incoming = None
+        self.family_paused = False
+        self.family_playback_supported = False
+        self.backend_responses = set()
+        self.tool_runner = None
         self.execution_tools = self.device_tools
         if family_robot_id:
             from gosha_family_store import FamilyStore
@@ -94,6 +99,9 @@ class RobotLiveBridge:
                                                 consent=FamilyConsentJudge(key, responses.get('model', ''),
                                                                            responses.get('reasoning', {})))
             self.execution_tools = ConversationTools(self.device_tools, self.family_tools)
+            from gosha_family_incoming import FamilyIncoming
+            self.family_incoming = FamilyIncoming(self)
+            self.family_tools.read_messages = self.family_incoming.request_read
         self.duplex = False
         self.echo = self.reference_codec = None
         self.playback_timestamp = 0
@@ -147,6 +155,7 @@ class RobotLiveBridge:
         self.mcp_supported = isinstance(hello.get("features"), dict) and hello["features"].get("mcp") is True
         features = hello.get("features") or {}
         if isinstance(features, dict):
+            self.family_playback_supported = type(features.get('family_playback')) is int and features['family_playback'] == 1
             if features.get("live_duplex") is True and self.version == 2 and os.environ.get("GOSHA_VOICE_ENABLE_DUPLEX") == "1":
                 try:
                     self.echo = EchoCanceller()
@@ -233,7 +242,7 @@ class RobotLiveBridge:
             async for raw in self.robot:
                 if isinstance(raw, bytes):
                     self.audio_flow["robot_frames"] += 1
-                    if self.listening and (self.realtime or not self.speaking):
+                    if self.listening and not self.family_paused and (self.realtime or not self.speaking):
                         pcm = self.codec.decode(unpack_audio(raw, self.version))
                         if self.duplex:
                             pcm = self.echo.process(pcm, audio_timestamp(raw, self.version))
@@ -252,7 +261,9 @@ class RobotLiveBridge:
                     continue
                 message = json.loads(raw)
                 kind = message.get("type")
-                if kind == "listen":
+                if kind == 'family_messages' and self.family_incoming and self.family_playback_supported:
+                    self.family_incoming.receive(message)
+                elif kind == "listen":
                     state = message.get("state")
                     if state == "start":
                         self.audio_flow["listen_starts"] += 1
@@ -283,6 +294,8 @@ class RobotLiveBridge:
             self.stopped.set()
 
     async def check_idle(self, session, now):
+        if self.family_paused:
+            return False
         farewell = self.idle_farewell
         if farewell is not None:
             if self.user_turn_generation != farewell["user_generation"]:
@@ -341,7 +354,7 @@ class RobotLiveBridge:
                                                      "method": "notifications/gosha/keepalive", "params": {}})
                 self.last_robot_keepalive = now
             try:
-                pcm = self.input.get_nowait()
+                pcm = SILENCE if self.family_paused else self.input.get_nowait()
             except asyncio.QueueEmpty:
                 pcm = SILENCE
             await session.send_audio(pcm)
@@ -357,6 +370,8 @@ class RobotLiveBridge:
         async for event in session.events():
             kind = event.get("type")
             if not self.accept_output:
+                continue
+            if self.family_paused and kind in ('session.output_audio.delta', 'session.output_transcript.delta'):
                 continue
             if kind == "session.instructions.appended":
                 if self.idle_farewell and event.get("client_event_id") == self.idle_farewell["event_id"]:
@@ -387,6 +402,12 @@ class RobotLiveBridge:
                         await tool_runner.report_disabled()
                 if not isinstance(backend, dict):
                     continue
+                response = backend.get('response')
+                response_id = response.get('id') if isinstance(response, dict) else None
+                if backend.get('type') == 'response.created' and isinstance(response_id, str):
+                    self.backend_responses.add(response_id)
+                elif backend.get('type') in ('response.completed', 'response.failed', 'response.incomplete'):
+                    self.backend_responses.discard(response_id)
                 if backend.get("type") == "response.completed":
                     self.audio_flow["backend_completed"] += 1
                 if backend.get("type") in {"response.failed", "response.incomplete", "error"}:
@@ -420,6 +441,11 @@ class RobotLiveBridge:
         deferred_pcm = None
         defer_started = None
         while True:
+            if self.family_paused:
+                deferred_pcm = None
+                defer_started = None
+                await asyncio.sleep(PERIOD)
+                continue
             tick = time.monotonic()
             if deferred_pcm is not None:
                 pcm, deferred_pcm = deferred_pcm, None
@@ -512,16 +538,19 @@ class RobotLiveBridge:
                     initial = False
                 tool_runner = LiveToolRunner(session, self.execution_tools,
                                             lambda: self.accept_output and not self.restart.is_set() and not self.stopped.is_set())
+                self.tool_runner = tool_runner
+                self.backend_responses.clear()
                 reader = asyncio.create_task(self.read_live(session, tool_runner))
                 tool_worker = asyncio.create_task(tool_runner.run())
                 tool_publisher = asyncio.create_task(self.publish_tools(session, tool_runner))
+                family_reader = asyncio.create_task(self.family_incoming.run(session) if self.family_incoming else self.stopped.wait())
                 sender = asyncio.create_task(self.input_loop(session))
                 playback = asyncio.create_task(self.output_loop())
                 restart = asyncio.create_task(self.restart.wait())
                 stopped = asyncio.create_task(self.stopped.wait())
                 try:
                     done, _ = await asyncio.wait(
-                        [reader, sender, playback, restart, stopped, robot_reader, tool_worker, tool_publisher],
+                        [reader, sender, playback, restart, stopped, robot_reader, tool_worker, tool_publisher, family_reader],
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     for task in done:
@@ -530,7 +559,7 @@ class RobotLiveBridge:
                     if self.family_tools:
                         self.family_tools.interrupt()
                     self.accept_output = False
-                    await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher])
+                    await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher, family_reader])
                     await self.device_tools.stop_movement()
                     with contextlib.suppress(Exception):
                         await self.stop_speech()
