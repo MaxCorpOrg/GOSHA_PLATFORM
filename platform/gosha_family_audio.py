@@ -1,10 +1,12 @@
 """Bounded speech of a stored mailbox item; never a conversation/model tool call."""
 from array import array
 from collections import OrderedDict
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 import ctypes as C
 import ctypes.util
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import struct
@@ -19,6 +21,8 @@ from gosha_live_audio import OpusCodec, PCM_BYTES
 MAX_SECONDS = 120
 MAX_WIRE = 384 * 1024
 CONTENT_TYPE = 'application/vnd.gosha.opus'
+LOG = logging.getLogger('gosha.family.audio')
+PREPARE_WAIT_SECONDS = 135
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -147,11 +151,15 @@ def spoken_text(message, part):
 
 class FamilySpeech:
     def __init__(self, render=synthesize, configuration=speech_config, clock=time.monotonic, *,
-                 robot_configuration=None, notice_cache_dir=None):
+                 robot_configuration=None, notice_cache_dir=None, prepare_on_notice=False):
         self.render, self.configuration, self.clock = render, configuration, clock
         self.robot_configuration = robot_configuration
         self.lock = threading.Lock()
+        self.notice_lock = threading.Lock()
         self.cache_lock = threading.Lock()
+        self.preparation_lock = threading.Lock()
+        self.preparation = None
+        self.prepare_on_notice = prepare_on_notice
         self.cache = OrderedDict()
         self.failed = OrderedDict()
         self.notice_cache_dir = Path(notice_cache_dir) if notice_cache_dir else None
@@ -219,24 +227,99 @@ class FamilySpeech:
 
     def audio(self, store, robot, message_id, part='message'):
         message = store.audio_message(robot, message_id)  # Scope/mode/expiry checked even on a cache hit.
-        return self.render_audio(store,robot,message,part,lambda:store.audio_message(robot,message_id))
+        audio = self.render_audio(store,robot,message,part,lambda:store.audio_message(robot,message_id))
+        if self.prepare_on_notice and part in ('notice','offer'):
+            # Prepare only; playback and receipts still require the device's
+            # consent/button path. Bodies stay in the bounded in-memory cache.
+            try:
+                self.prepare_message(store,robot,message_id,'reading' if part == 'offer' else 'message')
+            except Exception as exc:
+                LOG.info('family_audio stage=prepare_unavailable category=%s',type(exc).__name__)
+        return audio
 
-    def render_audio(self, store, robot, message, part, validate):
+    def arguments(self, store, robot, message, part):
         text = spoken_text(message, part)
         config = self.robot_configuration(robot) if self.robot_configuration else self.configuration()
         signature = hashlib.sha256(json.dumps(config).encode()).hexdigest()
         notice = part in ('notice','offer')
         identity = hashlib.sha256(text.encode()).hexdigest() if notice else message['id']
         key = (str(store.path.resolve()), robot, identity, part, signature)
+        return text, config, key, notice
+
+    def prepare_message(self, store, robot, message_id, part):
+        if part not in ('message','reading'):
+            raise ValueError('invalid_preparation_part')
+        message = store.audio_message(robot,message_id)
+        prepared = self.arguments(store,robot,message,part)
+        key = prepared[2]
+        if self.cached(key) is not None:
+            return None
+        with self.preparation_lock:
+            if self.preparation and not self.preparation[1].done():
+                return self.preparation[1] if self.preparation[0] == key else None
+            future = Future()
+            self.preparation = key, future
+
+        def prepare():
+            started = time.monotonic()
+            LOG.info('family_audio part=%s stage=prepare_started',part)
+            try:
+                store.audio_message(robot,message_id)
+                audio = self.render_audio(store,robot,message,part,
+                    lambda:store.audio_message(robot,message_id), prepared=prepared, join=False)
+                future.set_result(audio)
+                LOG.info('family_audio part=%s stage=prepare_finished elapsed_ms=%s',part,
+                         round((time.monotonic()-started)*1000))
+            except Exception as exc:
+                future.set_exception(exc)
+                LOG.info('family_audio part=%s stage=prepare_unavailable category=%s',part,type(exc).__name__)
+            finally:
+                with self.preparation_lock:
+                    if self.preparation and self.preparation[1] is future:
+                        self.preparation = None
+
+        try:
+            threading.Thread(target=prepare,name='family-audio-prepare',daemon=True).start()
+        except Exception as exc:
+            future.set_exception(exc)
+            with self.preparation_lock:
+                if self.preparation and self.preparation[1] is future:
+                    self.preparation = None
+            raise
+        return future
+
+    def render_audio(self, store, robot, message, part, validate, *, prepared=None, join=True):
+        started = time.monotonic()
+        text, config, key, notice = prepared or self.arguments(store,robot,message,part)
         audio = self.cached(key)
+        source = 'memory'
         if audio is None and notice:
             audio = self.load_notice(key)
+            source = 'disk'
         if audio is not None:
             validate()
+            LOG.info('family_audio part=%s stage=ready source=%s elapsed_ms=%s',part,source,
+                     round((time.monotonic()-started)*1000))
             return audio  # A cached notice need not wait behind a body renderer.
-        # Single in-flight renderer avoids duplicate billing and bounds RAM. A
-        # contending request can retry later; never enqueue unlimited TTS jobs.
-        if not self.lock.acquire(blocking=False):
+        if join and not notice:
+            with self.preparation_lock:
+                future = (self.preparation[1] if self.preparation and self.preparation[0] == key
+                          and not self.preparation[1].done() else None)
+            if future is not None:
+                try:
+                    audio = future.result(timeout=PREPARE_WAIT_SECONDS)
+                except FutureTimeout:
+                    raise RuntimeError('family_speech_busy') from None
+                validate()
+                if self.arguments(store,robot,message,part)[2] != key:
+                    raise RuntimeError('family_voice_changed')
+                LOG.info('family_audio part=%s stage=ready source=prepared elapsed_ms=%s',part,
+                         round((time.monotonic()-started)*1000))
+                return audio
+        # One body renderer and one notice renderer, with no unbounded queue.
+        # A cold notice must not be blocked by speculative body preparation.
+        lock = self.notice_lock if notice else self.lock
+        if not lock.acquire(blocking=False):
             raise RuntimeError('family_speech_busy')
         try:
             audio = self.cached(key)
@@ -261,11 +344,14 @@ class FamilySpeech:
                     self.cache.popitem(last=False)
             if notice:
                 self.save_notice(key,audio)
+            LOG.info('family_audio part=%s stage=ready source=render elapsed_ms=%s',part,
+                     round((time.monotonic()-started)*1000))
             return audio
         finally:
-            self.lock.release()
+            lock.release()
 
 
 from gosha_family_live_speech import profile_config, synthesize_profile
 SERVICE = FamilySpeech(render=synthesize_profile, robot_configuration=profile_config,
-    notice_cache_dir=Path(os.environ.get('APP_ROOT','/opt/gosha_platform/runtime/app_root'))/'family/notice-audio')
+    notice_cache_dir=Path(os.environ.get('APP_ROOT','/opt/gosha_platform/runtime/app_root'))/'family/notice-audio',
+    prepare_on_notice=True)

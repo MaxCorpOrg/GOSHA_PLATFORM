@@ -1,5 +1,6 @@
 """Offline voice-consent, speech and OTA tests; no paid API or physical robot."""
 import asyncio
+from concurrent.futures import Future
 from email.message import Message
 import io
 import json
@@ -497,6 +498,164 @@ class SpeechTests(Fixture, unittest.TestCase):
         finally:
             release.set();worker.join(2)
         self.assertFalse(worker.is_alive())
+
+    def test_offer_prepares_reading_without_playback_receipt_or_disk_body(self):
+        entered=threading.Event();release=threading.Event();calls=[]
+        directory=Path(self.tmp.name)/'prepared-notices'
+        def render(text,config):
+            calls.append(text)
+            if 'private-prepared-body' in text:
+                entered.set()
+                if not release.wait(3):raise TimeoutError()
+            return packetize(bytes(1920))
+        service=FamilySpeech(render,lambda:('test','v','key'),notice_cache_dir=directory,
+                             prepare_on_notice=True)
+        message=self.store.parent_send('a',self.dad,'private-prepared-body','p1')
+        service.audio(self.store,'a',message,'offer')
+        try:
+            self.assertTrue(entered.wait(1))
+            future=service.prepare_message(self.store,'a',message,'reading')
+            self.assertIsNotNone(future)
+            self.assertEqual(self.store.mailbox('a')['messages'][0]['state'],'queued')
+            self.assertEqual(len(list(directory.glob('*.gfm'))),1)
+        finally:release.set()
+        wire=future.result(timeout=2)
+        self.assertEqual(service.audio(self.store,'a',message,'reading'),wire)
+        self.assertEqual(calls,['Папа прислал сообщение. Прочитать?',
+                                'Ага. Папа говорит: private-prepared-body'])
+        self.assertEqual(len(list(directory.glob('*.gfm'))),1)
+        self.assertEqual(self.store.mailbox('a')['messages'][0]['state'],'queued')
+
+    def test_consent_joins_pending_preparation_without_second_renderer(self):
+        entered=threading.Event();release=threading.Event();joined=threading.Event();calls=[]
+        def render(text,config):
+            calls.append(text);entered.set()
+            if not release.wait(3):raise TimeoutError()
+            return b'prepared-audio'
+        service=FamilySpeech(render,lambda:('test','v','key'))
+        message=self.store.parent_send('a',self.dad,'join-body','p2')
+        future=service.prepare_message(self.store,'a',message,'reading')
+        self.assertTrue(entered.wait(1))
+        replies=[];errors=[]
+        def read():
+            try:replies.append(service.audio(self.store,'a',message,'reading'))
+            except Exception as exc:errors.append(exc)
+        original=Future.result
+        def observe(current,*args,**kwargs):
+            if current is future:joined.set()
+            return original(current,*args,**kwargs)
+        worker=threading.Thread(target=read)
+        try:
+            with patch.object(Future,'result',observe):
+                worker.start()
+                self.assertTrue(joined.wait(1))
+                self.assertEqual(replies,[])
+                release.set();worker.join(2)
+        finally:release.set();worker.join(2)
+        self.assertEqual(errors,[])
+        self.assertEqual(replies,[b'prepared-audio'])
+        self.assertEqual(len(calls),1)
+
+    def test_cold_notice_and_bounded_second_preparation_while_body_is_busy(self):
+        entered=threading.Event();release=threading.Event();calls=[]
+        def render(text,config):
+            calls.append(text)
+            if 'first-body' in text:
+                entered.set()
+                if not release.wait(3):raise TimeoutError()
+            return b'audio'
+        service=FamilySpeech(render,lambda:('test','v','key'))
+        first=self.store.parent_send('a',self.dad,'first-body','p3')
+        second=self.store.parent_send('a',self.mom,'second-body','p4')
+        future=service.prepare_message(self.store,'a',first,'reading')
+        try:
+            self.assertTrue(entered.wait(1))
+            self.assertIsNone(service.prepare_message(self.store,'a',second,'reading'))
+            self.assertEqual(service.audio(self.store,'a',second,'offer'),b'audio')
+            self.assertEqual(len(calls),2)
+            self.assertNotIn('second-body',' '.join(calls))
+        finally:release.set();future.result(timeout=2)
+
+    def test_disable_during_preparation_discards_body_and_foreign_scope_cannot_prepare(self):
+        entered=threading.Event();release=threading.Event();calls=[]
+        def render(text,config):
+            calls.append(text);entered.set()
+            if not release.wait(3):raise TimeoutError()
+            return b'private-audio'
+        service=FamilySpeech(render,lambda:('test','v','key'))
+        message=self.store.parent_send('a',self.dad,'disable-body','p5')
+        with self.assertRaises(ValueError):service.prepare_message(self.store,'b',message,'reading')
+        future=service.prepare_message(self.store,'a',message,'reading')
+        try:
+            self.assertTrue(entered.wait(1))
+            self.store.configure('a',False,'ask')
+        finally:release.set()
+        with self.assertRaises(ValueError):future.result(timeout=2)
+        with self.assertRaises(ValueError):service.audio(self.store,'a',message,'reading')
+        self.assertEqual(len(calls),1)
+
+    def test_voice_changed_during_prepared_read_never_serves_old_voice(self):
+        entered=threading.Event();release=threading.Event();joined=threading.Event()
+        profile={'voice':'old'}
+        def render(text,config):
+            if config['voice']=='old':
+                entered.set()
+                if not release.wait(3):raise TimeoutError()
+            return config['voice'].encode()
+        service=FamilySpeech(render,robot_configuration=lambda robot:dict(profile))
+        message=self.store.parent_send('a',self.dad,'voice-body','p6')
+        future=service.prepare_message(self.store,'a',message,'reading')
+        self.assertTrue(entered.wait(1))
+        replies=[];errors=[]
+        def read():
+            try:replies.append(service.audio(self.store,'a',message,'reading'))
+            except Exception as exc:errors.append(str(exc))
+        original=Future.result
+        def observe(current,*args,**kwargs):
+            if current is future:joined.set()
+            return original(current,*args,**kwargs)
+        worker=threading.Thread(target=read)
+        try:
+            with patch.object(Future,'result',observe):
+                worker.start();self.assertTrue(joined.wait(1))
+                profile['voice']='new';release.set();worker.join(2)
+        finally:release.set();worker.join(2)
+        self.assertEqual(replies,[])
+        self.assertEqual(errors,['family_voice_changed'])
+        self.assertEqual(service.audio(self.store,'a',message,'reading'),b'new')
+
+    def test_preparation_timeout_keeps_unread_message_and_completed_clip_can_retry(self):
+        entered=threading.Event();release=threading.Event()
+        def render(text,config):
+            entered.set()
+            if not release.wait(3):raise TimeoutError()
+            return b'audio'
+        service=FamilySpeech(render,lambda:('test','v','key'))
+        message=self.store.parent_send('a',self.dad,'timeout-body','p7')
+        future=service.prepare_message(self.store,'a',message,'reading')
+        try:
+            self.assertTrue(entered.wait(1))
+            with patch('gosha_family_audio.PREPARE_WAIT_SECONDS',.01):
+                with self.assertRaisesRegex(RuntimeError,'busy'):
+                    service.audio(self.store,'a',message,'reading')
+            self.assertEqual(self.store.mailbox('a')['messages'][0]['state'],'queued')
+        finally:release.set();future.result(timeout=2)
+        self.assertEqual(service.audio(self.store,'a',message,'reading'),b'audio')
+
+    def test_prepare_failure_cooldown_avoids_repeat_cost_and_logs_no_private_data(self):
+        calls=[]
+        def render(text,config):
+            calls.append(text);raise ValueError('unit_failure')
+        service=FamilySpeech(render,lambda:('test','v','secret-test-key'))
+        message=self.store.parent_send('a',self.dad,'private-log-body','p8')
+        with self.assertLogs('gosha.family.audio',level='INFO') as captured:
+            future=service.prepare_message(self.store,'a',message,'reading')
+            with self.assertRaises(ValueError):future.result(timeout=2)
+        with self.assertRaisesRegex(RuntimeError,'cooldown'):
+            service.audio(self.store,'a',message,'reading')
+        self.assertEqual(len(calls),1)
+        log='\n'.join(captured.output)
+        for private in ('secret-test-key','private-log-body',message):self.assertNotIn(private,log)
 
     def test_disable_during_render_discards_audio_and_failed_requests_cool_down(self):
         calls = []
