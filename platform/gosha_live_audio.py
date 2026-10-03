@@ -57,7 +57,7 @@ def audible(pcm):
 class OpusCodec:
     """Own one encoder/decoder per connection; use the system libopus."""
 
-    def __init__(self):
+    def __init__(self, *, bitrate=None):
         self.encoder = self.decoder = None
         library = ctypes.util.find_library("opus")
         if not library:
@@ -83,6 +83,15 @@ class OpusCodec:
         if error.value or not self.decoder:
             self.close()
             raise RuntimeError("opus_decoder_failed")
+        if bitrate is not None:
+            self.lib.opus_encoder_ctl.argtypes = [p, i]
+            self.lib.opus_encoder_ctl.restype = i
+            if type(bitrate) is not int or not 6000 <= bitrate <= 64000:
+                self.close()
+                raise ValueError('invalid_opus_bitrate')
+            if self.lib.opus_encoder_ctl(self.encoder, 4002, i(bitrate)):
+                self.close()
+                raise RuntimeError('opus_bitrate_failed')
 
     def encode(self, pcm):
         if len(pcm) != PCM_BYTES or not self.encoder:

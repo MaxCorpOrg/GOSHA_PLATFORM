@@ -64,7 +64,8 @@ async def stop_tasks(tasks):
 
 
 class RobotLiveBridge:
-    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=120):
+    def __init__(self, robot, config, key, *, session_factory=LiveSession, max_seconds=0, idle_seconds=120,
+                 family_robot_id=None):
         self.robot, self.config, self.key = robot, config, key
         self.session_factory = session_factory
         self.max_seconds, self.idle_seconds = max_seconds, idle_seconds
@@ -81,6 +82,28 @@ class RobotLiveBridge:
         self.version = 1
         self.mcp_supported = False
         self.device_tools = DeviceTools(self.send_json)
+        self.family_tools = None
+        self.family_incoming = None
+        self.family_paused = False
+        self.family_playback_supported = False
+        self.backend_responses = set()
+        self.tool_runner = None
+        self.execution_tools = self.device_tools
+        if family_robot_id:
+            from gosha_family_store import FamilyStore
+            from gosha_family_voice import ConversationTools, FamilyVoiceTools
+            from gosha_family_consent import FamilyConsentJudge
+            responses = config['delegation']['responses']
+            self.family_tools = FamilyVoiceTools(FamilyStore(claims.APP_ROOT / 'family/messages.sqlite3', timeout=0.1),
+                                                family_robot_id, lambda: self.accept_output
+                                                and not self.restart.is_set() and not self.stopped.is_set(),
+                                                consent=FamilyConsentJudge(key, responses.get('model', ''),
+                                                                           responses.get('reasoning', {})))
+            self.execution_tools = ConversationTools(self.device_tools, self.family_tools)
+            from gosha_family_incoming import FamilyIncoming
+            self.family_incoming = FamilyIncoming(self)
+            self.family_tools.read_messages = self.family_incoming.request_read
+            self.family_tools.defer_reading = self.family_incoming.defer_reading
         self.duplex = False
         self.echo = self.reference_codec = None
         self.playback_timestamp = 0
@@ -134,6 +157,7 @@ class RobotLiveBridge:
         self.mcp_supported = isinstance(hello.get("features"), dict) and hello["features"].get("mcp") is True
         features = hello.get("features") or {}
         if isinstance(features, dict):
+            self.family_playback_supported = type(features.get('family_playback')) is int and features['family_playback'] == 1
             if features.get("live_duplex") is True and self.version == 2 and os.environ.get("GOSHA_VOICE_ENABLE_DUPLEX") == "1":
                 try:
                     self.echo = EchoCanceller()
@@ -174,9 +198,15 @@ class RobotLiveBridge:
                 "сессии (не повторять без нового явного поручения; unknown означает отсутствие подтверждения): "
                 + json.dumps(list(self.device_tools.journal), ensure_ascii=False),
             }]})
-        responses = {**self.config["delegation"]["responses"], "tools": self.device_tools.definitions()}
+        responses = {**self.config["delegation"]["responses"], "tools": self.execution_tools.definitions()}
+        instructions = self.config.get('instructions', '')
+        if self.family_tools:
+            from gosha_family_voice import INSTRUCTIONS
+            responses['instructions'] = responses.get('instructions', '') + '\n' + INSTRUCTIONS
+            instructions += '\n' + INSTRUCTIONS
         responses["tool_choice"] = "auto" if responses["tools"] else "none"
-        return {**self.config, "input": history, "delegation": {"type": "responses", "responses": responses}}
+        return {**self.config, "instructions": instructions, "input": history,
+                "delegation": {"type": "responses", "responses": responses}}
 
     async def publish_tools(self, session, tool_runner):
         await self.device_tools.ready.wait()
@@ -186,13 +216,13 @@ class RobotLiveBridge:
         if not self.mcp_supported:
             await self.stopped.wait()
             return
-        definitions = self.device_tools.definitions()
+        definitions = self.execution_tools.definitions()
         await session.send("session.update", session={"delegation": {"type": "responses", "responses": {
             "tools": definitions, "tool_choice": "auto" if definitions else "none",
         }}})
         await session.send("session.instructions.append", delegation_id=None,
                            content="Проверка функций робота завершена. Доступные backend-функции: "
-                           + (", ".join(self.device_tools.available) or "нет")
+                           + (", ".join(d["name"] for d in definitions) or "нет")
                            + ". Любые просьбы об управлении передавай backend; не имитируй результат словами.")
         await self.stopped.wait()
 
@@ -214,7 +244,7 @@ class RobotLiveBridge:
             async for raw in self.robot:
                 if isinstance(raw, bytes):
                     self.audio_flow["robot_frames"] += 1
-                    if self.listening and (self.realtime or not self.speaking):
+                    if self.listening and not self.family_paused and (self.realtime or not self.speaking):
                         pcm = self.codec.decode(unpack_audio(raw, self.version))
                         if self.duplex:
                             pcm = self.echo.process(pcm, audio_timestamp(raw, self.version))
@@ -233,7 +263,9 @@ class RobotLiveBridge:
                     continue
                 message = json.loads(raw)
                 kind = message.get("type")
-                if kind == "listen":
+                if kind == 'family_messages' and self.family_incoming and self.family_playback_supported:
+                    self.family_incoming.receive(message)
+                elif kind == "listen":
                     state = message.get("state")
                     if state == "start":
                         self.audio_flow["listen_starts"] += 1
@@ -246,6 +278,8 @@ class RobotLiveBridge:
                         self.listening = False
                     # Wake-word 'detect' text isn't sent as a fabricated user utterance.
                 elif kind == "abort":
+                    if self.family_tools:
+                        self.family_tools.interrupt()
                     self.user_turn_generation += 1
                     self.idle_farewell = None
                     self.accept_output = False
@@ -262,6 +296,8 @@ class RobotLiveBridge:
             self.stopped.set()
 
     async def check_idle(self, session, now):
+        if self.family_paused:
+            return False
         farewell = self.idle_farewell
         if farewell is not None:
             if self.user_turn_generation != farewell["user_generation"]:
@@ -302,6 +338,19 @@ class RobotLiveBridge:
         LOG.info("live_idle_farewell started=true")
         return False
 
+    async def keepalive_loop(self):
+        # Keep the device transport alive even if the upstream audio sender
+        # stalls or local family playback is waiting for an HTTPS clip.
+        while not self.stopped.is_set():
+            now = time.monotonic()
+            if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
+                # Firmware's receive watchdog ignores WS ping frames. This
+                # notification refreshes activity without invoking any tool.
+                await self.send_json("mcp", payload={"jsonrpc": "2.0",
+                    "method": "notifications/gosha/keepalive", "params": {}})
+                self.last_robot_keepalive = now
+            await asyncio.sleep(min(.1, self.robot_keepalive_seconds))
+
     async def input_loop(self, session):
         while True:
             now = time.monotonic()
@@ -312,15 +361,8 @@ class RobotLiveBridge:
                 return
             if await self.check_idle(session, now):
                 return
-            if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
-                # Firmware's application-level receive watchdog is 120 s. A WS
-                # ping doesn't refresh it. Its MCP parser ignores notifications,
-                # so this refreshes transport activity without tools or audio/UI.
-                await self.send_json("mcp", payload={"jsonrpc": "2.0",
-                                                     "method": "notifications/gosha/keepalive", "params": {}})
-                self.last_robot_keepalive = now
             try:
-                pcm = self.input.get_nowait()
+                pcm = SILENCE if self.family_paused else self.input.get_nowait()
             except asyncio.QueueEmpty:
                 pcm = SILENCE
             await session.send_audio(pcm)
@@ -337,6 +379,8 @@ class RobotLiveBridge:
             kind = event.get("type")
             if not self.accept_output:
                 continue
+            if self.family_paused and kind in ('session.output_audio.delta', 'session.output_transcript.delta'):
+                continue
             if kind == "session.instructions.appended":
                 if self.idle_farewell and event.get("client_event_id") == self.idle_farewell["event_id"]:
                     self.idle_farewell["acknowledged"] = True
@@ -347,11 +391,28 @@ class RobotLiveBridge:
                 self.last_output_received = time.monotonic()
                 self.output_tail.extend(pcm)
                 while len(self.output_tail) >= PCM_BYTES:
-                    await self.output.put(bytes(self.output_tail[:PCM_BYTES]))
+                    if self.family_paused:
+                        # The local player stops consuming the Live queue.
+                        # A put already waiting before the pause must retire
+                        # too, so we can receive control events and WS pings.
+                        self.output_tail.clear()
+                        break
+                    try:
+                        await asyncio.wait_for(self.output.put(bytes(self.output_tail[:PCM_BYTES])), PERIOD)
+                    except asyncio.TimeoutError:
+                        continue
                     del self.output_tail[:PCM_BYTES]
+                if self.family_paused:
+                    # A pending put may have won the race against the pause's
+                    # queue flush. Retire that frame too; it predates the clip.
+                    self.output_tail.clear()
+                    while not self.output.empty():
+                        self.output.get_nowait()
             elif kind in {"session.input_transcript.delta", "session.output_transcript.delta"}:
                 role = "user" if kind == "session.input_transcript.delta" else "assistant"
                 self.remember(role, event.get("delta", ""))
+                if self.family_tools:
+                    self.family_tools.transcript(role, event.get('delta', ''))
                 if role == "user":
                     self.audio_flow["transcript_events"] += 1
                     if isinstance(event.get("delta"), str) and event["delta"].strip():
@@ -364,6 +425,12 @@ class RobotLiveBridge:
                         await tool_runner.report_disabled()
                 if not isinstance(backend, dict):
                     continue
+                response = backend.get('response')
+                response_id = response.get('id') if isinstance(response, dict) else None
+                if backend.get('type') == 'response.created' and isinstance(response_id, str):
+                    self.backend_responses.add(response_id)
+                elif backend.get('type') in ('response.completed', 'response.failed', 'response.incomplete'):
+                    self.backend_responses.discard(response_id)
                 if backend.get("type") == "response.completed":
                     self.audio_flow["backend_completed"] += 1
                 if backend.get("type") in {"response.failed", "response.incomplete", "error"}:
@@ -380,6 +447,8 @@ class RobotLiveBridge:
             self.speaking = False
             self.audio_flow["tts_stops"] += 1
             await self.send_json("tts", state="stop")
+            if self.family_tools:
+                self.family_tools.output_drained()
 
     async def send_audio_frame(self, pcm):
         opus = self.codec.encode(pcm)
@@ -395,6 +464,11 @@ class RobotLiveBridge:
         deferred_pcm = None
         defer_started = None
         while True:
+            if self.family_paused:
+                deferred_pcm = None
+                defer_started = None
+                await asyncio.sleep(PERIOD)
+                continue
             tick = time.monotonic()
             if deferred_pcm is not None:
                 pcm, deferred_pcm = deferred_pcm, None
@@ -427,6 +501,8 @@ class RobotLiveBridge:
                     self.idle_farewell["audible"] = True
                     self.idle_farewell["last_audible"] = self.last_activity
                 if not self.speaking:
+                    if self.family_tools:
+                        self.family_tools.output_started()
                     self.speaking = True
                     self.audio_flow["tts_starts"] += 1
                     if self.duplex:
@@ -465,9 +541,11 @@ class RobotLiveBridge:
         self.codec = OpusCodec()
         robot_reader = None
         discovery = None
+        keepalive = None
         retirees = set()
         try:
             await self.hello()
+            keepalive = asyncio.create_task(self.keepalive_loop())
             initial = True
             while not self.stopped.is_set():
                 self.restart.clear()
@@ -483,25 +561,47 @@ class RobotLiveBridge:
                     else:
                         self.device_tools.ready.set()
                     initial = False
-                tool_runner = LiveToolRunner(session, self.device_tools,
+                tool_runner = LiveToolRunner(session, self.execution_tools,
                                             lambda: self.accept_output and not self.restart.is_set() and not self.stopped.is_set())
+                self.tool_runner = tool_runner
+                self.backend_responses.clear()
                 reader = asyncio.create_task(self.read_live(session, tool_runner))
                 tool_worker = asyncio.create_task(tool_runner.run())
                 tool_publisher = asyncio.create_task(self.publish_tools(session, tool_runner))
+                family_reader = asyncio.create_task(self.family_incoming.run(session) if self.family_incoming else self.stopped.wait())
                 sender = asyncio.create_task(self.input_loop(session))
                 playback = asyncio.create_task(self.output_loop())
                 restart = asyncio.create_task(self.restart.wait())
                 stopped = asyncio.create_task(self.stopped.wait())
                 try:
+                    tasks = {"live_reader": reader, "live_sender": sender, "playback": playback,
+                             "restart": restart, "stopped": stopped, "robot_reader": robot_reader,
+                             "tool_worker": tool_worker, "tool_publisher": tool_publisher,
+                             "family_reader": family_reader, "keepalive": keepalive}
                     done, _ = await asyncio.wait(
-                        [reader, sender, playback, restart, stopped, robot_reader, tool_worker, tool_publisher],
+                        tasks.values(),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     for task in done:
-                        task.result()
+                        try:
+                            task.result()
+                        except Exception as exc:
+                            source = next(name for name, value in tasks.items() if value is task)
+                            self.stop_reason = "failed_" + source
+                            received = getattr(exc, "rcvd", None)
+                            sent = getattr(exc, "sent", None)
+                            # Close reasons and exception text can contain
+                            # private payloads. Log source and numeric codes only.
+                            LOG.warning("voice_task_failed source=%s category=%s received_code=%s sent_code=%s",
+                                        source, type(exc).__name__,
+                                        received.code if received and isinstance(received.code, int) else None,
+                                        sent.code if sent and isinstance(sent.code, int) else None)
+                            raise
                 finally:
+                    if self.family_tools:
+                        self.family_tools.interrupt()
                     self.accept_output = False
-                    await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher])
+                    await stop_tasks([sender, playback, restart, stopped, tool_worker, tool_publisher, family_reader])
                     await self.device_tools.stop_movement()
                     with contextlib.suppress(Exception):
                         await self.stop_speech()
@@ -521,6 +621,8 @@ class RobotLiveBridge:
                     break
                 # Explicit abort starts a fresh provider session; stale responses cannot resume.
         finally:
+            if keepalive:
+                await stop_tasks([keepalive])
             await self.device_tools.stop_movement()
             if robot_reader:
                 await stop_tasks([robot_reader])
@@ -614,7 +716,10 @@ class VoiceRouter:
                 ).run()
             else:
                 config, key = settings
-                bridge = self.bridge_factory(robot, config, key)
+                family_options = {}
+                if os.environ.get('GOSHA_FAMILY_VOICE_ENABLED') == '1':
+                    family_options['family_robot_id'] = claim['robot_id']
+                bridge = self.bridge_factory(robot, config, key, **family_options)
                 if self.motion_control is not None:
                     self.motion_control.attach(robot_id, getattr(bridge, "device_tools", None))
                 await bridge.run()
