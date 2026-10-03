@@ -37,13 +37,17 @@ if [[ "$mode" != foreground && "$mode" != --serve ]]; then
     systemctl --user reset-failed "$unit"
   fi
 fi
-if ! command -v npm >/dev/null 2>&1; then
+if [[ "$mode" != --serve ]] && ! command -v npm >/dev/null 2>&1; then
   echo 'Нужны Node.js 22.12+ и npm.' >&2
   exit 1
 fi
-node_path="$(command -v node)"
+if [[ ! -s "$studio_dir/local_only/public/models/gosha.glb" ]]; then
+  echo 'Полная модель Гоши отсутствует. Подготовьте её из исходных STL перед запуском:' >&2
+  echo 'python3 scripts/prepare_model.py --source-dir "<папка Robot>" --output local_only/public/models/gosha.glb' >&2
+  exit 1
+fi
 if [[ "$mode" == --serve ]]; then
-  if [[ ! -d node_modules || ! -x "$venv_dir/bin/python" ]]; then
+  if [[ ! -s dist/index.html || ! -s dist/models/gosha.glb || ! -x "$venv_dir/bin/python" ]]; then
     echo 'Служба не подготовлена. Сначала запустите bash start.sh или bash start.sh --background.' >&2
     exit 1
   fi
@@ -54,28 +58,24 @@ else
   python_bin="$(bash "$studio_dir/scripts/ensure_bridge_env.sh")"
 fi
 probe_ports() {
-  "$node_path" --input-type=module - "$@" <<'JS'
-import net from 'node:net';
-async function check(port) {
-  await new Promise((resolve) => {
-    const probe = net.createServer();
-    probe.once('error', () => {
-      console.error(`Порт ${port} уже занят или недоступен. Остановите прежний сервер редактора; служба не создана.`);
-      process.exitCode = 1;
-      resolve();
-    });
-    probe.listen(port, '127.0.0.1', () => probe.close(resolve));
-  });
-}
-for (const value of process.argv.slice(2)) await check(Number(value));
-JS
+  "$python_bin" - "$@" <<'PY'
+import socket
+import sys
+for value in sys.argv[1:]:
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(('127.0.0.1', int(value)))
+        except OSError:
+            sys.exit(f'Порт {value} уже занят или недоступен. Остановите прежний сервер редактора; служба не создана.')
+PY
 }
 run_servers() {
   PYTHONPATH="$studio_dir" "$python_bin" -m bridge.usb_bridge \
     --host 127.0.0.1 --port "$bridge_port" --origin "$bridge_origin" &
   bridge_pid=$!
-  "$node_path" "$studio_dir/node_modules/vite/bin/vite.js" preview \
-    --host 127.0.0.1 --port "$panel_port" --strictPort &
+  PYTHONPATH="$studio_dir" "$python_bin" -m bridge.studio_server \
+    --dist "$studio_dir/dist" --port "$panel_port" &
   preview_pid=$!
   cleanup() {
     kill "$preview_pid" "$bridge_pid" 2>/dev/null || true

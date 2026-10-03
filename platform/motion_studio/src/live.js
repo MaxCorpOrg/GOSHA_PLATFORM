@@ -439,6 +439,7 @@ export class LiveSession {
     this.sessionId = null;
     this.pending = null;
     this.packageRequest = null;
+    this.hardwareRun = null;
     this.storedPackage = null;
     this.storedPackages = null;
     this.lastTelemetry = null;
@@ -476,6 +477,7 @@ export class LiveSession {
       commissioning_joint: this.commissioningJoint,
       pending: Boolean(this.pending),
       packagePending: Boolean(this.packageRequest),
+      hardwareRunning: Boolean(this.hardwareRun),
       storedPackage: this.storedPackage ? { ...this.storedPackage } : null,
       storedPackages: Array.isArray(this.storedPackages)
         ? this.storedPackages.map((item) => ({ ...item }))
@@ -603,7 +605,13 @@ export class LiveSession {
       if (data.op === "error") {
         request.reject(
           new Error(
-            data.message || data.code || "Робот отклонил операцию пакета.",
+            data.code === "store_full"
+              ? "Память движений заполнена. Обновите существующее движение или сначала сохраните в файл и удалите ненужный пакет. Прежние пакеты сохранены."
+              : data.code === "store_slot_write_failed"
+                ? "Робот не смог сохранить пакет в память. Прежняя версия осталась на месте. Проверьте свободное место и версию прошивки."
+                : data.code === "store_backend_unavailable"
+                  ? "Хранилище движений не открылось. Запись остановлена; требуется проверка памяти робота."
+                  : data.message || data.code || "Робот отклонил операцию пакета.",
           ),
         );
       } else if (!request.statuses.includes(data.status)) {
@@ -950,10 +958,16 @@ export class LiveSession {
       ["selected"],
       5000,
     );
+    assert(selected.package_id === packageId, "Робот выбрал другой пакет. Операция отменена.");
     const storedPackage = this.setStoredPackage(
       this.packageMetadataFromRecord(selected, { active: true }),
     );
     return { selected, storedPackage };
+  }
+  async selectPackageForOperation(packageId, key) {
+    if (packageId == null) return;
+    assert(this.caps.package_features?.select === true, "Прошивка не поддерживает выбор пакета по ID.");
+    await this.selectStoredPackage(packageId, key);
   }
   packageSampleWithinCaps(sample, packageId, elapsedMs = null) {
     if (
@@ -1043,8 +1057,9 @@ export class LiveSession {
       this.packageSampleWithinCaps(status, packageId)
     );
   }
-  async runStoredPackageInHardware(key, { pollIntervalMs = 500 } = {}) {
+  async runStoredPackageInHardware(key, { pollIntervalMs = 500, packageId = null } = {}) {
     this.assertPackageOperationReady(key, "Аппаратный запуск сохранённого пакета");
+    if (packageId != null) await this.selectPackageForOperation(packageId, key);
     const loaded = await this.requestPackageStatus(
       { op: "package_load" },
       ["loaded"],
@@ -1077,65 +1092,118 @@ export class LiveSession {
         ),
       "Первый кадр пакета не совпадает с текущей командой робота.",
     );
-    let runSessionId = null;
+    const context = { sessionId: null, cancelled: false, stopPromise: null };
+    this.hardwareRun = context;
+    this.change("hardware_starting", "Запускаем записанный пакет. STOP доступен; ползунки заблокированы.");
     try {
       const runStarted = await this.requestPackageStatus(
         {
           op: "package_hardware_run_start",
           access_key: key,
-          speed_dps: this.speed,
+          // Execute the authored timing. The Live slider only controls manual setup.
+          speed_dps: Math.min(10, ...this.caps.joint_limits.map((joint) => joint.max_speed_dps)),
         },
         ["hardware_run_started"],
         5000,
       );
-      runSessionId = runStarted.run_session_id;
+      context.sessionId = runStarted.run_session_id;
       assert(
-        typeof runSessionId === "string" &&
-          runSessionId.length >= 16 &&
+        typeof context.sessionId === "string" &&
+          context.sessionId.length >= 16 &&
           runStarted.hardware_apply === false,
         "Робот не подтвердил безопасный старт аппаратного запуска.",
       );
+      if (context.cancelled) throw new Error("Запуск прерван.");
+      this.change("hardware_running", "Робот выполняет записанный пакет. STOP прерывает движение и удерживает текущую позу.");
       const deadline = this.now() + prepared.duration_ms + 8000;
       let runStatus = null;
       do {
+        if (context.cancelled) throw new Error("Запуск прерван.");
         runStatus = await this.requestPackageStatus(
           {
             op: "package_hardware_run_status",
-            run_session_id: runSessionId,
+            run_session_id: context.sessionId,
           },
           ["hardware_run_running", "hardware_run_finished"],
           5000,
         );
         assert(
-          runStatus.run_session_id === runSessionId &&
+          runStatus.run_session_id === context.sessionId &&
             this.hardwareRunStatusWithinCaps(runStatus, loaded.package_id),
           "Робот сообщил некорректный статус аппаратного запуска.",
         );
+        if (context.cancelled) throw new Error("Запуск прерван.");
         if (runStatus.status === "hardware_run_finished") {
-          runSessionId = null;
+          context.sessionId = null;
+          this.refreshHardwarePose("Движение завершено. Сверяем текущую командную позу…");
           return { loaded, prepared, sampled, runStarted, runStatus };
         }
         await delay(pollIntervalMs);
       } while (this.now() < deadline);
       throw new Error("Робот не завершил аппаратный запуск пакета вовремя.");
     } catch (error) {
-      if (runSessionId) {
+      if (context.cancelled && context.stopPromise) {
+        const runStatus = await context.stopPromise;
+        return { loaded, prepared, sampled, runStatus, stopped: true };
+      }
+      if (context.sessionId && !context.cancelled) {
         try {
           await this.requestPackageStatus(
             {
               op: "package_hardware_run_stop",
-              run_session_id: runSessionId,
+              run_session_id: context.sessionId,
             },
             ["hardware_run_stopped"],
             1500,
           );
-        } catch {}
+          this.refreshHardwarePose("Запуск остановлен. Сверяем текущую командную позу…");
+        } catch { this.fail("Не удалось подтвердить остановку пакета. Соединение закрыто; проверьте робота."); }
       }
+      if (!context.sessionId && !context.cancelled && this.state === "hardware_starting")
+        this.fail("Запуск пакета не подтверждён. Соединение закрыто; проверьте позу робота.");
       throw error;
+    } finally {
+      if (this.hardwareRun === context) this.hardwareRun = null;
+      this.onChange(this.snapshot());
     }
   }
-  async verifyStoredPackage(key) {
-    this.assertPackageOperationReady(key, "Проверка сохранённого пакета");
+  refreshHardwarePose(reason) {
+    if (this.closeAfterStop) { this.disconnect("Робот подтвердил остановку. Соединение закрыто."); return; }
+    this.requestId = this.makeId();
+    this.deadline = this.now() + 2000;
+    this.change("connecting", reason);
+    try { this.send({ op: "hello", request_id: this.requestId }); }
+    catch (error) { this.fail(error.message); }
+  }
+  stopHardwareRun(reason) {
+    const context = this.hardwareRun;
+    if (!context || context.cancelled) return;
+    context.cancelled = true;
+    this.clearPackageRequest(reason);
+    if (!context.sessionId) {
+      // Closing the transport cancels a start whose session ID was not received.
+      this.fail("Запуск отменён до подтверждения. Соединение закрыто; проверьте позу робота.");
+      return;
+    }
+    this.change("hardware_stopping", `${reason} Ждём подтверждения остановки пакета.`);
+    context.stopPromise = this.requestPackageStatus(
+      { op: "package_hardware_run_stop", run_session_id: context.sessionId },
+      ["hardware_run_stopped"], 1500,
+    ).then((reply) => {
+      assert(reply.run_session_id === context.sessionId && reply.hardware_apply === false,
+        "Робот не подтвердил остановку нужного пакета.");
+      this.refreshHardwarePose("STOP подтверждён. Сверяем удерживаемую командную позу…");
+      return reply;
+    }).catch((error) => {
+      this.fail("Остановка пакета не подтверждена. Соединение закрыто; проверьте робота.");
+      throw error;
+    });
+    // The run coroutine also awaits this promise; protect a late polling wakeup.
+    context.stopPromise.catch(() => {});
+  }
+  async verifyStoredPackage(key, packageId = null) {
+    this.assertPackageOperationReady(key, "Проверка сохранённого пакета", false);
+    if (packageId != null) await this.selectPackageForOperation(packageId, key);
     const loaded = await this.requestPackageStatus(
       { op: "package_load" },
       ["loaded"],
@@ -1357,6 +1425,7 @@ export class LiveSession {
     return { commanded_pose, measured_pose, tilt, pwm_diagnostics: normalizePwmDiagnostics(data.pwm_diagnostics) };
   }
   initializeRightArm(key) {
+    assert(!this.packageRequest && !this.hardwareRun, "Дождитесь окончания операции пакета.");
     assert(
       this.state === "init_required" &&
         [RIGHT_ARM_COMMISSIONING_MODE, MOTION_EDITOR_MODE].includes(this.caps?.mode),
@@ -1381,6 +1450,7 @@ export class LiveSession {
     }
   }
   arm(key) {
+    assert(!this.packageRequest && !this.hardwareRun, "Дождитесь окончания операции пакета.");
     assert(
       this.state === "ready" && this.caps,
       "Сначала подключите совместимого робота.",
@@ -1481,7 +1551,7 @@ export class LiveSession {
   }
   release(reason = "Разрешение движения отпущено.") {
     this.holding = false;
-    if (this.state === "armed") this.stop(reason);
+    if (this.state === "armed" || this.hardwareRun) this.stop(reason);
   }
   tick() {
     const now = this.now();
@@ -1541,6 +1611,7 @@ export class LiveSession {
     }
   }
   stop(reason = "Остановка запрошена.") {
+    if (this.hardwareRun) { this.stopHardwareRun(reason); return; }
     this.stopReason = reason;
     this.holding = false;
     this.following = false;
@@ -1569,6 +1640,7 @@ export class LiveSession {
     }
   }
   fail(reason, emitChange = true) {
+    if (this.hardwareRun) this.hardwareRun.cancelled = true;
     const socket = this.socket;
     const sessionId = this.sessionId;
     this.generation++;
@@ -1604,6 +1676,7 @@ export class LiveSession {
     if (emitChange) this.change("fault", reason);
   }
   requestDisconnect() {
+    if (this.hardwareRun) { this.closeAfterStop = true; this.stop("Отключение."); return; }
     if (this.state === "initializing_right_arm") {
       this.fail(
         "Сессия движения не открыта; подтверждение удержания правой руки не получено, состояние неизвестно.",

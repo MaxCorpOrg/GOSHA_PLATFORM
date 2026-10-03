@@ -1,9 +1,10 @@
 .topbar {
-  height: 70px;
+  min-height: 70px;
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 24px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--border);
   background: #171b21;
 }
@@ -624,6 +625,12 @@
   font-size: 12px;
   font-weight: 600;
 }
+.joint-direction-hint {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
 /* Zero follows the actual angle scale, including asymmetric arm ranges. */
 .joint-control > input[type="range"] { margin-inline: 0; }
 .joint-control .range-ends { position: relative; }
@@ -819,6 +826,7 @@
   .inspector .panel-heading,
   .inspector h2,
   .inspector-intro,
+  .slider-direction-guide,
   .joint-controls {
     grid-column: 1/-1;
   }
@@ -830,7 +838,7 @@
   .inspector .sequence-settings {
     margin-top: 0;
     grid-column: 2;
-    grid-row: 5/8;
+    grid-row: 6/9;
   }
   .pose-actions,
   .version-actions,

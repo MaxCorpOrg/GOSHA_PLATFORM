@@ -16,8 +16,9 @@ export function collectMeshes(root) {
 // Subtracting the global pivot preserves that neutral pose when parenting.
 export function buildRig(root, named, profile = PROFILE) {
   const expected = ["head", "body", ...profile.joints.flatMap((j) => j.meshes)];
+  const fixedDetails = ["button_boot", "power_switch"];
   if (
-    named.size !== expected.length ||
+    [...named.keys()].some((name) => !expected.includes(name) && !fixedDetails.includes(name)) ||
     expected.some((name) => !named.has(name))
   )
     throw new Error(
@@ -53,6 +54,8 @@ export function buildRig(root, named, profile = PROFILE) {
     }
   }
   for (const name of ["head", "body"]) root.add(named.get(name));
+  for (const name of fixedDetails)
+    if (named.has(name)) root.add(named.get(name));
   return {
     groups,
     setPose(pose) {

@@ -19,6 +19,12 @@ STL_FILES = {
     "foot": "\u811a.stl",
 }
 
+# Fixed details in the complete assembly. Older six-file exports remain valid.
+OPTIONAL_STL_FILES = {
+    "button_boot": "BOOT\u952e.stl",
+    "power_switch": "\u5f00\u5173.stl",
+}
+
 PARTS = [
     ("head", "head", "all"),
     ("body", "body", "all"),
@@ -43,6 +49,8 @@ MATERIALS = {
     "leg_positive_x": [0.45, 0.67, 0.50, 1.0],
     "foot_negative_x": [0.65, 0.55, 0.82, 1.0],
     "foot_positive_x": [0.65, 0.55, 0.82, 1.0],
+    "button_boot": [0.20, 0.22, 0.25, 1.0],
+    "power_switch": [0.20, 0.22, 0.25, 1.0],
 }
 
 
@@ -526,7 +534,7 @@ def resolve_output_path(output_arg: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build a 10-mesh GLB asset for the Gosha motion editor."
+        description="Build an articulated GLB asset from the original Gosha STL assembly."
     )
     parser.add_argument("--source-dir", required=True, help="Directory containing source STL files")
     parser.add_argument(
@@ -551,9 +559,20 @@ def main() -> None:
     for part_name, source_key, side in PARTS:
         prepared.append(prepare_mesh(part_name, loaded[source_key], side))
 
+    for part_name, filename in OPTIONAL_STL_FILES.items():
+        path = source_dir / filename
+        if path.is_file():
+            loaded[part_name] = read_binary_stl(path, part_name)
+            prepared.append(prepare_mesh(part_name, loaded[part_name], "all"))
+
     gltf, bin_blob = build_gltf(prepared)
     write_glb(gltf, bin_blob, output_path)
     report = validate_glb(output_path, prepared)
+    report["source_dir"] = str(source_dir.resolve())
+    report["source_files"] = {
+        mesh.path.name: hashlib.sha256(mesh.path.read_bytes()).hexdigest()
+        for mesh in loaded.values()
+    }
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

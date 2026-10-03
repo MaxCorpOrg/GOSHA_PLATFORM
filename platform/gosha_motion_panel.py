@@ -3,6 +3,7 @@
 import json
 import re
 import secrets
+import socket
 import time
 import uuid
 
@@ -19,6 +20,41 @@ STATES = {"confirmed", "idle", "in_progress", "finished", "stopped", "rejected",
 
 class MotionPanelError(Exception):
     pass
+
+
+def call_motion_socket(path, robot_id, action, motion_id="", *, timeout=12):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", robot_id):
+        raise MotionPanelError("invalid_robot_id")
+    if action not in TOOLS:
+        raise MotionPanelError("invalid_action")
+    if action == "play" and not MOTION_ID.fullmatch(motion_id):
+        raise MotionPanelError("invalid_motion_id")
+    request = {"robot_id": robot_id, "action": action, "motion_id": motion_id}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+            channel.settimeout(timeout)
+            channel.connect(str(path))
+            channel.sendall(json.dumps(request).encode() + b"\n")
+            response = bytearray()
+            while b"\n" not in response:
+                block = channel.recv(4096)
+                if not block or len(response) + len(block) > 32000:
+                    raise MotionPanelError("motion_result_not_confirmed")
+                response.extend(block)
+            reply = json.loads(response.decode())
+    except MotionPanelError:
+        raise
+    except Exception as error:
+        # Never repeat an unknown play. STOP and status remain independent requests.
+        raise MotionPanelError("motion_control_unavailable") from error
+    if not isinstance(reply, dict) or reply.get("ok") is not True:
+        raise MotionPanelError(reply.get("error", "motion_result_invalid") if isinstance(reply, dict) else "motion_result_invalid")
+    payload = reply.get("data")
+    if not isinstance(payload, dict) or payload.get("status") not in STATES:
+        raise MotionPanelError("motion_result_invalid")
+    if action == "list" and not isinstance(payload.get("movements"), list):
+        raise MotionPanelError("motion_result_invalid")
+    return payload
 
 
 def call_motion_tool(endpoint, action, motion_id="", *, connect, timeout=8.0,

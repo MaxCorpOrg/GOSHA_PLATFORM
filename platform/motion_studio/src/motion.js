@@ -3,74 +3,83 @@ export const PROFILE = Object.freeze({
   name: "Гоша",
   version: 1,
   hardware_validated: false,
+  // CAD coordinates: Z up, front toward -Y, robot's left toward +X.
+  // Joint IDs are the existing firmware contract, not CAD mesh sides.
+  // Shaft centres/axes come from the supplied robot.step assembly.
   joints: [
     {
       id: "arm_negative_x",
-      label: "Рука слева",
-      short: "Рука слева",
+      label: "Левая рука",
+      short: "Левая рука",
+      controlHint: "← Опустить · поднять →",
       min: -55,
       max: 70,
-      pivot: [51, 0, -14],
+      pivot: [50, 0, -7],
       axis: "y",
       modelDirection: -1,
       meshes: ["arm_positive_x", "hand_positive_x"],
     },
     {
       id: "arm_positive_x",
-      label: "Рука справа",
-      short: "Рука справа",
+      label: "Правая рука",
+      short: "Правая рука",
+      controlHint: "← Опустить · поднять →",
       min: -70,
       max: 55,
-      pivot: [-51, 0, -14],
+      pivot: [-50, 0, -7],
       axis: "y",
       modelDirection: -1,
       meshes: ["arm_negative_x", "hand_negative_x"],
     },
     {
       id: "leg_negative_x",
-      label: "Нога слева",
-      short: "Нога слева",
+      label: "Левая нога",
+      short: "Левая нога",
+      controlHint: "← Поворот − · поворот + →",
       min: -35,
       max: 35,
-      pivot: [-22, 0, -41],
-      axis: "x",
-      modelDirection: -1,
-      meshes: ["leg_negative_x"],
-    },
-    {
-      id: "leg_positive_x",
-      label: "Нога справа",
-      short: "Нога справа",
-      min: -35,
-      max: 35,
-      pivot: [22, 0, -41],
-      axis: "x",
+      pivot: [25.5, 0, -40],
+      axis: "z",
       modelDirection: -1,
       meshes: ["leg_positive_x"],
     },
     {
+      id: "leg_positive_x",
+      label: "Правая нога",
+      short: "Правая нога",
+      controlHint: "← Поворот − · поворот + →",
+      min: -35,
+      max: 35,
+      pivot: [-25.5, 0, -40],
+      axis: "z",
+      modelDirection: -1,
+      meshes: ["leg_negative_x"],
+    },
+    {
       id: "foot_negative_x",
-      label: "Стопа слева",
-      short: "Стопа слева",
+      label: "Левая стопа",
+      short: "Левая стопа",
+      controlHint: "← Наклон − · наклон + →",
       min: -30,
       max: 30,
-      pivot: [-22, 0, -69],
-      axis: "x",
+      pivot: [25.5, 0, -71.5],
+      axis: "y",
       modelDirection: -1,
       parent: "leg_negative_x",
-      meshes: ["foot_negative_x"],
+      meshes: ["foot_positive_x"],
     },
     {
       id: "foot_positive_x",
-      label: "Стопа справа",
-      short: "Стопа справа",
+      label: "Правая стопа",
+      short: "Правая стопа",
+      controlHint: "← Наклон − · наклон + →",
       min: -30,
       max: 30,
-      pivot: [22, 0, -69],
-      axis: "x",
+      pivot: [-25.5, 0, -71.5],
+      axis: "y",
       modelDirection: -1,
       parent: "leg_positive_x",
-      meshes: ["foot_positive_x"],
+      meshes: ["foot_negative_x"],
     },
   ],
 });
@@ -458,8 +467,8 @@ function bytesToBase64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
-function safeRobotPackageId(packageDraft) {
-  const raw = String(packageDraft.source_motion_id || "motion");
+export function robotPackageId(sourceMotionId) {
+  const raw = String(sourceMotionId || "motion");
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(raw))
     fail("Некорректный постоянный идентификатор движения.");
   if (raw.length <= 56) return `motion-${raw}`;
@@ -486,7 +495,7 @@ export function prepareRobotPackageUpload(packageDraft) {
     chunks.push({ offset, size: chunk.length, data_b64: bytesToBase64(chunk) });
   }
   return {
-    package_id: safeRobotPackageId(packageDraft),
+    package_id: robotPackageId(packageDraft.source_motion_id),
     profile_id: packageDraft.profile_id,
     calibration_id: packageDraft.calibration_id,
     total_size: bytes.length,

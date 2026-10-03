@@ -21,7 +21,7 @@ import gosha_assistant_store as assistant_store
 import gosha_agent_gateway_client as agent_gateway_client
 import gosha_agent_store as agent_store
 import gosha_runtime_events as runtime_events
-from gosha_motion_panel import MotionPanelError, call_motion_tool
+from gosha_motion_panel import MotionPanelError, call_motion_socket
 import selfhost_xiaozhi_common as selfhost_xiaozhi
 
 try:
@@ -3318,8 +3318,7 @@ def get_robot_runtime_snapshot(robot_id):
 
 def robot_motion_action(robot_id, action, motion_id=""):
     require_robot_dir(robot_id)
-    endpoint = get_robot_mcp_endpoint(robot_id)
-    return call_motion_tool(endpoint, action, motion_id, connect=ws_connect)
+    return call_motion_socket(os.environ.get("GOSHA_MOTION_SOCKET", "/run/gosha/motion-panel.sock"), robot_id, action, motion_id)
 
 
 def set_service(robot_id, action):

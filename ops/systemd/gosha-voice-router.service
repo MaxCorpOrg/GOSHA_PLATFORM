@@ -15,11 +15,13 @@ RestartSec=5
 TimeoutStopSec=25
 KillSignal=SIGINT
 UMask=0077
+RuntimeDirectory=gosha
+RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/gosha_platform/runtime/app_root
+ReadWritePaths=/opt/gosha_platform/runtime/app_root /run/gosha
 
 [Install]
 WantedBy=multi-user.target

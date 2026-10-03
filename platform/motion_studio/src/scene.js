@@ -3,32 +3,13 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildRig, collectMeshes } from "./rig.js";
 
-function schematicMeshes() {
-  const named = new Map();
-  const add = (name, geometry, x, y, z) => {
-    geometry.translate(x, y, z);
-    const mesh = new THREE.Mesh(geometry);
-    mesh.name = name;
-    named.set(name, mesh);
-  };
-  const head = new THREE.SphereGeometry(38, 28, 18);
-  head.scale(1.15, 0.83, 0.84);
-  add("head", head, 0, 0, 63);
-  add("body", new THREE.BoxGeometry(96, 62, 84), 0, 0, -3);
-  for (const [suffix, sign] of [["negative_x", -1], ["positive_x", 1]]) {
-    add(`arm_${suffix}`, new THREE.BoxGeometry(19, 25, 53), sign * 59, 0, -42);
-    add(`hand_${suffix}`, new THREE.BoxGeometry(22, 27, 19), sign * 59, 0, -78);
-    add(`leg_${suffix}`, new THREE.BoxGeometry(27, 30, 45), sign * 23, 0, -64);
-    add(`foot_${suffix}`, new THREE.BoxGeometry(30, 48, 16), sign * 23, -13, -88);
-  }
-  return named;
-}
-
 export function createScene(container, onSelect, onStatus) {
   const scene = new THREE.Scene();
   let dirty = true;
   scene.background = new THREE.Color("#20262e");
-  const camera = new THREE.PerspectiveCamera(36, 1, 1, 2000);
+  const camera = new THREE.PerspectiveCamera(
+    36, container.clientWidth / container.clientHeight, 1, 2000,
+  );
   camera.up.set(0, 0, 1);
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -60,7 +41,7 @@ export function createScene(container, onSelect, onStatus) {
   rim.position.set(170, 60, 160);
   scene.add(rim);
   let rig;
-  let schematic = false;
+  let modelBounds;
   const meshes = [];
   const axes = new THREE.AxesHelper(30);
   axes.visible = false;
@@ -79,21 +60,30 @@ export function createScene(container, onSelect, onStatus) {
     }
   }
   const resetView = (front = false) => {
-    camera.position.set(
-      front ? 0 : schematic ? 180 : 155,
-      front ? (schematic ? -420 : -310) : schematic ? -370 : -260,
-      front ? (schematic ? 0 : -25) : schematic ? 105 : 95,
-    );
-    controls.target.set(0, 0, schematic ? -2 : -27);
+    const sphere = modelBounds?.getBoundingSphere(new THREE.Sphere())
+      ?? new THREE.Sphere(new THREE.Vector3(0, 0, -27), 119);
+    const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    const limitingFov = Math.min(halfFov, Math.atan(Math.tan(halfFov) * camera.aspect));
+    const distance = Math.min(controls.maxDistance,
+      Math.max(controls.minDistance, sphere.radius / Math.sin(limitingFov) * 1.08));
+    const direction = new THREE.Vector3(...(front ? [0, -1, 0] : [155, -260, 122])).normalize();
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(direction, distance);
     controls.update();
+    dirty = true;
   };
   resetView();
 
   function attachModel(named, label) {
     rig = buildRig(scene, named);
+    scene.updateMatrixWorld(true);
+    modelBounds = new THREE.Box3();
+    for (const mesh of named.values()) modelBounds.expandByObject(mesh);
     for (const [name, mesh] of named) {
       const baseColor = name.startsWith("foot")
         ? "#687381"
+        : ["button_boot", "power_switch"].includes(name)
+          ? "#323943"
         : name === "body"
           ? "#b8c2ce"
           : "#e5e7e9";
@@ -108,27 +98,27 @@ export function createScene(container, onSelect, onStatus) {
     }
     if (currentPose) setPose(currentPose);
     select(selected);
+    resetView();
     dirty = true;
     onStatus(true, label);
   }
-  const fallback = () => {
-    if (disposed || rig) return;
-    schematic = true;
-    attachModel(schematicMeshes(), "Схематичная 3D-модель · 10 деталей");
-    resetView();
+  const modelUnavailable = () => {
+    if (disposed) return;
+    onStatus(false, "Полная модель Гоши недоступна. Восстановите модель и перезапустите Motion Studio.");
   };
   new GLTFLoader().load(
     `${import.meta.env.BASE_URL}models/gosha.glb`,
     (gltf) => {
       if (disposed) return;
       try {
-        attachModel(collectMeshes(gltf.scene), "Ваша модель · 10 деталей");
+        const named = collectMeshes(gltf.scene);
+        attachModel(named, `Полная модель Гоши · ${named.size} деталей`);
       } catch (error) {
-        fallback();
+        modelUnavailable();
       }
     },
     undefined,
-    fallback,
+    modelUnavailable,
   );
 
   function setPose(pose) {

@@ -23,6 +23,7 @@ from gosha_live_audio import AUDIO_PARAMS, FRAME_MS, PCM_BYTES, SILENCE, OpusCod
 from gosha_live_echo import EchoCanceller
 from gosha_live_protocol import LiveSession, session_config
 from gosha_live_tools import DeviceTools, LiveToolRunner
+from gosha_motion_control import MotionControlServer
 
 LOG = logging.getLogger("gosha.voice")
 PERIOD = FRAME_MS / 1000
@@ -549,13 +550,14 @@ class RobotLiveBridge:
 
 
 class VoiceRouter:
-    def __init__(self, legacy_url, *, max_sessions=4, bridge_factory=RobotLiveBridge):
+    def __init__(self, legacy_url, *, max_sessions=4, bridge_factory=RobotLiveBridge, motion_control=None):
         parsed = urlsplit(legacy_url)
         if parsed.scheme != "ws" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.query:
             raise ValueError("legacy_backend_must_be_loopback")
         self.legacy_url = legacy_url.rstrip("/")
         self.max_sessions = max_sessions
         self.active = set()
+        self.motion_control = motion_control
         self.bridge_factory = bridge_factory
 
     async def proxy(self, robot, path):
@@ -612,7 +614,10 @@ class VoiceRouter:
                 ).run()
             else:
                 config, key = settings
-                await self.bridge_factory(robot, config, key).run()
+                bridge = self.bridge_factory(robot, config, key)
+                if self.motion_control is not None:
+                    self.motion_control.attach(robot_id, getattr(bridge, "device_tools", None))
+                await bridge.run()
             await robot.close(1000, "voice_session_ended")
         except Exception as exc:
             # Exception messages, URLs, device IDs, transcripts and keys never enter logs.
@@ -622,6 +627,8 @@ class VoiceRouter:
         finally:
             if robot_id:
                 self.active.discard(robot_id)
+                if self.motion_control is not None:
+                    self.motion_control.detach(robot_id)
 
 
 async def health(path, headers):
@@ -636,10 +643,12 @@ async def main():
     legacy = os.environ.get("GOSHA_VOICE_LEGACY_URL", "ws://127.0.0.1:18080")
     if urlsplit(legacy).port == port:
         raise ValueError("voice_router_loop")
-    router = VoiceRouter(legacy, max_sessions=int(os.environ.get("GOSHA_VOICE_MAX_SESSIONS", "4")))
-    async with serve(router.handle, host, port, process_request=health, max_size=65536, max_queue=16):
-        LOG.info("voice_router_ready")
-        await asyncio.Future()
+    motion_control = MotionControlServer()
+    async with motion_control.optional() as active_control:
+        router = VoiceRouter(legacy, max_sessions=int(os.environ.get("GOSHA_VOICE_MAX_SESSIONS", "4")), motion_control=active_control)
+        async with serve(router.handle, host, port, process_request=health, max_size=65536, max_queue=16):
+            LOG.info("voice_router_ready")
+            await asyncio.Future()
 
 
 if __name__ == "__main__":

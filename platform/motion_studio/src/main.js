@@ -1,6 +1,6 @@
 import "./style.css";
 import "./live.css";
-import { mountLivePanel } from "./live-panel.js";
+import { mountLivePanel, canSeekLiveTimeline } from "./live-panel.js";
 import {
   PROFILE,
   toControlAngle,
@@ -17,13 +17,13 @@ import {
   validatePose,
   parseMotion,
   prepareRobotMotionPackage,
-  prepareRobotPackageUpload,
-  robotPackageCrc32,
+  robotPackageId,
   newId,
   MAX_FILE_BYTES,
 } from "./motion.js";
 import { createStore } from "./storage.js";
 import { registerPreviewTools } from "./webmcp.js";
+import { motionFingerprint, prepareInstallation, rememberInstallation, importProject } from "./workflow.js";
 
 const icons = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -71,11 +71,12 @@ let scene;
 let live;
 let disposed = false;
 let toastTimer;
+let robotActionPending = false;
 
 document.querySelector("#app").innerHTML = `
   <header class="topbar">
     <a class="brand" href="./" aria-label="Motion Studio, главная"><span class="brand-symbol">${icon("cube")}</span><span>AI ROBOTS <strong>Motion Studio</strong></span></a>
-    <span class="version">ПРОТОТИП 01</span>
+    <span class="version">ГОША</span>
     <div class="top-spacer"></div>
     <span class="save-state" id="save-status" role="status">Сохранено в браузере</span>
     <span class="save-state" id="robot-install-status" role="status">Черновик</span>
@@ -86,7 +87,7 @@ document.querySelector("#app").innerHTML = `
     <button id="run-robot-package" class="button quiet">${icon("play")}Запустить в роботе</button>
     <button id="delete-robot-package" class="button quiet">${icon("trash")}Удалить в роботе</button>
     <button id="import" class="button quiet">${icon("upload")}Импорт</button>
-    <button id="export" class="button">${icon("download")}Экспорт JSON</button>
+    <button id="export" class="button">${icon("download")}Сохранить в файл</button>
     <input type="file" id="file-input" accept=".json,application/json" hidden />
   </header>
   <div class="workspace">
@@ -129,12 +130,12 @@ document.querySelector("#app").innerHTML = `
       <div class="panel-heading"><span class="eyebrow">НАСТРОЙКА ПОЗЫ</span><span class="count">6</span></div>
       <h2>Суставы</h2>
       <p class="inspector-intro">Выберите сустав и двигайте его ползунок. В Live модель и доступный привод получают одну цель. Поза записывается на текущей отметке времени.</p>
-      <p class="slider-direction-guide">← Опустить · вправо поднять →</p>
-      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => { const limits = controlLimits(j.id, j.min, j.max); return `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}, градусы"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}: влево опустить, вправо поднять"/><div class="range-ends"><span>${limits.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${limits.max}°</span></div><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`; }).join("")}</div>
+      <p class="slider-direction-guide">Левая и правая — со стороны робота. 0° — исходная поза.</p>
+      <div id="joint-controls" class="joint-controls">${PROFILE.joints.map((j) => { const limits = controlLimits(j.id, j.min, j.max); return `<div class="joint-control" data-joint="${j.id}"><div class="joint-title"><button data-select="${j.id}">${j.label}</button><label><input type="number" id="number-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}, градусы" aria-describedby="direction-${j.id}"/><span>°</span></label></div><input type="range" id="range-${j.id}" min="${limits.min}" max="${limits.max}" step="1" value="0" aria-label="${j.label}, угол" aria-describedby="direction-${j.id}"/><div class="range-ends"><span>${limits.min}°</span><span class="range-zero"><button type="button" id="zero-${j.id}" title="Установить 0°" aria-label="${j.label}: установить 0 градусов">0</button></span><span>+${limits.max}°</span></div><small class="joint-direction-hint" id="direction-${j.id}">${j.controlHint}</small><small id="live-row-${j.id}" class="live-row-note" hidden></small></div>`; }).join("")}</div>
       <div class="pose-actions"><button class="button quiet" id="neutral">${icon("reset")}Нулевая поза</button><button class="icon-button" id="mirror" title="Отразить позу" aria-label="Отразить позу">${icon("mirror")}</button></div>
       <div class="sequence-settings"><h3>Параметры движения</h3><label>Длительность <span><input id="duration" type="number" min="0.5" max="120" step="0.1" /> с</span></label><label>Переходы <select id="interpolation"><option value="smooth">Плавные</option><option value="linear">Линейные</option><option value="hold">Без перехода</option></select></label></div>
       <div class="version-actions"><button class="button quiet" id="save-version">${icon("save")}Сохранить версию</button><select id="versions" aria-label="Восстановить сохранённую версию"><option value="">История версий</option></select></div>
-      <p class="calibration-note">Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.</p>
+      <p class="calibration-note">Шарниры соответствуют исходной сборке: руки поднимаются, ноги поворачиваются, стопы наклоняются. Углы отсчитываются от позы модели.</p>
     </aside>
   </div>
   <footer class="statusbar"><span><span class="status-dot"></span>На компьютере · робот не подключён</span><span id="selection-status"></span><span>JSON v1 · Гоша</span></footer>
@@ -171,28 +172,46 @@ function attempt(action) {
     render();
   }
 }
-function motionFingerprint(value) {
-  return robotPackageCrc32(
-    new TextEncoder().encode(JSON.stringify(validateMotion(value))),
-  );
-}
 function updateRobotInstallStatus() {
   const record = library.installed[motion.id];
   const current = record && record.fingerprint === motionFingerprint(motion);
   const freshCatalog = ["ready", "init_required"].includes(live?.snapshot?.state);
   const packages = freshCatalog ? live.snapshot.storedPackages : null;
   const onRobot = Array.isArray(packages)
-    ? packages.find((item) => item.package_id === record?.package_id)
+    ? packages.find((item) => item.package_id === robotPackageId(motion.id))
     : null;
   let label = "Черновик";
   if (record && !current) label = "Изменено";
   else if (record && Array.isArray(packages) && !onRobot) label = "Нет в роботе";
   else if (record && onRobot && onRobot.crc32 !== record.crc32)
     label = "Изменено в роботе";
-  else if (record) label = freshCatalog ? "Установлено" : "Записано ранее";
+  else if (record) label = freshCatalog && onRobot ? "Установлено" : "Записано ранее";
+  else if (onRobot) label = "Есть в роботе";
   $("robot-install-status").textContent = label;
   $("upload-robot-package").innerHTML =
-    `${icon("upload")}${record ? "Обновить в роботе" : "Записать в робота"}`;
+    `${icon("upload")}${record || onRobot ? "Обновить в роботе" : "Записать в робота"}`;
+  const busy = robotActionPending || live?.snapshot?.packagePending;
+  const readable = freshCatalog && !busy;
+  $("export-robot-package").disabled = !readable;
+  $("upload-robot-package").disabled = !readable;
+  $("verify-robot-package").disabled = !readable || !onRobot;
+  $("run-robot-package").disabled = !readable || !onRobot || live?.snapshot?.state !== "ready";
+  $("delete-robot-package").disabled = !readable || !onRobot || !live?.snapshot?.caps?.package_features?.delete_by_id;
+}
+function installedPackageId() {
+  const id = robotPackageId(motion.id);
+  if (!live?.snapshot?.storedPackages?.some((item) => item.package_id === id))
+    throw new Error("Это движение ещё не записано в робота. Нажмите «Записать в робота».");
+  return id;
+}
+function robotAction(action) {
+  return attempt(async () => {
+    if (robotActionPending) throw new Error("Предыдущая операция робота ещё не завершена.");
+    robotActionPending = true;
+    updateRobotInstallStatus();
+    try { return await action(); }
+    finally { robotActionPending = false; updateRobotInstallStatus(); }
+  });
 }
 function persist() {
   library.active_id = motion.id;
@@ -208,16 +227,31 @@ function persist() {
   if (!result.ok) notify(result.error, true);
   return result.ok;
 }
-function downloadJsonFile(name, value) {
-  const blob = new Blob([JSON.stringify(value, null, 2) + "\n"], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+function downloadJsonFile(name, value, raw = false) {
+  const json = raw ? String(value) : JSON.stringify(value, null, 2) + "\n";
+  if (import.meta.env.DEV) {
+    const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+  // A normal HTTP download also works in desktop browsers that do not save blob URLs.
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = "/api/export";
+  for (const [field, content] of Object.entries({ name, json, raw: raw ? "1" : "0" })) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = field;
+    input.value = content;
+    form.append(input);
+  }
+  document.body.append(form);
+  form.submit();
+  form.remove();
 }
 function safeMotionFileName(suffix) {
   const name =
@@ -250,7 +284,8 @@ function setPlaying(value) {
 }
 function seek(value) {
   if (!Number.isFinite(value)) throw new Error("Введите время в секундах.");
-  live?.stop("Позиция на шкале изменена.");
+  if (!live?.enabled || !canSeekLiveTimeline(live.snapshot))
+    live?.stop("Позиция на шкале изменена.");
   setPlaying(false);
   time = Math.max(0, Math.min(motion.duration_ms, Math.round(value)));
   pose = poseAt(motion, time);
@@ -356,7 +391,7 @@ function renderTimeline() {
       key.className = "keyframe";
       key.style.left = `${(frame.time_ms / motion.duration_ms) * 100}%`;
       key.dataset.time = frame.time_ms;
-      key.title = `${joint.label}: ${frame.pose[joint.id]}° · ${seconds(frame.time_ms)} с`;
+      key.title = `${joint.label}: ${toControlAngle(joint.id, frame.pose[joint.id])}° · ${seconds(frame.time_ms)} с`;
       key.setAttribute("aria-label", key.title);
       key.onclick = (e) => {
         e.stopPropagation();
@@ -398,6 +433,9 @@ function renderPosition() {
 function renderVersions() {
   const select = $("versions");
   select.replaceChildren(new Option("История версий", ""));
+  const installed = library.installed[motion.id];
+  if (installed?.motion_snapshot)
+    select.add(new Option(`Записанная в робота версия · ${installed.revision || 1}`, "installed"));
   (library.revisions[motion.id] || []).forEach((r, i) =>
     select.add(
       new Option(
@@ -406,7 +444,7 @@ function renderVersions() {
       ),
     ),
   );
-  select.disabled = !library.revisions[motion.id]?.length;
+  select.disabled = !installed?.motion_snapshot && !library.revisions[motion.id]?.length;
 }
 function render() {
   $("motion-name").value = motion.name;
@@ -601,11 +639,18 @@ $("save-version").onclick = () => {
 };
 $("versions").onchange = () => {
   if ($("versions").value === "") return;
-  const snapshot = library.revisions[motion.id][Number($("versions").value)];
+  const snapshot = $("versions").value === "installed"
+    ? { motion: library.installed[motion.id].motion_snapshot }
+    : library.revisions[motion.id][Number($("versions").value)];
+  if (motionFingerprint(motion) !== motionFingerprint(snapshot.motion))
+    library.revisions[motion.id] = [
+      ...(library.revisions[motion.id] || []),
+      { saved_at: new Date().toISOString(), motion: clone(motion) },
+    ].slice(-20);
   setPlaying(false);
   time = Math.min(time, snapshot.motion.duration_ms);
   commit(clone(snapshot.motion));
-  notify("Версия восстановлена. Действие можно отменить.");
+  notify("Версия восстановлена в проект. Предыдущий черновик сохранён в истории. Для изменения робота нажмите «Обновить в роботе».");
 };
 $("cancel-delete").onclick = () => $("delete-dialog").close();
 $("confirm-delete").onclick = () => {
@@ -627,7 +672,7 @@ $("confirm-delete").onclick = () => {
 $("export").onclick = () => {
   downloadJsonFile(safeMotionFileName(".motion.json"), validateMotion(motion));
   notify(
-    "Скачан проект движения. Загрузка в прошивку появится на следующем этапе.",
+    "Проект сохранён в JSON. Импорт сохраняет ID движения; запись в робота выполняется отдельной кнопкой.",
   );
 };
 $("export-robot-package").onclick = () =>
@@ -654,96 +699,73 @@ $("export-robot-package").onclick = () =>
     );
   });
 $("upload-robot-package").onclick = () =>
-  attempt(async () => {
+  robotAction(async () => {
     const caps = live?.snapshot?.caps;
     if (!caps)
       throw new Error(
         "Подключите Live, чтобы проверить движение против реальных пределов робота.",
       );
-    const result = prepareRobotMotionPackage(motion, caps);
-    if (!result.ok) {
-      const rest =
-        result.issues.length > 1 ? ` Ещё: ${result.issues.length - 1}.` : "";
-      throw new Error(
-        `Пакет робота не готов: ${result.issues[0].message}${rest}`,
-      );
-    }
-    const previous = library.installed[motion.id];
-    const revision = (previous?.revision || 0) + 1;
-    const packageDraft = { ...result.package, revision };
-    const upload = prepareRobotPackageUpload(packageDraft);
+    const { packageDraft, record } = prepareInstallation(motion, caps, library.installed[motion.id]);
     await live.uploadPackage(packageDraft);
-    if (previous?.motion_snapshot &&
-        previous.fingerprint !== motionFingerprint(motion)) {
-      const revisions = library.revisions[motion.id] || [];
-      revisions.push({ saved_at: new Date().toISOString(), motion: previous.motion_snapshot });
-      library.revisions[motion.id] = revisions.slice(-20);
-    }
-    library.installed[motion.id] = {
-      package_id: upload.package_id,
-      crc32: upload.crc32,
-      fingerprint: motionFingerprint(motion),
-      revision,
-      motion_snapshot: clone(motion),
-    };
+    rememberInstallation(library, record);
     if (!persist()) throw new Error("Пакет записан, но локальная история не сохранилась. Скачайте JSON движения.");
     renderVersions();
     notify(
-      "Пакет записан, прочитан и программно проверен без движения приводов.",
+      "Движение записано и проверено. Отключите USB; для обычной панели включите голосовой режим Гоши. Движение доступно в общем каталоге.",
     );
   });
 $("verify-robot-package").onclick = () =>
-  attempt(async () => {
+  robotAction(async () => {
     const caps = live?.snapshot?.caps;
     if (!caps)
       throw new Error(
         "Подключите Live, чтобы проверить сохранённый пакет в роботе.",
       );
-    await live.verifyStoredPackage();
+    await live.verifyStoredPackage(installedPackageId());
     notify(
       "Сохранённый пакет прочитан и программно проверен без движения приводов.",
     );
   });
 $("run-robot-package").onclick = () =>
-  attempt(async () => {
+  robotAction(async () => {
     const caps = live?.snapshot?.caps;
     if (!caps)
       throw new Error(
         "Подключите Live, чтобы запустить сохранённый пакет в роботе.",
       );
+    const packageId = installedPackageId();
+    const packageName = live.snapshot.storedPackages.find((item) => item.package_id === packageId).name;
     if (
       !window.confirm(
-        "Запустить сохранённый пакет в роботе? Приводы будут двигаться.",
+        `Запустить записанную версию «${packageName}»? Приводы будут двигаться. STOP прерывает запуск и удерживает текущую позу.`,
       )
     )
       return;
-    await live.runStoredPackageInHardware();
-    notify("Сохранённый пакет выполнен в роботе.");
+    const result = await live.runStoredPackageInHardware(packageId);
+    notify(result.stopped ? "Робот подтвердил STOP. Текущая поза удерживается." : "Сохранённый пакет выполнен в роботе.");
   });
 $("delete-robot-package").onclick = () =>
-  attempt(async () => {
+  robotAction(async () => {
     const caps = live?.snapshot?.caps;
     if (!caps)
       throw new Error(
         "Подключите Live, чтобы удалить сохранённый пакет в роботе.",
       );
+    const packageId = installedPackageId();
     if (
       !window.confirm(
-        "Удалить сохранённый пакет из робота? Движение не запускается.",
+        `Удалить только «${motion.name}» из робота? Проект останется в Studio.`,
       )
     )
       return;
-    await live.deleteStoredPackage();
+    await live.deleteStoredPackage(packageId);
     notify(
       "Сохранённый пакет удалён из робота. Движение не запускалось.",
     );
   });
 $("export-original").hidden = !library.originalLibrary;
 $("export-original").onclick = () => {
-  const url = URL.createObjectURL(new Blob([library.originalLibrary], {type:"application/json"}));
-  const link = document.createElement("a");
-  link.href = url; link.download = "motion-library-before-arm55.json"; link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadJsonFile("motion-library-before-arm55.json", library.originalLibrary, true);
 };
 $("import").onclick = () => $("file-input").click();
 $("file-input").onchange = async () => {
@@ -753,8 +775,18 @@ $("file-input").onchange = async () => {
     if (file.size > MAX_FILE_BYTES)
       throw new Error("Файл слишком большой. Максимум — 2 МБ.");
     const imported = parseMotion(await file.text());
-    addMotion({ ...imported, id: newId() });
-    notify("Движение добавлено в библиотеку отдельной копией.");
+    const existing = library.motions.find((item) => item.id === imported.id);
+    if (existing && !window.confirm(`Обновить проект «${existing.name}» из файла? ID останется прежним, текущий вариант сохранится в истории. Для отдельного движения используйте «Копия».`)) return;
+    live?.stop("Импортирован проект движения.");
+    setPlaying(false);
+    motion = importProject(library, imported);
+    time = 0;
+    pose = poseAt(motion, time);
+    undo = [];
+    redo = [];
+    persist();
+    render();
+    notify("Проект импортирован с прежним ID. Можно обновить его пакет в роботе.");
   } catch (e) {
     notify(e.message, true);
   }
@@ -809,7 +841,7 @@ function updateLiveView() {
   }
   const liveState = live?.snapshot?.state;
   document.querySelector(".inspector-intro").textContent = !live?.enabled
-    ? "Измените угол — поза запишется на текущей отметке времени."
+    ? "Выберите конечность и двигайте ползунок. Поза запишется на текущей отметке времени."
     : liveState === "armed"
       ? "Выберите сустав и двигайте ползунок. Робот идёт к заданному углу, 3D показывает подтверждённую команду. STOP завершает сессию."
       : liveState === "ready"
@@ -819,7 +851,7 @@ function updateLiveView() {
           : "Подключите робота слева, чтобы открыть управление суставами.";
   document.querySelector(".calibration-note").textContent = live?.enabled
     ? "Диапазоны получены от прошивки. 3D показывает подтверждённую команду, измерения угла нет."
-    : "Оси и пределы предварительные. Углы отсчитываются от позы модели. Подключения к роботу нет.";
+    : "Шарниры по исходной сборке: руки поднимаются, ноги поворачиваются, стопы наклоняются. Углы — от исходной позы.";
   $("neutral").disabled = $("mirror").disabled = Boolean(live?.enabled);
   renderPosition();
   if (typeof updateRobotInstallStatus === "function") updateRobotInstallStatus();
@@ -920,6 +952,9 @@ registerPreviewTools(
         "arming",
         "armed",
         "stopping",
+        "hardware_starting",
+        "hardware_running",
+        "hardware_stopping",
       ].includes(live?.snapshot.state),
       live_state: live?.snapshot.state ?? "disconnected",
     }),

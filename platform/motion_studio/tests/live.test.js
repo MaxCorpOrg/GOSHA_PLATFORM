@@ -13,6 +13,7 @@ import {
 } from "../src/live.js";
 import {
   canKeepIdleSessionOnBlur,
+  canSeekLiveTimeline,
   createLiveStepPlan,
   formatStoredPackageFields,
   liveSafeIntervalForJoint,
@@ -48,6 +49,18 @@ const capabilities = () => ({
     .map((j) => ({ id: j.id, min: -10, max: 10, max_speed_dps: 15 })),
   commanded_pose: zeroPose(),
   feedback: { measured_position: false, imu: false },
+});
+
+test("timeline can select the next recorded pose only between confirmed Live targets", () => {
+  const idle = { state: "armed", caps: { mode: MOTION_EDITOR_MODE } };
+  assert.equal(canSeekLiveTimeline(idle), true);
+  for (const flag of ["holding", "following", "target", "hardwareRunning", "pending", "packagePending"]) {
+    assert.equal(canSeekLiveTimeline({ ...idle, [flag]: true }), false, flag);
+  }
+  for (const state of ["ready", "stopping", "hardware_running", "fault"]) {
+    assert.equal(canSeekLiveTimeline({ ...idle, state }), false, state);
+  }
+  assert.equal(canSeekLiveTimeline({ ...idle, caps: { mode: RIGHT_ARM_COMMISSIONING_MODE } }), false);
 });
 function harness(caps = capabilities) {
   let now = 1000;
@@ -2406,8 +2419,9 @@ test("editor runs a stored robot package through the hardware runner", async () 
 
   const start = socket.sent.at(-1);
   assert.equal(start.op, "package_hardware_run_start");
+  assert.equal(start.speed_dps, 10, "stored execution keeps authored timing independently of manual Live speed");
   assert.equal(start.access_key, "synthetic-test-key-only");
-  assert.equal(start.speed_dps, 5);
+  assert.equal(h.live.speed, 5, "manual setup retains its own speed");
   socket.receive({
     protocol: LIVE_PROTOCOL,
     op: "package_status",
@@ -2450,6 +2464,89 @@ test("editor runs a stored robot package through the hardware runner", async () 
   assert.equal(socket.sent.some((item) => item.op === "package_hardware_run_stop"), false);
   assert.equal(socket.sent.some((item) => item.op === "arm"), false);
   assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+  assert.equal(socket.sent.at(-1).op, "hello");
+  socket.receive({ ...editorCaps45(), request_id: h.live.requestId,
+    commanded_pose: { ...zeroPose(), arm_positive_x: 40, leg_negative_x: -12, foot_positive_x: 8 } });
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, 40);
+});
+
+async function hardwarePollingHarness({ pauseStart = false, pollingDelay = false } = {}) {
+  const h = harness(editorCaps45);
+  const socket = h.ready();
+  const send = socket.send;
+  socket.send = function(raw) {
+    send.call(this, raw);
+    const message = JSON.parse(raw);
+    let fields;
+    if (message.op === "package_load") fields = { status: "loaded", package_id: "chosen-001", profile_id: PROFILE.id,
+      calibration_id: "a".repeat(64), payload_size: 1000, crc32: 123, duration_ms: 6000 };
+    if (message.op === "package_prepare") fields = { status: "prepared", package_id: "chosen-001", duration_ms: 6000 };
+    if (message.op === "package_sample") fields = { status: "sampled", package_id: "chosen-001", elapsed_ms: 0, target: zeroPose() };
+    if (message.op === "package_hardware_run_start" && !pauseStart) fields = { status: "hardware_run_started",
+      run_session_id: "hardware-run-000001", hardware_apply: false };
+    if (message.op === "package_hardware_run_status" && pollingDelay) fields = { status: "hardware_run_running",
+      run_session_id: "hardware-run-000001", package_id: "chosen-001", elapsed_ms: 500, hardware_apply: true,
+      target: { ...zeroPose(), arm_positive_x: -3 } };
+    if (message.op === "package_hardware_run_stop") fields = { status: "hardware_run_stopped",
+      run_session_id: "hardware-run-000001", hardware_apply: false };
+    if (fields) queueMicrotask(() => socket.receive({ protocol: LIVE_PROTOCOL, op: "package_status", request_id: message.request_id, ...fields }));
+    if (message.op === "hello") queueMicrotask(() => socket.receive({ ...editorCaps45(), request_id: message.request_id,
+      commanded_pose: { ...zeroPose(), arm_positive_x: -3 } }));
+  };
+  const run = h.live.runStoredPackageInHardware("synthetic-test-key-only", { pollIntervalMs: 30 });
+  // Deliberately leave start or status unacknowledged to test priority STOP.
+  for (let i = 0; i < 16; i++) await Promise.resolve();
+  return { ...h, socket, run };
+}
+
+test("STOP interrupts a stored hardware run while its status request is awaiting ACK", async () => {
+  const h = await hardwarePollingHarness();
+  assert.equal(h.live.state, "hardware_running");
+  assert.throws(() => h.live.arm("synthetic-test-key-only"));
+  await assert.rejects(h.live.readStoredPackage());
+  h.live.stop("СТОП.");
+  assert.equal(h.socket.sent.at(-1).op, "package_hardware_run_stop");
+  const result = await h.run;
+  assert.equal(result.stopped, true);
+  assert.equal(h.live.state, "ready");
+  assert.equal(h.live.lastTelemetry.commanded_pose.arm_positive_x, -3);
+  assert.equal(h.live.snapshot().hardwareRunning, false);
+  assert.equal(h.socket.sent.some((item) => item.op === "arm" || item.op === "pose"), false);
+});
+
+test("STOP between hardware status polls cannot schedule a new run or resume movement", async () => {
+  const h = await hardwarePollingHarness({ pollingDelay: true });
+  assert.equal(h.live.packageRequest, null);
+  const pollsBefore = h.socket.sent.filter((item) => item.op === "package_hardware_run_status").length;
+  h.live.release("Окно потеряло фокус.");
+  assert.equal((await h.run).stopped, true);
+  assert.equal(h.socket.sent.filter((item) => item.op === "package_hardware_run_status").length, pollsBefore);
+  assert.equal(h.socket.sent.filter((item) => item.op === "package_hardware_run_start").length, 1);
+});
+
+test("STOP before the hardware start ACK closes its transport and cannot silently resume", async () => {
+  const h = await hardwarePollingHarness({ pauseStart: true });
+  assert.equal(h.live.state, "hardware_starting");
+  h.live.stop("СТОП.");
+  await assert.rejects(h.run);
+  assert.equal(h.socket.closed, true);
+  assert.equal(h.live.state, "fault");
+  assert.equal(h.socket.sent.some((item) => item.op === "package_hardware_run_status"), false);
+});
+
+test("verifying a project selects its exact package ID and rejects a different device selection", async () => {
+  const h = harness(() => ({ ...editorCaps45(), motion_allowed: false, right_arm_initialized: false,
+    reason: RIGHT_ARM_INITIALIZATION_REASON }));
+  const socket = h.ready();
+  const verify = h.live.verifyStoredPackage("synthetic-test-key-only", "wanted-package");
+  const selected = socket.sent.at(-1);
+  assert.equal(selected.op, "package_select");
+  assert.equal(selected.package_id, "wanted-package");
+  socket.receive({ protocol: LIVE_PROTOCOL, op: "package_status", request_id: selected.request_id,
+    status: "selected", package_id: "another-package" });
+  await assert.rejects(verify, /другой пакет/);
+  assert.equal(socket.sent.some((item) => item.op === "package_prepare" || item.op === "package_hardware_run_start" || item.op === "initialize_right_arm"), false);
 });
 
 test("editor reads an empty robot package list without treating it as an error", async () => {

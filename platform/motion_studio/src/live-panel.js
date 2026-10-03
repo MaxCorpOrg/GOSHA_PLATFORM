@@ -79,6 +79,12 @@ export function canKeepIdleSessionOnBlur(session) {
     session.pending?.op !== "pose";
 }
 
+export function canSeekLiveTimeline(state) {
+  return state?.state === "armed" && state.caps?.mode === MOTION_EDITOR_MODE &&
+    !state.holding && !state.following && !state.target && !state.hardwareRunning &&
+    !state.pending && !state.packagePending;
+}
+
 export function liveStepSizeForJoint(caps, jointId) {
   if (!caps?.joint_limits.some((limit) => limit.id === jointId))
     throw new Error("Выберите доступный сустав Live.");
@@ -447,6 +453,7 @@ export function mountLivePanel({
   let stepDirection = -1;
   let activeStep = null;
   let activeSliderJoint = null;
+  let catalogReadAttempted = false;
   const abort = new AbortController();
   signal.addEventListener(
     "abort",
@@ -482,6 +489,9 @@ export function mountLivePanel({
     arming: "Проверка доступа",
     armed: "Сессия открыта",
     stopping: "Останавливаем",
+    hardware_starting: "Запускаем пакет",
+    hardware_running: "Пакет выполняется",
+    hardware_stopping: "Останавливаем пакет",
     fault: "Live недоступен",
   };
   const isEditorMode = (state) => state.caps?.mode === MOTION_EDITOR_MODE;
@@ -657,6 +667,12 @@ export function mountLivePanel({
     }
   }
   function render(state) {
+    if (["disconnected", "fault"].includes(state.state)) catalogReadAttempted = false;
+    if (!catalogReadAttempted && isEditorMode(state) &&
+        ["ready", "init_required"].includes(state.state) && !state.packagePending) {
+      catalogReadAttempted = true;
+      Promise.resolve().then(() => session.readStoredPackage()).catch((error) => notify(error.message, true));
+    }
     connectionState = state;
     if (["fault", "disconnected"].includes(state.state)) pendingJoint = null;
     if (pendingJoint && state.state === "ready") {
@@ -733,10 +749,10 @@ export function mountLivePanel({
       rightArmInitState && keyReady
     );
     byId("live-init-right-arm").disabled =
-      state.state !== "init_required" || !keyReady;
+      state.state !== "init_required" || !keyReady || state.packagePending;
     byId("live-arm").hidden = rightArmInitState;
     byId("live-arm").textContent = isEditorMode(state) ? "Начать управление" : `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
-    byId("live-arm").disabled = state.state !== "ready" || !keyReady;
+    byId("live-arm").disabled = state.state !== "ready" || !keyReady || state.packagePending || state.hardwareRunning;
     byId("live-host").disabled = !canChangeTransport(state);
     byId("live-connect").textContent = ["disconnected", "fault"].includes(
       state.state,
@@ -781,6 +797,9 @@ export function mountLivePanel({
       "arming",
       "initializing_right_arm",
       "stopping",
+      "hardware_starting",
+      "hardware_running",
+      "hardware_stopping",
     ].includes(state.state);
     byId("live-speed-value").textContent = `${state.speed}°/с`;
     byId("live-speed").value = state.speed;
@@ -847,7 +866,7 @@ export function mountLivePanel({
         ? "Сохранён"
         : "Другая калибровка";
       byId("live-package-note").textContent =
-        "Метаданные прочитаны без upload, ARM, POSE или run.";
+        "Список и свойства пакетов прочитаны без движения приводов.";
     } else if (storedPackage?.present === false) {
       byId("live-package-state").textContent = "Пакета нет";
       byId("live-package-note").textContent =
@@ -1336,14 +1355,14 @@ export function mountLivePanel({
     selectStoredPackage(packageId) {
       return session.selectStoredPackage(packageId, byId("live-key").value);
     },
-    verifyStoredPackage() {
-      return session.verifyStoredPackage(byId("live-key").value);
+    verifyStoredPackage(packageId) {
+      return session.verifyStoredPackage(byId("live-key").value, packageId);
     },
-    runStoredPackageInHardware() {
-      return session.runStoredPackageInHardware(byId("live-key").value);
+    runStoredPackageInHardware(packageId) {
+      return session.runStoredPackageInHardware(byId("live-key").value, { packageId });
     },
-    deleteStoredPackage() {
-      return session.deleteStoredPackage(byId("live-key").value);
+    deleteStoredPackage(packageId) {
+      return session.deleteStoredPackage(byId("live-key").value, packageId);
     },
     deleteSelectedStoredPackage(packageId) {
       return session.deleteStoredPackage(byId("live-key").value, packageId);
