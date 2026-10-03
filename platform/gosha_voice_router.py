@@ -337,6 +337,19 @@ class RobotLiveBridge:
         LOG.info("live_idle_farewell started=true")
         return False
 
+    async def keepalive_loop(self):
+        # Keep the device transport alive even if the upstream audio sender
+        # stalls or local family playback is waiting for an HTTPS clip.
+        while not self.stopped.is_set():
+            now = time.monotonic()
+            if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
+                # Firmware's receive watchdog ignores WS ping frames. This
+                # notification refreshes activity without invoking any tool.
+                await self.send_json("mcp", payload={"jsonrpc": "2.0",
+                    "method": "notifications/gosha/keepalive", "params": {}})
+                self.last_robot_keepalive = now
+            await asyncio.sleep(min(.1, self.robot_keepalive_seconds))
+
     async def input_loop(self, session):
         while True:
             now = time.monotonic()
@@ -347,13 +360,6 @@ class RobotLiveBridge:
                 return
             if await self.check_idle(session, now):
                 return
-            if self.mcp_supported and now - self.last_robot_keepalive >= self.robot_keepalive_seconds:
-                # Firmware's application-level receive watchdog is 120 s. A WS
-                # ping doesn't refresh it. Its MCP parser ignores notifications,
-                # so this refreshes transport activity without tools or audio/UI.
-                await self.send_json("mcp", payload={"jsonrpc": "2.0",
-                                                     "method": "notifications/gosha/keepalive", "params": {}})
-                self.last_robot_keepalive = now
             try:
                 pcm = SILENCE if self.family_paused else self.input.get_nowait()
             except asyncio.QueueEmpty:
@@ -384,8 +390,23 @@ class RobotLiveBridge:
                 self.last_output_received = time.monotonic()
                 self.output_tail.extend(pcm)
                 while len(self.output_tail) >= PCM_BYTES:
-                    await self.output.put(bytes(self.output_tail[:PCM_BYTES]))
+                    if self.family_paused:
+                        # The local player stops consuming the Live queue.
+                        # A put already waiting before the pause must retire
+                        # too, so we can receive control events and WS pings.
+                        self.output_tail.clear()
+                        break
+                    try:
+                        await asyncio.wait_for(self.output.put(bytes(self.output_tail[:PCM_BYTES])), PERIOD)
+                    except asyncio.TimeoutError:
+                        continue
                     del self.output_tail[:PCM_BYTES]
+                if self.family_paused:
+                    # A pending put may have won the race against the pause's
+                    # queue flush. Retire that frame too; it predates the clip.
+                    self.output_tail.clear()
+                    while not self.output.empty():
+                        self.output.get_nowait()
             elif kind in {"session.input_transcript.delta", "session.output_transcript.delta"}:
                 role = "user" if kind == "session.input_transcript.delta" else "assistant"
                 self.remember(role, event.get("delta", ""))
@@ -519,9 +540,11 @@ class RobotLiveBridge:
         self.codec = OpusCodec()
         robot_reader = None
         discovery = None
+        keepalive = None
         retirees = set()
         try:
             await self.hello()
+            keepalive = asyncio.create_task(self.keepalive_loop())
             initial = True
             while not self.stopped.is_set():
                 self.restart.clear()
@@ -550,12 +573,29 @@ class RobotLiveBridge:
                 restart = asyncio.create_task(self.restart.wait())
                 stopped = asyncio.create_task(self.stopped.wait())
                 try:
+                    tasks = {"live_reader": reader, "live_sender": sender, "playback": playback,
+                             "restart": restart, "stopped": stopped, "robot_reader": robot_reader,
+                             "tool_worker": tool_worker, "tool_publisher": tool_publisher,
+                             "family_reader": family_reader, "keepalive": keepalive}
                     done, _ = await asyncio.wait(
-                        [reader, sender, playback, restart, stopped, robot_reader, tool_worker, tool_publisher, family_reader],
+                        tasks.values(),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     for task in done:
-                        task.result()
+                        try:
+                            task.result()
+                        except Exception as exc:
+                            source = next(name for name, value in tasks.items() if value is task)
+                            self.stop_reason = "failed_" + source
+                            received = getattr(exc, "rcvd", None)
+                            sent = getattr(exc, "sent", None)
+                            # Close reasons and exception text can contain
+                            # private payloads. Log source and numeric codes only.
+                            LOG.warning("voice_task_failed source=%s category=%s received_code=%s sent_code=%s",
+                                        source, type(exc).__name__,
+                                        received.code if received and isinstance(received.code, int) else None,
+                                        sent.code if sent and isinstance(sent.code, int) else None)
+                            raise
                 finally:
                     if self.family_tools:
                         self.family_tools.interrupt()
@@ -580,6 +620,8 @@ class RobotLiveBridge:
                     break
                 # Explicit abort starts a fresh provider session; stale responses cannot resume.
         finally:
+            if keepalive:
+                await stop_tasks([keepalive])
             await self.device_tools.stop_movement()
             if robot_reader:
                 await stop_tasks([robot_reader])

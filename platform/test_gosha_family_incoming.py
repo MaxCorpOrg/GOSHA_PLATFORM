@@ -128,13 +128,13 @@ class AudioPartTests(unittest.TestCase):
         texts = []
         service = FamilySpeech(lambda text, config: texts.append(text) or b'audio', lambda: ())
         service.audio(self.store,'robot',self.message,'notice')
-        self.assertEqual(texts, ['Папа прислал тебе сообщение. Двойное нажатие — прочитать.'])
+        self.assertEqual(texts, ['Папа прислал сообщение. Двойное нажатие — прочитать.'])
         self.assertEqual(self.store.mailbox('robot')['messages'][0]['state'],'queued')
         service.audio(self.store,'robot',self.message,'offer')
-        self.assertEqual(texts[-1], 'Папа прислал тебе сообщение. Прочитать его?')
+        self.assertEqual(texts[-1], 'Папа прислал сообщение. Прочитать?')
         self.assertNotIn('Секретное', texts[-1])
         service.audio(self.store,'robot',self.message,'reading')
-        self.assertIn('Сейчас я тебе его прочитаю. Папа пишет: Секретное сообщение', texts[-1])
+        self.assertEqual(texts[-1], 'Ага. Папа говорит: Секретное сообщение')
         self.assertEqual(self.store.mailbox('robot')['messages'][0]['state'],'queued')
         with self.assertRaises(ValueError):
             service.audio(self.store,'robot',self.message,'arbitrary')
@@ -232,7 +232,7 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('private-inbox-body',str(session.send.await_args_list))
         update = next(call.kwargs['session'] for call in session.send.await_args_list if call.args[0]=='session.update')
         context=update['delegation']['responses']['instructions']
-        self.assertIn('Прочитать его?',context)
+        self.assertIn('Прочитать?',context)
         self.assertIn('Папа',context)
         self.assertNotIn('private-inbox-body',context)
         self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
@@ -249,6 +249,37 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bridge.family_tools.store.mailbox('robot')['messages'][0]['state'],'queued')
         self.inbox.receive({'payload':{'state':'read_requested'}})
         self.assertTrue(self.inbox.explicit)
+
+    async def test_completed_reading_asks_reply_after_resume_without_repeating_body(self):
+        session = SimpleNamespace(send=AsyncMock())
+        task = asyncio.create_task(self.inbox.read(session,self.message,True,author='Папа'))
+        self.assertEqual(await self.finish(task), 'finished')
+        self.assertTrue(self.bridge.listening)
+        self.assertFalse(self.bridge.stopped.is_set())
+        self.assertFalse(self.bridge.family_paused)
+        calls = session.send.await_args_list
+        kinds = [call.args[0] for call in calls]
+        self.assertLess(kinds.index('session.input_audio.unmute'), kinds.index('session.commentary.append'))
+        self.assertIn('Хочешь ему ответить?', calls[-1].kwargs['content'])
+        context = next(call.kwargs['session']['delegation']['responses']['instructions']
+                       for call in calls if call.args[0] == 'session.update')
+        self.assertIn('Папа',context)
+        self.assertIn('отдельное подтверждение отправки',context)
+        self.assertNotIn('private-inbox-body', str(calls))
+        self.assertFalse(self.inbox.backend_offer_active)
+
+    async def test_interrupted_reading_does_not_offer_a_reply(self):
+        session = SimpleNamespace(send=AsyncMock())
+        task = asyncio.create_task(self.inbox.read(session,self.message,True,author='Мама'))
+        for _ in range(30):
+            if self.inbox.pending and self.bridge.send_json.await_args: break
+            await asyncio.sleep(.001)
+        request = self.bridge.send_json.await_args.kwargs['payload']
+        self.inbox.receive({'payload':{'request_id':request['request_id'],'state':'interrupted'}})
+        self.assertEqual(await task,'interrupted')
+        self.assertNotIn('session.commentary.append',[call.args[0] for call in session.send.await_args_list])
+        self.assertTrue(self.bridge.listening)
+        self.assertFalse(self.bridge.stopped.is_set())
 
     async def test_deferred_offer_clears_backend_context(self):
         session=SimpleNamespace(send=AsyncMock())

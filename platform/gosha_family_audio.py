@@ -128,20 +128,20 @@ def synthesize(text, config):
 def spoken_text(message, part):
     author = message['author']
     if author.casefold() == 'мама':
-        notice = author+' прислала тебе сообщение.'
+        notice = author+' прислала сообщение.'
     elif author.casefold() == 'папа':
-        notice = author+' прислал тебе сообщение.'
+        notice = author+' прислал сообщение.'
     else:
         notice = 'Новое сообщение. Отправитель: '+author+'.'
     if part == 'notice':
         return notice+' Двойное нажатие — прочитать.'
     if part == 'offer':
-        return notice+' Прочитать его?'
+        return notice+' Прочитать?'
     if part == 'reading':
-        return notice+' Сейчас я тебе его прочитаю. '+author+' пишет: '+message['body']
+        return 'Ага. '+author+' говорит: '+message['body']
     if part != 'message':
         raise ValueError('invalid_audio_part')
-    return author+' пишет: '+message['body']
+    return author+' говорит: '+message['body']
 
 
 class FamilySpeech:

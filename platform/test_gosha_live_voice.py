@@ -774,6 +774,80 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         await ws.close()
 
 
+class FamilyStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_device_keepalive_survives_stalled_upstream_audio_during_family_pause(self):
+        sent = asyncio.Queue()
+        blocked = asyncio.Event()
+        class Robot:
+            async def send(self, raw):
+                sent.put_nowait(json.loads(raw))
+        class Session:
+            async def send_audio(self, pcm):
+                blocked.set()
+                await asyncio.Event().wait()
+        bridge = RobotLiveBridge(Robot(), {}, 'fake', idle_seconds=.001)
+        bridge.mcp_supported = True
+        bridge.family_paused = True
+        bridge.robot_keepalive_seconds = .025
+        sender = asyncio.create_task(bridge.input_loop(Session()))
+        heartbeat = asyncio.create_task(bridge.keepalive_loop())
+        try:
+            await asyncio.wait_for(blocked.wait(), .3)
+            for _ in range(3):
+                message = await asyncio.wait_for(sent.get(), .3)
+                self.assertEqual(message['payload']['method'], 'notifications/gosha/keepalive')
+            self.assertFalse(bridge.stopped.is_set())
+            self.assertIsNone(bridge.idle_farewell)
+            self.assertFalse(bridge.speaking)
+            self.assertFalse(bridge.device_tools.pending)
+            self.assertEqual(bridge.device_tools.counts['requested'], 0)
+        finally:
+            sender.cancel(); heartbeat.cancel()
+            await asyncio.gather(sender, heartbeat, return_exceptions=True)
+
+    async def test_family_pause_releases_full_output_queue_and_keeps_reading_control_events(self):
+        bridge = RobotLiveBridge(None, {}, 'fake')
+        bridge.output = asyncio.Queue(maxsize=1)
+        bridge.output.put_nowait(SILENCE)
+        received_control = asyncio.Event()
+        class Session:
+            async def events(self):
+                yield {'type':'session.output_audio.delta',
+                       'delta':base64.b64encode(TONE * 3).decode()}
+                received_control.set()
+                yield {'type':'session.input_audio.muted'}
+        reader = asyncio.create_task(bridge.read_live(Session()))
+        try:
+            await asyncio.sleep(.02)  # Reader is waiting behind a full audio queue.
+            self.assertFalse(received_control.is_set())
+            bridge.family_paused = True
+            await asyncio.wait_for(received_control.wait(), .3)
+            self.assertTrue(bridge.output.empty())
+            self.assertFalse(bridge.output_tail)
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+
+    async def test_normal_output_backpressure_preserves_all_frames_in_order(self):
+        bridge = RobotLiveBridge(None, {}, 'fake')
+        bridge.output = asyncio.Queue(maxsize=1)
+        class Session:
+            async def events(self):
+                yield {'type':'session.output_audio.delta',
+                       'delta':base64.b64encode(SILENCE + TONE + SILENCE).decode()}
+        reader = asyncio.create_task(bridge.read_live(Session()))
+        frames = []
+        try:
+            for _ in range(3):
+                await asyncio.sleep(.08)  # Slow consumer must not lose speech.
+                frames.append(await asyncio.wait_for(bridge.output.get(), .3))
+            await asyncio.wait_for(reader, .3)
+            self.assertEqual(frames, [SILENCE, TONE, SILENCE])
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+
+
 class ProbeTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_requests_voice_separately_from_reasoning(self):
         from probe_gpt_live import probe

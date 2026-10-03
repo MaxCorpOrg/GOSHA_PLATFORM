@@ -334,7 +334,7 @@ class VoiceTests(Fixture, unittest.IsolatedAsyncioTestCase):
         spoken_text = []
         audio = FamilySpeech(lambda text, _: spoken_text.append(text) or packetize(bytes(1920)), lambda: ())
         self.assertTrue(audio.audio(self.store, 'a', incoming['id']).startswith(b'GFM1'))
-        self.assertEqual(spoken_text, ['Папа пишет: Скоро буду, жди дома'])
+        self.assertEqual(spoken_text, ['Папа говорит: Скоро буду, жди дома'])
         self.assertEqual(self.store.mailbox('a')['messages'][0]['state'], 'received')
         self.store.acknowledge('a', incoming['id'], 'spoken')
         self.store.acknowledge('a', incoming['id'], 'spoken')
