@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import struct
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch, AsyncMock
 
@@ -436,6 +437,66 @@ class SpeechTests(Fixture, unittest.TestCase):
         self.store.configure('a', False, 'ask')
         with self.assertRaises(ValueError):
             service.audio(self.store, 'a', message)
+
+    def test_notice_reuses_voice_across_messages_and_service_restart(self):
+        calls = []
+        directory = Path(self.tmp.name)/'notice-cache'
+        def render(text,config):
+            calls.append(text)
+            return packetize(bytes(1920))
+        make = lambda: FamilySpeech(render,lambda:('test','v','key'),notice_cache_dir=directory)
+        first = self.store.parent_send('a',self.dad,'private-first','n1')
+        second = self.store.parent_send('a',self.dad,'private-second','n2')
+        service = make()
+        wire = service.audio(self.store,'a',first,'notice')
+        self.assertEqual(make().audio(self.store,'a',second,'notice'),wire)
+        self.assertEqual(calls,['Папа прислал сообщение. Двойное нажатие — прочитать.'])
+        service.audio(self.store,'a',first,'message')
+        service.audio(self.store,'a',second,'message')
+        self.assertEqual(len(calls),3)  # Bodies keep separate message identities.
+        self.assertEqual(len(list(directory.glob('*.gfm'))),1)
+        self.store.acknowledge('a',second,'spoken')
+        with self.assertRaises(ValueError):make().audio(self.store,'a',second,'notice')
+        self.store.configure('a',False,'ask')
+        with self.assertRaises(ValueError):make().audio(self.store,'a',first,'notice')
+
+    def test_warmed_notice_requires_connected_contact_and_current_voice(self):
+        calls=[]
+        profile={'voice':'one'}
+        service=FamilySpeech(lambda text,config:calls.append(text) or b'audio',
+                             robot_configuration=lambda robot:dict(profile))
+        service.prepare_notice(self.store,'a','Папа','offer')
+        first=self.store.parent_send('a',self.dad,'private','w1')
+        service.audio(self.store,'a',first,'offer')
+        self.assertEqual(len(calls),1)
+        profile['voice']='two'
+        service.audio(self.store,'a',first,'offer')
+        self.assertEqual(len(calls),2)
+        with self.assertRaises(ValueError):service.prepare_notice(self.store,'a','Чужой','notice')
+        with self.assertRaises(ValueError):service.prepare_notice(self.store,'a','Папа','message')
+        self.store.configure('a',False,'ask')
+        with self.assertRaises(ValueError):service.prepare_notice(self.store,'a','Папа','offer')
+        self.assertNotIn('private',' '.join(calls))
+
+    def test_cached_notice_does_not_wait_for_busy_message_renderer(self):
+        entered=threading.Event();release=threading.Event()
+        def render(text,config):
+            if 'body-blocked' in text:
+                entered.set()
+                if not release.wait(2):raise TimeoutError('unit renderer release')
+            return b'audio'
+        service=FamilySpeech(render,lambda:('test','v','key'))
+        notice=self.store.parent_send('a',self.dad,'private','b1')
+        body=self.store.parent_send('a',self.dad,'body-blocked','b2')
+        service.audio(self.store,'a',notice,'notice')
+        worker=threading.Thread(target=lambda:service.audio(self.store,'a',body))
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            self.assertEqual(service.audio(self.store,'a',notice,'notice'),b'audio')
+        finally:
+            release.set();worker.join(2)
+        self.assertFalse(worker.is_alive())
 
     def test_disable_during_render_discards_audio_and_failed_requests_cool_down(self):
         calls = []

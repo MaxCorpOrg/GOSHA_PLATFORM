@@ -85,6 +85,18 @@ class RenderingTests(unittest.IsolatedAsyncioTestCase):
                          timeout=.13, quiet_seconds=.01)
         self.assertTrue(Wrong.last.finalized.is_set())
 
+    async def test_verified_clip_excludes_audio_and_words_received_during_close(self):
+        class Late(FakeSession):
+            async def close(self):
+                self.queue.put_nowait({'type':'session.output_audio.delta',
+                                      'delta':base64.b64encode(TONE).decode()})
+                self.queue.put_nowait({'type':'session.output_transcript.delta','delta':'unexpected-late-words'})
+                await super().close()
+        pcm=await render('Папа пишет: Я дома.','meridian','fake',session_factory=Late,
+                         timeout=1,quiet_seconds=.01)
+        self.assertEqual(pcm,TONE)
+        self.assertTrue(Late.last.finalized.is_set())
+
     async def test_delegation_and_invalid_audio_are_rejected(self):
         for event in ({'type': 'session.delegation.created'},
                       {'type': 'session.output_audio.delta','delta': base64.b64encode(b'x').decode()}):
@@ -309,6 +321,52 @@ class InboxTests(unittest.IsolatedAsyncioTestCase):
         self.bridge.stopped.set()
         await task
         self.inbox.read.assert_awaited_once_with(None,self.message,False,notice=True,author='Папа')
+
+    async def test_short_notice_has_bounded_wait_during_continuous_user_speech(self):
+        self.bridge.robot_listening_ready.set()
+        self.inbox.interval=.002
+        self.inbox.offer_wait_seconds=.01
+        async def offer(*args,**kwargs):
+            self.bridge.stopped.set()
+            return 'finished'
+        self.inbox.read=AsyncMock(side_effect=offer)
+        async def continuous_speech():
+            while not self.bridge.stopped.is_set():
+                self.bridge.family_tools.last_input=time.monotonic()
+                await asyncio.sleep(.001)
+        speech=asyncio.create_task(continuous_speech())
+        try:
+            await asyncio.wait_for(self.inbox.run(None),.2)
+            self.inbox.read.assert_awaited_once_with(None,self.message,False,notice=True,author='Папа')
+        finally:
+            self.bridge.stopped.set();await speech
+
+    async def test_overdue_notice_still_defers_robot_speech_and_pending_family_draft(self):
+        self.bridge.family_tools.last_input=time.monotonic()
+        self.assertTrue(self.inbox.idle(allow_user_speech=True))
+        self.bridge.speaking=True
+        self.assertFalse(self.inbox.idle(allow_user_speech=True))
+        self.bridge.speaking=False
+        self.bridge.family_tools.draft={'expires':time.monotonic()+120}
+        self.assertFalse(self.inbox.idle(allow_user_speech=True))
+
+    async def test_explicit_read_request_survives_a_busy_turn(self):
+        self.bridge.robot_listening_ready.set()
+        self.inbox.interval=.002
+        self.inbox.explicit=True
+        self.inbox.requested_id=self.message
+        self.bridge.speaking=True
+        async def read(*args,**kwargs):
+            self.bridge.stopped.set()
+            return 'finished'
+        self.inbox.read=AsyncMock(side_effect=read)
+        task=asyncio.create_task(self.inbox.run(None))
+        await asyncio.sleep(.015)
+        self.inbox.read.assert_not_awaited()
+        self.assertTrue(self.inbox.explicit)
+        self.bridge.speaking=False
+        await asyncio.wait_for(task,.2)
+        self.inbox.read.assert_awaited_once_with(None,self.message,True,notice=False,author='Папа')
 
     async def test_auto_reads_and_manual_request_uses_the_offered_id(self):
         store=self.bridge.family_tools.store

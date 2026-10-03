@@ -10,7 +10,7 @@ LOG = logging.getLogger('gosha.family.incoming')
 
 
 class FamilyIncoming:
-    def __init__(self, bridge, *, interval=3, timeout=280):
+    def __init__(self, bridge, *, interval=1, timeout=280, offer_wait_seconds=2):
         self.bridge, self.interval, self.timeout = bridge, interval, timeout
         self.pending = None
         self.explicit = False
@@ -19,6 +19,8 @@ class FamilyIncoming:
         self.offered = None
         self.requested_id = None
         self.backend_offer_active = False
+        self.offer_wait_seconds = offer_wait_seconds
+        self.first_seen = {}
 
     async def update_offer_context(self, session, context='', *, reading_offer=True):
         # Independent device audio has no transcript in the main Live stream.
@@ -67,7 +69,7 @@ class FamilyIncoming:
             if state in ('finished', 'interrupted', 'unavailable', 'busy') and not self.pending[1].done():
                 self.pending[1].set_result(state)
 
-    def idle(self):
+    def idle(self, *, allow_user_speech=False):
         bridge = self.bridge
         draft = bridge.family_tools.draft
         draft_pending = draft and not draft.get('message_id') and bridge.family_tools.clock() < draft['expires']
@@ -78,7 +80,7 @@ class FamilyIncoming:
         return (bridge.listening and not bridge.speaking and quiet_output
                 and not bridge.device_tools.pending and not bridge.idle_farewell and not draft_pending
                 and not bridge.backend_responses and not calls_pending
-                and time.monotonic()-bridge.family_tools.last_input >= 1.8)
+                and (allow_user_speech or time.monotonic()-bridge.family_tools.last_input >= 1.8))
 
     async def read(self, session, message_id, explicit, *, notice=False, author=''):
         bridge = self.bridge
@@ -86,6 +88,7 @@ class FamilyIncoming:
         future = asyncio.get_running_loop().create_future()
         self.pending = (request_id, future)
         bridge.family_paused = True
+        LOG.info('family_incoming operation=%s stage=requested', 'offer' if notice else 'read')
         state = 'unavailable'
         try:
             # Live supports input mute; discard its output locally while the
@@ -176,7 +179,7 @@ class FamilyIncoming:
                     await session.send('session.instructions.append', delegation_id=None,
                         content='Предложение прочитать завершено. Сообщение отложено; '
                                 'продолжай обычный разговор и не повторяй вопрос без новой просьбы.')
-                if bridge.family_playback_supported and self.idle():
+                if bridge.family_playback_supported:
                     mailbox = await asyncio.to_thread(bridge.family_tools.store.mailbox, bridge.family_tools.robot)
                     explicit = self.explicit
                     messages = mailbox['messages']
@@ -184,6 +187,9 @@ class FamilyIncoming:
                         now = time.monotonic()
                         self.attempted = {key: until for key,until in self.attempted.items() if until > now}
                         pending_ids = {item['id'] for item in messages}
+                        self.first_seen = {key:value for key,value in self.first_seen.items() if key in pending_ids}
+                        for item in messages:
+                            self.first_seen.setdefault(item['id'],now)
                         self.announced.intersection_update(pending_ids)
                         if self.offered and self.offered['id'] not in pending_ids:
                             self.offered = None
@@ -195,8 +201,12 @@ class FamilyIncoming:
                             message = next((item for item in messages if item['id'] not in self.attempted
                                 and (not notice or (not self.offered and item['id'] not in self.announced))), None)
                         if message:
-                            state = await self.read(session, message['id'], explicit, notice=notice, author=message['author'])
-                            self.attempted[message['id']] = time.monotonic() + (600 if state == 'interrupted' else 30)
+                            overdue_notice = notice and now-self.first_seen[message['id']] >= self.offer_wait_seconds
+                            if self.idle(allow_user_speech=overdue_notice):
+                                state = await self.read(session, message['id'], explicit, notice=notice, author=message['author'])
+                                self.attempted[message['id']] = time.monotonic() + (600 if state == 'interrupted' else 30)
+                            elif explicit:
+                                self.explicit, self.requested_id = True, message['id']
             except asyncio.CancelledError:
                 raise
             except Exception:

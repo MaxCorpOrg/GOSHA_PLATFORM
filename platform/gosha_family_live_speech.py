@@ -50,6 +50,8 @@ async def render(text, voice, key, *, session_factory=LiveSession, timeout=130, 
                 await session.send('session.commentary.append', delegation_id=None,
                                    content='Произнеси заданный текст сейчас по только что переданной инструкции.')
             elif kind == 'session.output_audio.delta':
+                if complete.is_set():
+                    continue
                 chunk = base64.b64decode(event['delta'], validate=True)
                 if len(chunk) % 2 or len(chunk) > PCM_BYTES * 500:
                     raise ValueError('invalid_family_live_audio')
@@ -61,6 +63,8 @@ async def render(text, voice, key, *, session_factory=LiveSession, timeout=130, 
                     if len(pcm) > limit:
                         raise ValueError('family_live_audio_too_long')
             elif kind == 'session.output_transcript.delta':
+                if complete.is_set():
+                    continue
                 delta = event.get('delta')
                 if not isinstance(delta, str) or len(transcript)+len(delta) > 6000:
                     raise ValueError('invalid_family_live_transcript')

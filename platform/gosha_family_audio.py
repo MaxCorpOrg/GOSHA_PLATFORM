@@ -11,6 +11,7 @@ import struct
 import sys
 import threading
 import time
+import tempfile
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from gosha_live_audio import OpusCodec, PCM_BYTES
@@ -145,47 +146,126 @@ def spoken_text(message, part):
 
 
 class FamilySpeech:
-    def __init__(self, render=synthesize, configuration=speech_config, clock=time.monotonic, *, robot_configuration=None):
+    def __init__(self, render=synthesize, configuration=speech_config, clock=time.monotonic, *,
+                 robot_configuration=None, notice_cache_dir=None):
         self.render, self.configuration, self.clock = render, configuration, clock
         self.robot_configuration = robot_configuration
         self.lock = threading.Lock()
+        self.cache_lock = threading.Lock()
         self.cache = OrderedDict()
         self.failed = OrderedDict()
+        self.notice_cache_dir = Path(notice_cache_dir) if notice_cache_dir else None
+
+    def cached(self, key):
+        with self.cache_lock:
+            now = self.clock()
+            for k in list(self.cache):
+                if self.cache[k][0] <= now:
+                    del self.cache[k]
+            item = self.cache.get(key)
+            return item[1] if item else None
+
+    def notice_path(self, key):
+        if not self.notice_cache_dir:
+            return None
+        digest = hashlib.sha256(json.dumps(key).encode()).hexdigest()
+        return self.notice_cache_dir / (digest+'.gfm')
+
+    def load_notice(self, key):
+        path = self.notice_path(key)
+        if path is None:
+            return None
+        try:
+            if path.is_symlink() or time.time()-path.stat().st_mtime > 86400:
+                return None
+            with path.open('rb') as file:
+                audio = file.read(MAX_WIRE+1)
+            if (12 < len(audio) <= MAX_WIRE and
+                    audio[:12] == struct.pack('!4sIHBB', b'GFM1',16000,60,1,0) and audio[-2:] == b'\0\0'):
+                return audio
+        except OSError:
+            pass
+        return None
+
+    def save_notice(self, key, audio):
+        path = self.notice_path(key)
+        if path is None:
+            return
+        temporary = None
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix='.notice-', dir=path.parent)
+            with os.fdopen(fd,'wb') as file:
+                file.write(audio)
+            os.replace(temporary,path)
+            temporary = None
+            files = sorted(path.parent.glob('*.gfm'), key=lambda p:p.stat().st_mtime, reverse=True)
+            for retired in files[64:]:
+                retired.unlink(missing_ok=True)
+        except OSError:
+            pass  # Optional cache must never break message playback.
+        finally:
+            if temporary:
+                Path(temporary).unlink(missing_ok=True)
+
+    def prepare_notice(self, store, robot, author, part):
+        # Internal prewarming only for an enabled family's connected contact;
+        # no message body is rendered or persisted by this path.
+        def validate():
+            if part not in ('notice','offer') or author not in [c['name'] for c in store.recipients(robot)]:
+                raise ValueError('notice_contact_not_available')
+        validate()
+        return self.render_audio(store,robot,{'author':author,'body':''},part,validate)
 
     def audio(self, store, robot, message_id, part='message'):
         message = store.audio_message(robot, message_id)  # Scope/mode/expiry checked even on a cache hit.
+        return self.render_audio(store,robot,message,part,lambda:store.audio_message(robot,message_id))
+
+    def render_audio(self, store, robot, message, part, validate):
         text = spoken_text(message, part)
         config = self.robot_configuration(robot) if self.robot_configuration else self.configuration()
-        signature = hashlib.sha256(json.dumps(config).encode()).digest()
-        key = (str(store.path.resolve()), robot, message_id, part, signature)
+        signature = hashlib.sha256(json.dumps(config).encode()).hexdigest()
+        notice = part in ('notice','offer')
+        identity = hashlib.sha256(text.encode()).hexdigest() if notice else message['id']
+        key = (str(store.path.resolve()), robot, identity, part, signature)
+        audio = self.cached(key)
+        if audio is None and notice:
+            audio = self.load_notice(key)
+        if audio is not None:
+            validate()
+            return audio  # A cached notice need not wait behind a body renderer.
         # Single in-flight renderer avoids duplicate billing and bounds RAM. A
         # contending request can retry later; never enqueue unlimited TTS jobs.
         if not self.lock.acquire(blocking=False):
             raise RuntimeError('family_speech_busy')
         try:
-            now = self.clock()
-            for k in list(self.cache):
-                if self.cache[k][0] <= now:
-                    del self.cache[k]
-            if key in self.cache:
-                return self.cache[key][1]
-            if self.failed.get(key, 0) > now:
-                raise RuntimeError('family_speech_cooldown')
+            audio = self.cached(key)
+            if audio is not None:
+                validate()
+                return audio
+            with self.cache_lock:
+                if self.failed.get(key, 0) > self.clock():
+                    raise RuntimeError('family_speech_cooldown')
             try:
                 audio = self.render(text, config)
-                store.audio_message(robot, message_id)  # Disable/expiry during generation: no audio served.
+                validate()  # Disable/expiry during generation: no audio served.
             except Exception:
-                self.failed[key] = self.clock() + 60
-                while len(self.failed) > 64:
-                    self.failed.popitem(last=False)
+                with self.cache_lock:
+                    self.failed[key] = self.clock() + 60
+                    while len(self.failed) > 64:
+                        self.failed.popitem(last=False)
                 raise
-            self.cache[key] = (self.clock() + 600, audio)
-            while len(self.cache) > 8:
-                self.cache.popitem(last=False)
+            with self.cache_lock:
+                self.cache[key] = (self.clock() + (86400 if notice else 600), audio)
+                while len(self.cache) > 8:
+                    self.cache.popitem(last=False)
+            if notice:
+                self.save_notice(key,audio)
             return audio
         finally:
             self.lock.release()
 
 
 from gosha_family_live_speech import profile_config, synthesize_profile
-SERVICE = FamilySpeech(render=synthesize_profile, robot_configuration=profile_config)
+SERVICE = FamilySpeech(render=synthesize_profile, robot_configuration=profile_config,
+    notice_cache_dir=Path(os.environ.get('APP_ROOT','/opt/gosha_platform/runtime/app_root'))/'family/notice-audio')
