@@ -22,6 +22,12 @@ MAX_SECONDS = 120
 MAX_WIRE = 384 * 1024
 CONTENT_TYPE = 'application/vnd.gosha.opus'
 LOG = logging.getLogger('gosha.family.audio')
+if not LOG.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(name)s %(levelname)s %(message)s'))
+    LOG.addHandler(handler)
+LOG.setLevel(logging.INFO)
+LOG.propagate = False
 PREPARE_WAIT_SECONDS = 135
 
 
@@ -227,7 +233,6 @@ class FamilySpeech:
 
     def audio(self, store, robot, message_id, part='message'):
         message = store.audio_message(robot, message_id)  # Scope/mode/expiry checked even on a cache hit.
-        audio = self.render_audio(store,robot,message,part,lambda:store.audio_message(robot,message_id))
         if self.prepare_on_notice and part in ('notice','offer'):
             # Prepare only; playback and receipts still require the device's
             # consent/button path. Bodies stay in the bounded in-memory cache.
@@ -235,7 +240,7 @@ class FamilySpeech:
                 self.prepare_message(store,robot,message_id,'reading' if part == 'offer' else 'message')
             except Exception as exc:
                 LOG.info('family_audio stage=prepare_unavailable category=%s',type(exc).__name__)
-        return audio
+        return self.render_audio(store,robot,message,part,lambda:store.audio_message(robot,message_id))
 
     def arguments(self, store, robot, message, part):
         text = spoken_text(message, part)

@@ -521,10 +521,31 @@ class SpeechTests(Fixture, unittest.TestCase):
         finally:release.set()
         wire=future.result(timeout=2)
         self.assertEqual(service.audio(self.store,'a',message,'reading'),wire)
-        self.assertEqual(calls,['Папа прислал сообщение. Прочитать?',
-                                'Ага. Папа говорит: private-prepared-body'])
+        self.assertCountEqual(calls,['Папа прислал сообщение. Прочитать?',
+                                    'Ага. Папа говорит: private-prepared-body'])
         self.assertEqual(len(list(directory.glob('*.gfm'))),1)
         self.assertEqual(self.store.mailbox('a')['messages'][0]['state'],'queued')
+
+    def test_body_preparation_starts_before_cold_offer_finishes(self):
+        body_entered=threading.Event();notice_entered=threading.Event();release=threading.Event()
+        def render(text,config):
+            if 'parallel-body' in text:
+                body_entered.set()
+                if not release.wait(3):raise TimeoutError()
+                return b'body-audio'
+            notice_entered.set()
+            if not body_entered.wait(1):raise RuntimeError('preparation_not_parallel')
+            return b'notice-audio'
+        service=FamilySpeech(render,lambda:('test','v','key'),prepare_on_notice=True)
+        message=self.store.parent_send('a',self.dad,'parallel-body','parallel-1')
+        try:
+            self.assertEqual(service.audio(self.store,'a',message,'offer'),b'notice-audio')
+            self.assertTrue(notice_entered.is_set())
+            future=service.prepare_message(self.store,'a',message,'reading')
+            self.assertIsNotNone(future)
+            self.assertEqual(self.store.mailbox('a')['messages'][0]['state'],'queued')
+        finally:release.set()
+        self.assertEqual(future.result(timeout=2),b'body-audio')
 
     def test_consent_joins_pending_preparation_without_second_renderer(self):
         entered=threading.Event();release=threading.Event();joined=threading.Event();calls=[]
