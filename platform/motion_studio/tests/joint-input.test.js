@@ -142,6 +142,24 @@ test("invalid numeric edits are rejected before a refresh can replace them", () 
   }
 });
 
+test("Enter and leaving a numeric field commit the typed 3D angle", () => {
+  const ui = editor();
+  const number = ui.$("number-arm_positive_x");
+  let prevented = false;
+  number.value = "15";
+  number.onkeydown({key:"Enter", preventDefault(){ prevented = true; }});
+  assert.equal(prevented, true);
+  assert.equal(poseAt(ui.motion, 0).arm_positive_x, -15);
+  assert.equal(ui.$("range-arm_positive_x").value, "15");
+  number.value = "7";
+  number.onblur();
+  assert.equal(poseAt(ui.motion, 0).arm_positive_x, -7);
+  assert.equal(ui.scenePose.arm_positive_x, -7);
+  const commits = ui.commits.length;
+  number.onblur();
+  assert.equal(ui.commits.length, commits, "unchanged blur must not add a revision");
+});
+
 test("active Live joint locks editor selection until the session stops", () => {
   const ui = editor();
   ui.live.requestJointSelection = (id) => id === "arm_positive_x";

@@ -23,7 +23,10 @@ import {
 } from "./motion.js";
 import { createStore } from "./storage.js";
 import { registerPreviewTools } from "./webmcp.js";
+import { mountPanelEmbed } from "./panel-embed.js";
 import { motionFingerprint, prepareInstallation, rememberInstallation, importProject } from "./workflow.js";
+const embedded = new URLSearchParams(location.search).get("embedded") === "1";
+document.body.classList.toggle("embedded-studio", embedded);
 
 const icons = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -241,7 +244,7 @@ function downloadJsonFile(name, value, raw = false) {
   // A normal HTTP download also works in desktop browsers that do not save blob URLs.
   const form = document.createElement("form");
   form.method = "POST";
-  form.action = "/api/export";
+  form.action = new URL("./api/export", document.baseURI).pathname;
   for (const [field, content] of Object.entries({ name, json, raw: raw ? "1" : "0" })) {
     const input = document.createElement("input");
     input.type = "hidden";
@@ -497,6 +500,12 @@ $("new-greeting").onclick = () =>
 $("search").oninput = renderLibrary;
 $("motion-name").onchange = () =>
   attempt(() => commit({ ...motion, name: $("motion-name").value }));
+$("motion-name").onblur = () => {
+  if ($("motion-name").value !== motion.name) $("motion-name").onchange();
+};
+$("motion-name").onkeydown = (event) => {
+  if (event.key === "Enter" || event.code === "Enter") { event.preventDefault(); $("motion-name").onchange(); }
+};
 $("add-frame").onclick = () =>
   attempt(() => {
     recordPose();
@@ -592,10 +601,11 @@ for (const j of PROFILE.joints) {
   range.onchange = () => { if (!live?.enabled) attempt(recordPose); };
   number.oninput = () => { if (live?.editorMode) number.dataset.liveDraft = number.value; };
   number.onkeydown = (event) => {
-    if (live?.editorMode && event.code === "Enter") { event.preventDefault(); number.onchange(); }
+    if ((!live?.enabled || live?.editorMode) && (event.key === "Enter" || event.code === "Enter")) { event.preventDefault(); number.onchange(); }
   };
   number.onblur = () => {
     if (live?.editorMode && number.dataset.liveDraft !== undefined) number.onchange();
+    else if (!live?.enabled && number.value !== String(toControlAngle(j.id, pose[j.id]))) number.onchange();
   };
   number.onchange = () =>
     attempt(() => {
@@ -815,6 +825,7 @@ document.addEventListener(
   { signal: lifecycle.signal },
 );
 
+let panelEmbed;
 function updateLiveView() {
   for (const joint of PROFILE.joints) {
     const view = live?.inspectorView(joint.id);
@@ -861,7 +872,7 @@ live = mountLivePanel({
   getMotion: () => motion,
   getJoint: () => selectedJoint,
   onSelectJoint: selectJoint,
-  onUpdate: updateLiveView,
+  onUpdate: () => { updateLiveView(); panelEmbed?.publish(); },
   onPose: (value) => {
     setPlaying(false);
     pose = validatePose(value);
@@ -878,6 +889,12 @@ live = mountLivePanel({
   signal: lifecycle.signal,
 });
 live.refresh();
+panelEmbed = mountPanelEmbed({
+  embedded,
+  readState: () => live.snapshot.state,
+  disconnect: () => live.requestDisconnect(),
+  signal: lifecycle.signal,
+});
 
 async function loadScene() {
   try {

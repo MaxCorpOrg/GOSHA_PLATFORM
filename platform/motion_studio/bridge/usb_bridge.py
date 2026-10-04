@@ -447,6 +447,7 @@ class BridgeController:
         self,
         *,
         allowed_origin: str = DEFAULT_ORIGIN,
+        extra_origins: tuple[str, ...] = (),
         comports: Callable[[], Iterable[Any]] = list_ports.comports,
         serial_factory: Callable[[str], Any] | None = None,
         serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
@@ -454,6 +455,7 @@ class BridgeController:
         logger: logging.Logger = LOGGER,
     ) -> None:
         self.allowed_origin = allowed_origin
+        self.allowed_origins = frozenset((allowed_origin, *extra_origins))
         self.comports = comports
         self.serial_factory = serial_factory
         self.serial_writer = serial_writer
@@ -463,12 +465,12 @@ class BridgeController:
         self._owner_lock = asyncio.Lock()
 
     def check_origin(self, request: web.Request) -> None:
-        if request.headers.get("Origin") != self.allowed_origin:
+        if request.headers.get("Origin") not in self.allowed_origins:
             raise web.HTTPForbidden(text="origin_not_allowed")
 
-    def cors_headers(self) -> dict[str, str]:
+    def cors_headers(self, request: web.Request) -> dict[str, str]:
         return {
-            "Access-Control-Allow-Origin": self.allowed_origin,
+            "Access-Control-Allow-Origin": request.headers["Origin"],
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
             "Vary": "Origin",
@@ -493,13 +495,16 @@ class BridgeController:
 
     async def handle_options(self, request: web.Request) -> web.Response:
         self.check_origin(request)
-        return web.Response(status=204, headers=self.cors_headers())
+        headers = self.cors_headers(request)
+        if request.headers.get("Access-Control-Request-Private-Network") == "true":
+            headers["Access-Control-Allow-Private-Network"] = "true"
+        return web.Response(status=204, headers=headers)
 
     async def handle_ports(self, request: web.Request) -> web.Response:
         self.check_origin(request)
         return web.json_response(
             {"protocol": LIVE_PROTOCOL, "ports": [port.public() for port in self.ports()]},
-            headers=self.cors_headers(),
+            headers=self.cors_headers(request),
         )
 
     async def send_error(
@@ -754,6 +759,7 @@ class BridgeController:
 def create_app(
     *,
     allowed_origin: str = DEFAULT_ORIGIN,
+    extra_origins: tuple[str, ...] = (),
     comports: Callable[[], Iterable[Any]] = list_ports.comports,
     serial_factory: Callable[[str], Any] | None = None,
     serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
@@ -761,6 +767,7 @@ def create_app(
 ) -> web.Application:
     controller = BridgeController(
         allowed_origin=allowed_origin,
+        extra_origins=extra_origins,
         comports=comports,
         serial_factory=serial_factory,
         serial_writer=serial_writer,
@@ -779,6 +786,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--origin", default=DEFAULT_ORIGIN)
+    parser.add_argument("--extra-origin", action="append", default=[])
     parser.add_argument("--log-level", default="WARNING")
     return parser.parse_args(argv)
 
@@ -788,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.host != DEFAULT_HOST:
         raise SystemExit("USB bridge must bind to 127.0.0.1")
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING))
-    app = create_app(allowed_origin=args.origin)
+    app = create_app(allowed_origin=args.origin, extra_origins=tuple(args.extra_origin))
     web.run_app(app, host=args.host, port=args.port, access_log=None)
     return 0
 

@@ -24,6 +24,8 @@ function panel({ apiGet, apiPost } = {}) {
   const context = vm.createContext({
     document: { getElementById: id => nodes[id] || null },
     robotWorkspaceId: 'gosha-main', escapeHtml,
+    isRobotStudioConnected: () => false,
+    requestRobotStudioDisconnect() {},
     operatorUrl: path => path, apiGet, apiPost,
     notify() {}, setTimeout, Date,
   });
@@ -115,4 +117,23 @@ test('unknown play result stays blocked after redraw and never retries play', as
   assert.match(ui.nodes.robotMotionStatus.textContent, /не подтверждено/);
   await ui.context.playRobotMovement('gosha-main', ui.nodes.robotMotionPlay);
   assert.equal(writes, 1);
+});
+
+test('embedded USB blocks ordinary play and routes STOP to the existing editor', async () => {
+  const calls = [];
+  const ui = panel({ apiGet: async () => ({ ok: true, data: { movements } }),
+    apiPost: async (_url, payload) => { calls.push(payload.action); return { ok: true }; } });
+  await ui.context.loadRobotMovements('gosha-main');
+  ui.context.isRobotStudioConnected = () => true;
+  ui.context.requestRobotStudioDisconnect = () => calls.push('editor-disconnect');
+  ui.render();
+  assert.equal(ui.nodes.robotMotionPlay.disabled, true);
+  await ui.context.playRobotMovement('gosha-main', { disabled: false });
+  assert.deepEqual(calls, []);
+  await ui.context.stopRobotMovement('gosha-main');
+  assert.deepEqual(calls, ['editor-disconnect']);
+  assert.match(ui.nodes.robotMotionStatus.textContent, /дождитесь подтверждения/);
+  ui.context.isRobotStudioConnected = () => false;
+  ui.context.paintRobotMotionView('gosha-main');
+  assert.equal(ui.nodes.robotMotionPlay.disabled, false);
 });

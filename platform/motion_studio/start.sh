@@ -72,7 +72,7 @@ PY
 }
 run_servers() {
   PYTHONPATH="$studio_dir" "$python_bin" -m bridge.usb_bridge \
-    --host 127.0.0.1 --port "$bridge_port" --origin "$bridge_origin" &
+    --host 127.0.0.1 --port "$bridge_port" --origin "$bridge_origin" --extra-origin https://gosha.website &
   bridge_pid=$!
   PYTHONPATH="$studio_dir" "$python_bin" -m bridge.studio_server \
     --dist "$studio_dir/dist" --port "$panel_port" &

@@ -1047,3 +1047,30 @@
     font-size: 11px;
   }
 }
+
+/* Keep the model and controls together in the operator panel at tablet widths. */
+@media (min-width: 800px) and (max-width: 950px) {
+  .embedded-studio .workspace {
+    height: 790px;
+    min-height: 740px;
+    grid-template-columns: 160px minmax(300px, 1fr) 250px;
+  }
+  .embedded-studio .library { height: auto; padding: 14px 10px; }
+  .embedded-studio .library h1 { font-size: 22px; }
+  .embedded-studio .library .button { font-size: 12px; padding: 9px 7px; }
+  .embedded-studio .motion-select { padding: 12px 5px; gap: 7px; }
+  .embedded-studio .card-actions { padding: 0 5px 8px; gap: 5px; }
+  .embedded-studio .card-actions .icon-button { flex: 0 0 32px; }
+  .embedded-studio .motion-glyph { width: 22px; }
+  .embedded-studio .motion-info strong { font-size: 13px; }
+  .embedded-studio .editor { grid-template-rows: minmax(320px, 1fr) 315px; }
+  .embedded-studio .inspector {
+    grid-column: auto;
+    display: block;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    padding: 18px 12px;
+  }
+  .embedded-studio .joint-controls { display: block; }
+  .embedded-studio .sequence-settings { margin-top: 20px; }
+}

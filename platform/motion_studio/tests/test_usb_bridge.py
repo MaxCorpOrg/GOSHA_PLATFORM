@@ -385,6 +385,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         serial_factory=None,
         serial_writer=None,
         hello_timeout=0.2,
+        extra_origins=(),
     ):
         if infos is None:
             infos = [port_info()]
@@ -394,6 +395,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
             serial_writer = fake_serial_writer
         app = create_app(
             allowed_origin=ORIGIN,
+            extra_origins=extra_origins,
             comports=lambda: infos,
             serial_factory=serial_factory,
             serial_writer=serial_writer,
@@ -403,6 +405,25 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         await server.start_server()
         self.addAsyncCleanup(server.close)
         return server
+
+    async def test_panel_origin_is_explicit_and_port_reading_never_opens_serial(self):
+        opened = []
+        server = await self.start_bridge(extra_origins=("https://gosha.website",),
+            serial_factory=lambda device: opened.append(device))
+        async with ClientSession() as client:
+            for origin in [ORIGIN, "https://gosha.website"]:
+                async with client.get(server.make_url("/ports"), headers={"Origin": origin}) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+            async with client.options(server.make_url("/ports"), headers={"Origin": "https://gosha.website", "Access-Control-Request-Private-Network": "true"}) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Private-Network"], "true")
+            for path in ["/ports", "/live?port_id=usb-0"]:
+                async with client.get(server.make_url(path), headers={"Origin": "https://foreign.test"}) as response:
+                    self.assertEqual(response.status, 403)
+            async with client.options(server.make_url("/ports"), headers={"Origin": "https://foreign.test", "Access-Control-Request-Private-Network": "true"}) as response:
+                self.assertEqual(response.status, 403)
+        self.assertEqual(opened, [])
 
     async def ws_connect(self, server: TestServer, port_id: str):
         session = ClientSession(headers={"Origin": ORIGIN})

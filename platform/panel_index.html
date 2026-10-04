@@ -1325,6 +1325,27 @@
     .robot-workspace-grid .robot-panel-wide {
       grid-column: 1 / -1;
     }
+    .robot-motion-studio[hidden] { display: none; }
+    .robot-motion-studio {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .robot-motion-studio-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px 8px;
+    }
+    .robot-motion-studio-head h3 { margin: 0; }
+    .robot-motion-studio-note { padding: 0 16px 12px; color: var(--muted); line-height: 1.5; }
+    .robot-motion-studio-frame { display: block; width: 100%; height: 980px; border: 0; background: #171b21; }
+    .robot-motion-studio-help { padding: 16px; }
+    .robot-motion-studio-help[hidden], .robot-motion-studio-frame[hidden] { display: none; }
     .robot-workspace-card-actions {
       display: flex;
       flex-wrap: wrap;
@@ -2650,6 +2671,18 @@
         <button id="robotWorkspaceTabConnection" class="btn" onclick="setRobotWorkspaceTab('connection')">Подключение</button>
         <button id="robotWorkspaceTabClient" class="btn" onclick="setRobotWorkspaceTab('client')">Клиент, память и инструменты</button>
       </div>
+      <section id="robotMotionStudioHost" class="robot-motion-studio" hidden aria-label="Редактор движений Motion Studio">
+        <div class="robot-motion-studio-head">
+          <h3>Motion Studio</h3>
+          <div class="row">
+            <span id="robotMotionStudioState" class="pill">Загрузка редактора…</span>
+            <button id="robotMotionStudioRetry" class="btn" onclick="retryRobotMotionStudio()" hidden>Повторить подключение редактора</button>
+          </div>
+        </div>
+        <div class="robot-motion-studio-note">Выберите конечность на модели или справа → настройте позы → сохраните файл → запишите движение в робота. Для настройки на реальном роботе выберите Live и подключите USB.</div>
+        <iframe id="robotMotionStudioFrame" class="robot-motion-studio-frame" title="Motion Studio — 3D-модель и редактор движений Гоши" allow="local-network-access; local-network; loopback-network" referrerpolicy="strict-origin"></iframe>
+        <div id="robotMotionStudioHelp" class="robot-motion-studio-help" hidden>Редактор пока не отвечает. Нажмите «Повторить подключение редактора». Для Live подключите USB и разрешите доступ к локальной USB-службе, если браузер запросит его.</div>
+      </section>
       <div id="robotWorkspaceBody" class="robot-workspace-grid">
         <div class="robot-panel robot-panel-wide">
           <div class="mini" style="max-width:none;">Открой робота из состояния флота, чтобы перейти в его отдельную рабочую страницу с обзором, личностью, голосом, подключением, памятью, инструментами и клиентскими данными.</div>
@@ -4644,6 +4677,7 @@
 
     function closeRobotWorkspace(options = {}) {
       const { skipRouteSync = false, replaceHistory = false } = options;
+      syncRobotMotionStudio("", "");
       robotWorkspaceId = "";
       robotWorkspaceTab = "overview";
       robotWorkspaceConfigData = null;
@@ -5328,6 +5362,80 @@
       `;
     }
 
+    // Motion Studio lives outside the body replaced by telemetry refreshes.
+    const robotStudioOrigin = window.location.origin;
+    const robotStudioUrl = `${robotStudioOrigin}/api/operator/motion-studio/?embedded=1&panel_version=20261004`;
+    const robotStudio = { mounted: false, loaded: false, visible: false, state: "disconnected", timeout: null };
+    const robotStudioStates = {
+      disconnected: "Редактор готов · 3D",
+      connecting: "Подключение к роботу…",
+      init_required: "USB подключён · включите руку в Live",
+      ready: "Робот подключён · Live готов",
+      initializing_right_arm: "Включение правой руки…",
+      arming: "Открытие Live…",
+      armed: "Live · управление ползунками",
+      stopping: "Live · ждём STOP",
+      hardware_starting: "Запуск записанного движения…",
+      hardware_running: "Робот выполняет движение",
+      hardware_stopping: "Ждём остановку движения",
+      fault: "Live · проверьте связь в редакторе",
+    };
+    function isRobotStudioConnected(robotId) {
+      return robotId === "gosha-main" && robotStudio.mounted && robotStudio.state !== "disconnected";
+    }
+    function requestRobotStudioDisconnect() {
+      document.getElementById("robotMotionStudioFrame")?.contentWindow?.postMessage(
+        { type: "gosha-motion-studio:request", action: "disconnect" }, robotStudioOrigin);
+    }
+    function loadRobotMotionStudio() {
+      if (isRobotStudioConnected("gosha-main")) return;
+      const frame = document.getElementById("robotMotionStudioFrame");
+      if (!frame) return;
+      robotStudio.mounted = true;
+      robotStudio.loaded = false;
+      document.getElementById("robotMotionStudioState").textContent = "Загрузка редактора…";
+      document.getElementById("robotMotionStudioHelp").hidden = true;
+      document.getElementById("robotMotionStudioRetry").hidden = true;
+      frame.hidden = false;
+      clearTimeout(robotStudio.timeout);
+      robotStudio.timeout = setTimeout(() => {
+        if (robotStudio.loaded) return;
+        document.getElementById("robotMotionStudioState").textContent = "Редактор не подключён";
+        document.getElementById("robotMotionStudioHelp").hidden = false;
+        document.getElementById("robotMotionStudioRetry").hidden = false;
+        frame.hidden = true;
+      }, 10000);
+      frame.src = robotStudioUrl;
+    }
+    function retryRobotMotionStudio() { loadRobotMotionStudio(); }
+    function syncRobotMotionStudio(robotId, tab) {
+      const host = document.getElementById("robotMotionStudioHost");
+      if (!host) return;
+      const visible = robotId === "gosha-main" && tab === "overview";
+      if (robotStudio.visible && !visible) requestRobotStudioDisconnect();
+      robotStudio.visible = visible;
+      host.hidden = !visible;
+      if (visible && !robotStudio.mounted) loadRobotMotionStudio();
+    }
+    window.addEventListener("message", event => {
+      const frame = document.getElementById("robotMotionStudioFrame");
+      if (!frame || event.origin !== robotStudioOrigin || event.source !== frame.contentWindow ||
+          event.data?.type !== "gosha-motion-studio:status" ||
+          !Object.hasOwn(robotStudioStates, event.data.state)) return;
+      const previousState = robotStudio.state;
+      robotStudio.loaded = true;
+      robotStudio.state = event.data.state;
+      clearTimeout(robotStudio.timeout);
+      frame.hidden = false;
+      document.getElementById("robotMotionStudioState").textContent = robotStudioStates[robotStudio.state];
+      document.getElementById("robotMotionStudioState").className = `pill ${robotStudio.state === "fault" ? "warn" : "ok"}`;
+      document.getElementById("robotMotionStudioHelp").hidden = true;
+      document.getElementById("robotMotionStudioRetry").hidden = true;
+      if (!robotStudio.visible && robotStudio.state !== previousState &&
+          !["disconnected", "stopping", "hardware_stopping", "fault"].includes(robotStudio.state)) requestRobotStudioDisconnect();
+      if (robotWorkspaceId === "gosha-main") paintRobotMotionView(robotWorkspaceId);
+    });
+
     function renderRobotWorkspace() {
       const workspace = document.getElementById("robotWorkspaceCard");
       if (!workspace) return;
@@ -5364,6 +5472,7 @@
         client: renderRobotWorkspaceClient(robot)
       };
       bodyEl.innerHTML = sections[activeTab] || sections.overview;
+      syncRobotMotionStudio(robot.robot_id, activeTab);
       const tabLabel = {
         overview: "обзор",
         personality: "личность, модель и голос",
@@ -9437,7 +9546,7 @@
         <div class="robot-action-grid">
           <button class="btn" onclick="loadRobotMovements('${escapeHtml(robotId)}')">Обновить каталог</button>
           <select id="robotMotionSelect" aria-label="Выбрать движение" onchange="rememberRobotMovement('${escapeHtml(robotId)}', this.value)">${robotMotionOptions(view)}</select>
-          <button id="robotMotionPlay" class="btn primary"${view.busy ? " disabled" : ""} onclick="playRobotMovement('${escapeHtml(robotId)}', this)">Запустить</button>
+          <button id="robotMotionPlay" class="btn primary"${view.busy || isRobotStudioConnected(robotId) ? " disabled" : ""} onclick="playRobotMovement('${escapeHtml(robotId)}', this)">Запустить</button>
           <button class="btn" onclick="stopRobotMovement('${escapeHtml(robotId)}')">Стоп</button>
           <button class="btn" onclick="readRobotMotionStatus('${escapeHtml(robotId)}')">Состояние</button>
         </div>
@@ -9452,7 +9561,7 @@
       const play = document.getElementById("robotMotionPlay");
       if (status) status.textContent = view.message;
       if (select) select.innerHTML = robotMotionOptions(view);
-      if (play) play.disabled = view.busy;
+      if (play) play.disabled = view.busy || isRobotStudioConnected(robotId);
     }
     function rememberRobotMovement(robotId, motionId) {
       robotMotionView(robotId).selected = motionId;
@@ -9514,7 +9623,7 @@
       paintRobotMotionView(robotId);
     }
     async function playRobotMovement(robotId, buttonEl) {
-      if (buttonEl.disabled || robotMotionView(robotId).busy) return;
+      if (buttonEl.disabled || robotMotionView(robotId).busy || isRobotStudioConnected(robotId)) return;
       const motionId = document.getElementById("robotMotionSelect")?.value;
       if (!motionId) { notify("Сначала выберите движение.", "bad"); return; }
       const generation = ++robotMotionGeneration;
@@ -9544,6 +9653,12 @@
     }
     async function stopRobotMovement(robotId) {
       ++robotMotionGeneration;
+      if (isRobotStudioConnected(robotId)) {
+        requestRobotStudioDisconnect();
+        robotMotionView(robotId).message = "STOP запрошен в Motion Studio; дождитесь подтверждения отключения USB в редакторе.";
+        paintRobotMotionView(robotId);
+        return;
+      }
       let response;
       try { response = await apiPost(operatorUrl(`/robots/${robotId}/motions`), { action: "stop" }); }
       catch { response = {ok: false, error: "motion_result_not_confirmed"}; }

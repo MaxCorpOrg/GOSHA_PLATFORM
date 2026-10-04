@@ -4048,6 +4048,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         parsed, _ = self._path_parts()
+        import gosha_motion_studio_http
+        if gosha_motion_studio_http.handle(self, parsed):
+            return
 
         if parsed.path == "/downloads/maxcorp-connector-debug.apk":
             self._send_file_head(
@@ -4091,6 +4094,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html("<h1>panel_index.html not found</h1>")
                 return
             self._send_html(HTML_PATH.read_text(encoding="utf-8", errors="ignore"))
+            return
+
+        import gosha_motion_studio_http
+        if gosha_motion_studio_http.handle(self, parsed):
             return
 
         if parsed.path == "/downloads/maxcorp-connector-debug.apk":
@@ -4458,6 +4465,9 @@ class Handler(BaseHTTPRequestHandler):
         if family_http.handle(self, sys.modules[__name__], post=True):
             return
         parsed, parts = self._path_parts()
+        import gosha_motion_studio_http
+        if gosha_motion_studio_http.handle(self, parsed):
+            return
         payload = self._body_json()
 
         if parsed.path.rstrip("/") in ("/xiaozhi/events", "/gosha/events"):

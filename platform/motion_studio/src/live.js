@@ -227,18 +227,22 @@ function normalizeUsbBridgePort(port) {
 export async function listUsbBridgePorts({
   fetchImpl = fetch,
   bridgeUrl = USB_BRIDGE_HTTP_URL,
-  timeoutMs = 1200,
+  timeoutMs = globalThis.location?.origin === "https://gosha.website" ? 15000 : 1200,
 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const unavailable = globalThis.location?.origin === "https://gosha.website"
+    ? "Нет доступа к USB-службе. Запустите её на этом компьютере, разрешите gosha.website доступ к локальной сети в браузере и нажмите «Найти USB»."
+    : "Локальная служба USB недоступна. Запустите редактор через bash start.sh.";
   try {
     const response = await fetchImpl(`${bridgeUrl}/ports`, {
       cache: "no-store",
+      targetAddressSpace: "loopback",
       signal: controller.signal,
     });
     if (!response?.ok)
       throw new Error(
-        "Локальная служба USB недоступна. Запустите редактор через bash start.sh.",
+        unavailable,
       );
     const data = await response.json();
     assert(
@@ -249,7 +253,7 @@ export async function listUsbBridgePorts({
   } catch (e) {
     if (controller.signal.aborted)
       throw new Error(
-        "Локальная служба USB недоступна. Запустите редактор через bash start.sh.",
+        unavailable,
       );
     throw e;
   } finally {

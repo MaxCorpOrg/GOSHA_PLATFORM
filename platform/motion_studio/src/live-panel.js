@@ -1332,6 +1332,12 @@ export function mountLivePanel({
         guarded(() => session.updatePose(getPose()));
     },
     stop: (reason) => release(reason),
+    requestDisconnect() {
+      pendingJoint = null;
+      running = false;
+      onPlayback(false);
+      session.requestDisconnect();
+    },
     inspectorView(id) {
       return enabled ? liveInspectorJointViewModel(session.snapshot(), id, activeStep, activeSliderJoint, sliderEditingJoint) : null;
     },
