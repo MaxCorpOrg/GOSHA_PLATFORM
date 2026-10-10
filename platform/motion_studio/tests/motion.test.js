@@ -133,6 +133,24 @@ test("right arm control rises to the right while robot angles and stored poses r
   const stored = { ...zeroPose(), arm_positive_x: -15 };
   assert.deepEqual(validatePose(stored), stored);
 });
+test("foot controls raise both outer edges without changing existing JSON or package angles", () => {
+  assert.equal(toRobotAngle("foot_negative_x", 12), -12);
+  assert.equal(toRobotAngle("foot_positive_x", 12), 12);
+  assert.equal(toControlAngle("foot_negative_x", -12), 12);
+  assert.equal(toControlAngle("foot_positive_x", 12), 12);
+  assert.deepEqual(controlLimits("foot_negative_x", -20, 30), { min: -30, max: 20 });
+  const original = motionFrom([
+    [0, {}],
+    [5000, { foot_negative_x: -12, foot_positive_x: 12 }],
+    [10000, {}],
+  ]);
+  const imported = parseMotion(JSON.stringify(original));
+  assert.deepEqual(imported, original);
+  const prepared = prepareRobotMotionPackage(imported, liveEditorCaps());
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.package.keyframes[1].target.foot_negative_x, -12);
+  assert.equal(prepared.package.keyframes[1].target.foot_positive_x, 12);
+});
 test("rejects invalid imports instead of silently changing the motion", () => {
   const cases = [
     (m) => {

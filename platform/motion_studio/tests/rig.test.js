@@ -103,7 +103,28 @@ test("arms lift, hips turn without lifting, and ankles tilt along their CAD axes
     }
     if (joint.id.startsWith("foot")) {
       assert.ok(Math.abs(moved.y - tip[1]) < 1e-10);
-      assert.ok(Math.abs(moved.z - tip[2]) > 1);
+      assert.ok(moved.z > tip[2] + 1, `${joint.label}: rightward control raises the outer edge`);
+    }
+  }
+});
+test("candidate model mapping raises both outer foot edges at the reported pose; opposite angles lower them", () => {
+  const root = new THREE.Group();
+  const meshes = synthetic();
+  const rig = buildRig(root, meshes);
+  // Reported pose: left -12°, right +12° in the existing robot contract.
+  // This checks the model convention, not physical calibration.
+  // Compare edges at the same CAD sole height, independently of PROFILE.
+  for (const direction of [1, -1]) {
+    rig.setPose({ ...zeroPose(), foot_negative_x: -12 * direction, foot_positive_x: 12 * direction });
+    root.updateMatrixWorld(true);
+    for (const [name, outerX, innerX] of [
+      ["foot_positive_x", 49, 17],
+      ["foot_negative_x", -49, -17],
+    ]) {
+      const mesh = meshes.get(name);
+      const outer = mesh.localToWorld(new THREE.Vector3(outerX, -24, -89));
+      const inner = mesh.localToWorld(new THREE.Vector3(innerX, -24, -89));
+      assert.ok(direction * (outer.z - inner.z) > 6, `${name}: sole must follow the candidate model direction`);
     }
   }
 });

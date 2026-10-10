@@ -30,6 +30,7 @@ import {
   createMotion,
   prepareRobotMotionPackage,
   putPose,
+  toControlAngle,
   zeroPose,
 } from "../src/motion.js";
 
@@ -1613,6 +1614,21 @@ test("right arm Live slider sends the existing negative robot angle for an upwar
   assert.equal(liveSliderTargetPose({...state,target:raised}, "arm_positive_x", 0).arm_positive_x, 0);
   assert.equal(liveSliderTargetPose(state, "foot_positive_x", 15).foot_positive_x, 15);
   assert.throws(() => liveSliderTargetPose(state, "arm_positive_x", "bad angle"));
+});
+test("foot Live controls and confirmed commands agree on upward and downward outer edges", () => {
+  const state = {state:"armed", caps:validateCapabilities(editorCaps()), target:zeroPose()};
+  for (const angle of [-15, 0, 15]) {
+    const left = liveSliderTargetPose(state, "foot_negative_x", angle);
+    const both = liveSliderTargetPose({...state, target:left}, "foot_positive_x", angle);
+    assert.equal(both.foot_negative_x, angle === 0 ? 0 : -angle);
+    assert.equal(both.foot_positive_x, angle);
+    const confirmed = {...state, telemetry:{commanded_pose:both}, target:both};
+    for (const id of ["foot_negative_x", "foot_positive_x"]) {
+      const view = liveInspectorJointViewModel(confirmed, id);
+      assert.equal(toControlAngle(id, view.value), angle);
+      assert.equal(toControlAngle(id, view.command), angle);
+    }
+  }
 });
 test("editor slider follows confirmed leg command after the target is chosen", () => {
   const state={state:"armed",caps:validateCapabilities(editorCaps()),

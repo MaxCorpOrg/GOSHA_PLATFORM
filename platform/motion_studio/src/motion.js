@@ -59,12 +59,12 @@ export const PROFILE = Object.freeze({
       id: "foot_negative_x",
       label: "Левая стопа",
       short: "Левая стопа",
-      controlHint: "← Наклон − · наклон + →",
+      controlHint: "← Наружный край вниз · вверх →",
       min: -30,
       max: 30,
       pivot: [25.5, 0, -71.5],
       axis: "y",
-      modelDirection: -1,
+      modelDirection: 1,
       parent: "leg_negative_x",
       meshes: ["foot_positive_x"],
     },
@@ -72,12 +72,12 @@ export const PROFILE = Object.freeze({
       id: "foot_positive_x",
       label: "Правая стопа",
       short: "Правая стопа",
-      controlHint: "← Наклон − · наклон + →",
+      controlHint: "← Наружный край вниз · вверх →",
       min: -30,
       max: 30,
       pivot: [-25.5, 0, -71.5],
       axis: "y",
-      modelDirection: -1,
+      modelDirection: 1,
       parent: "leg_positive_x",
       meshes: ["foot_negative_x"],
     },
@@ -85,10 +85,11 @@ export const PROFILE = Object.freeze({
 });
 
 export const MAX_FILE_BYTES = 2_000_000;
-// The right arm's existing robot/profile angle is negative when raised.
-// Keep persisted motions and firmware angles unchanged; flip only controls.
+// Positive controls raise the right arm / left foot's outer edge in the
+// model at negative robot angles. The foot mapping is a visual candidate
+// pending physical confirmation; persisted file/package angles stay unchanged.
 export const toControlAngle = (jointId, angle) => {
-  const value = jointId === "arm_positive_x" ? -angle : angle;
+  const value = ["arm_positive_x", "foot_negative_x"].includes(jointId) ? -angle : angle;
   return value === 0 ? 0 : value;
 };
 export const toRobotAngle = toControlAngle;
