@@ -180,6 +180,11 @@
   color: #dfe8f2;
   white-space: nowrap;
 }
+.live-speed-range {
+  display: block;
+  margin: 4px 0 6px;
+  color: #bbc7d7;
+}
 .live-hold-controls {
   display: flex;
   flex-direction: column;
