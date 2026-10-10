@@ -1,3 +1,4 @@
+import { liveSpeedLimit } from "../src/motion-speed.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -2377,8 +2378,8 @@ test("stored robot package panel fields include rich read-only metadata", () => 
   );
 });
 
-test("editor runs a stored robot package through the hardware runner", async () => {
-  const h = harness(editorCaps45);
+for (const working of [false, true]) test(`editor runs a stored robot package through the hardware runner (working=${working})`, async () => {
+  const h = harness(working ? workingCaps : editorCaps45);
   const socket = h.ready();
   const run = h.live.runStoredPackageInHardware("synthetic-test-key-only");
 
@@ -2436,7 +2437,7 @@ test("editor runs a stored robot package through the hardware runner", async () 
 
   const start = socket.sent.at(-1);
   assert.equal(start.op, "package_hardware_run_start");
-  assert.equal(start.speed_dps, 10, "stored execution keeps authored timing independently of manual Live speed");
+  assert.equal(start.speed_dps, working ? 60 : 10, "runner receives the robot ceiling; firmware also enforces the stored package ceiling");
   assert.equal(start.access_key, "synthetic-test-key-only");
   assert.equal(h.live.speed, 5, "manual setup retains its own speed");
   socket.receive({
@@ -2906,4 +2907,59 @@ test("local credential availability is metadata, not a secret, and package auth 
   assert.equal(s.sent.at(-1).op,"package_run_start");
   assert.equal(s.sent.at(-1).local_auth,true); assert.equal(s.sent.at(-1).access_key,undefined);
   h.live.disconnect(); await assert.rejects(p);
+});
+
+function workingCaps() {
+  const caps = editorCaps45();
+  return {...caps, speed_profile:"working-v1",
+    joint_limits:caps.joint_limits.map(j=>({...j,max_speed_dps:60}))};
+}
+test("working speed requires explicit firmware policy and respects the slowest joint", () => {
+  const caps = validateCapabilities(workingCaps());
+  assert.equal(caps.speed_profile,"working-v1");
+  assert.equal(liveSpeedLimit(caps),60);
+  const narrowed=workingCaps(); narrowed.joint_limits[1].max_speed_dps=30;
+  assert.equal(liveSpeedLimit(validateCapabilities(narrowed)),30);
+  assert.equal(liveSpeedLimit(validateCapabilities(editorCaps45())),10);
+  for (const change of [{speed_profile:undefined},{speed_profile:"future-v2"},
+    {speed_profile:null},{mode:"verified",calibrated:true}]) {
+    assert.throws(()=>validateCapabilities({...workingCaps(),...change}));
+  }
+  for (const speed of [61,Infinity,NaN,0,-1]) {
+    const bad=workingCaps(); bad.joint_limits[0].max_speed_dps=speed;
+    assert.throws(()=>validateCapabilities(bad));
+  }
+  assert.throws(()=>validateCapabilities({...rightArmCaps(true),speed_profile:"working-v1"}));
+});
+test("working manual speed is explicit, keeps pose until edited and still obeys STOP", () => {
+  const h=harness(workingCaps), socket=h.arm();
+  assert.equal(h.live.speed,5);
+  h.live.setSpeed(60);
+  assert.equal(socket.sent.some(m=>m.op==="pose"),false);
+  for (const speed of [61,0,Infinity,NaN]) assert.throws(()=>h.live.setSpeed(speed));
+  const target={...zeroPose(),leg_negative_x:12};
+  h.live.moveTo(target); h.advance(100);
+  assert.equal(socket.sent.at(-1).speed_dps,60);
+  h.ack(socket,{...zeroPose(),leg_negative_x:3});
+  h.live.stop();
+  assert.equal(socket.sent.at(-1).op,"stop");
+  const sid=h.live.sessionId;
+  socket.receive({protocol:LIVE_PROTOCOL,op:"stopped",session_id:sid,
+    commanded_pose:{...zeroPose(),leg_negative_x:3},measured_pose:null,tilt:null});
+  assert.equal(h.live.state,"ready");
+  assert.equal(h.live.lastTelemetry.commanded_pose.leg_negative_x,3);
+  assert.equal(h.live.target,null);
+  h.live.disconnect();
+  assert.equal(h.live.speed,10);
+  assert.ok(h.live.speed<=liveSpeedLimit(h.live.caps));
+});
+test("slow Live preview keeps the authored fast keyframes and duration unchanged", () => {
+  const caps=validateCapabilities(workingCaps());
+  const motion={...createMotion("Быстрый участок"),duration_ms:1000,interpolation:"linear",
+    keyframes:[{time_ms:0,pose:zeroPose()},{time_ms:500,pose:{...zeroPose(),leg_negative_x:30}},
+      {time_ms:1000,pose:zeroPose()}]};
+  const before=JSON.stringify(motion);
+  assert.equal(livePlaybackScale(motion,caps,5),1/12);
+  assert.equal(livePlaybackScale(motion,caps,60),1);
+  assert.equal(JSON.stringify(motion),before);
 });

@@ -1,3 +1,4 @@
+import { advertisedSpeedCeiling } from "./motion-speed.js";
 export const PROFILE = Object.freeze({
   id: "gosha-preview-v1",
   name: "Гоша",
@@ -250,7 +251,7 @@ export function validateRobotMotionCapabilities(value) {
       limit.max > joint.max ||
       !finite(limit.max_speed_dps) ||
       limit.max_speed_dps <= 0 ||
-      limit.max_speed_dps > 30
+      limit.max_speed_dps > advertisedSpeedCeiling(value)
     )
       fail("Пределы Live не совпадают с профилем модели Гоши.");
     return {
@@ -286,6 +287,7 @@ export function validateRobotMotionCapabilities(value) {
     watchdog_ms: value.watchdog_ms,
     max_rate_hz: value.max_rate_hz,
     joint_limits,
+    ...(value.speed_profile === undefined ? {} : { speed_profile: value.speed_profile }),
     commanded_pose,
   };
 }

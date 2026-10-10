@@ -421,3 +421,26 @@ test("robot package upload plan is bounded, deterministic and CRC checked", () =
     ),
   );
 });
+
+test("fast authored segments need working firmware and retain original time and angles", () => {
+  const caps=liveEditorCaps();
+  const working={...caps,speed_profile:"working-v1",
+    joint_limits:caps.joint_limits.map(j=>({...j,max_speed_dps:60}))};
+  const motion=motionFrom([[0,{}],[500,{leg_negative_x:30}],[1000,{}]],{interpolation:"linear"});
+  const before=JSON.stringify(motion);
+  assert.equal(prepareRobotMotionPackage(motion,caps).ok,false);
+  const result=prepareRobotMotionPackage(motion,working);
+  assert.equal(result.ok,true);
+  assert.equal(result.package.duration_ms,1000);
+  assert.equal(result.package.safety.max_required_speed_dps,60);
+  assert.deepEqual(result.package.keyframes.map(f=>f.time_ms),[0,500,1000]);
+  assert.equal(result.package.keyframes[1].target.leg_negative_x,30);
+  assert.ok(result.package.constraints.every(c=>c.max_speed_dps===60));
+  assert.equal(result.package.calibration_id,caps.calibration_id);
+  assert.equal(JSON.stringify(motion),before);
+  assert.equal(prepareRobotMotionPackage({...motion,interpolation:"smooth"},working).ok,false,
+    "smooth peak is 90 dps, above the declared 60 dps");
+  for (const speed_profile of [undefined,null,"future-v2"]) {
+    assert.throws(()=>prepareRobotMotionPackage(motion,{...working,speed_profile}));
+  }
+});

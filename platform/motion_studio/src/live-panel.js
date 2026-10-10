@@ -1,3 +1,4 @@
+import { liveSpeedLimit } from "./motion-speed.js";
 import { pwmDiagnosticText } from "./pwm-diagnostics.js";
 import {
   LiveSession,
@@ -392,7 +393,7 @@ export function mountLivePanel({
         <small>Цель готовится без движения. Робот двигается только пока удерживается кнопка.</small>
       </div>
     </details>
-    <div class="live-speed"><label>Скорость настройки <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /></div>
+    <div class="live-speed"><label>Скорость Live <output id="live-speed-value">10°/с</output></label><input id="live-speed" type="range" min="1" max="15" step="1" value="10" aria-label="Скорость Live в градусах в секунду" /><small>Ручное управление и проверка. Темп сохранённого движения задаётся временем поз на шкале.</small></div>
     <div class="live-hold-controls"><button id="live-hold" class="button live-hold" disabled>Удерживать → текущая поза</button><button id="live-run" class="button quiet" disabled>Удерживать → всё движение</button><small id="live-hold-hint">Подключите робота, чтобы узнать доступный способ управления.</small></div>
     <details class="live-details live-package-details">
       <summary>Пакет в роботе</summary>
@@ -806,7 +807,7 @@ export function mountLivePanel({
     byId("live-speed-value").textContent = `${state.speed}°/с`;
     byId("live-speed").value = state.speed;
     byId("live-speed").disabled = Boolean(state.caps?.commissioning);
-    byId("live-speed").max = isEditorMode(state) ? Math.min(10,...state.caps.joint_limits.map(j=>j.max_speed_dps)) : 15;
+    byId("live-speed").max = liveSpeedLimit(state.caps);
     const packageReadable =
       ["ready", "init_required"].includes(state.state) &&
       isEditorMode(state) &&

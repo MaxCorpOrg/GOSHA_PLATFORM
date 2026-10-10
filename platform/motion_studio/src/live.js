@@ -1,3 +1,4 @@
+import { advertisedSpeedCeiling, liveSpeedLimit } from "./motion-speed.js";
 import { normalizePwmDiagnostics } from "./pwm-diagnostics.js";
 import { PROFILE, prepareRobotPackageUpload, validatePose } from "./motion.js";
 
@@ -376,7 +377,7 @@ export function validateCapabilities(data) {
     assert(
       finite(limit.max_speed_dps) &&
         limit.max_speed_dps > 0 &&
-        limit.max_speed_dps <= 30,
+        limit.max_speed_dps <= advertisedSpeedCeiling(data),
       "Нужен ограниченный режим скорости приводов.",
     );
     return {
@@ -389,8 +390,8 @@ export function validateCapabilities(data) {
   const commanded_pose = validatePose(data.commanded_pose);
   if (editorMode) {
     assert(data.watchdog_ms === 300 && joint_limits.length === RIGHT_ARM_COMMISSIONING_JOINTS.length &&
-      joint_limits.every((limit) => RIGHT_ARM_COMMISSIONING_JOINTS.includes(limit.id) && limit.max_speed_dps >= 1 && limit.max_speed_dps <= 10),
-      "Профиль редактора должен содержать подключённую правую руку, ноги и стопы, скорость до 10°/с.");
+      joint_limits.every((limit) => RIGHT_ARM_COMMISSIONING_JOINTS.includes(limit.id) && limit.max_speed_dps >= 1 && limit.max_speed_dps <= advertisedSpeedCeiling(data, 10)),
+      "Профиль редактора должен содержать подключённую правую руку, ноги и стопы, скорость в пределах объявленного профиля.");
   }
   if (commissioning) {
     validateCommissioningLimits(mode, joint_limits, data.watchdog_ms);
@@ -414,6 +415,7 @@ export function validateCapabilities(data) {
     watchdog_ms: data.watchdog_ms,
     max_rate_hz: data.max_rate_hz,
     joint_limits,
+    ...(data.speed_profile === undefined ? {} : { speed_profile: data.speed_profile }),
     commanded_pose,
     pwm_diagnostics: normalizePwmDiagnostics(data.pwm_diagnostics),
     package_features: normalizePackageFeatures(data.package_features),
@@ -1154,7 +1156,7 @@ export class LiveSession {
           op: "package_hardware_run_start",
           access_key: key,
           // Execute the authored timing. The Live slider only controls manual setup.
-          speed_dps: Math.min(10, ...this.caps.joint_limits.map((joint) => joint.max_speed_dps)),
+          speed_dps: liveSpeedLimit(this.caps),
         },
         ["hardware_run_started"],
         5000,
@@ -1528,12 +1530,12 @@ export class LiveSession {
   }
   setSpeed(value) {
     assert(
-      finite(value) && value >= 1 && value <= 15,
-      "Скорость настройки должна быть от 1 до 15°/с.",
+      finite(value) && value >= 1 && value <= liveSpeedLimit(this.caps),
+      `Скорость Live должна быть от 1 до ${liveSpeedLimit(this.caps)}°/с.`,
     );
     assert(!this.caps?.commissioning || value === 1,
       "При первичной проверке скорость фиксирована: 1°/с.");
-    assert(this.caps?.mode !== MOTION_EDITOR_MODE || value <= Math.min(10,...this.caps.joint_limits.map(j=>j.max_speed_dps)), "Скорость выше предела редактора.");
+    assert(this.caps?.mode !== MOTION_EDITOR_MODE || value <= liveSpeedLimit(this.caps), "Скорость выше предела редактора.");
     this.speed = value;
     this.onChange(this.snapshot());
   }
@@ -1758,6 +1760,8 @@ export class LiveSession {
     if (this.socket) this.fail("Соединение закрыто.", false);
     this.generation++;
     this.caps = null;
+    // A disconnected UI has no working-speed capability until the next hello.
+    if (this.speed > 15) this.speed = 10;
     this.sessionId = null;
     this.deadline = null;
     this.lastTelemetry = null;
