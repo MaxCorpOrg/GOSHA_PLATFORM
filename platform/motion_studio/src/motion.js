@@ -85,9 +85,9 @@ export const PROFILE = Object.freeze({
 });
 
 export const MAX_FILE_BYTES = 2_000_000;
-// Positive controls raise the right arm / left foot's outer edge in the
-// model at negative robot angles. The foot mapping is a visual candidate
-// pending physical confirmation; persisted file/package angles stay unchanged.
+// Positive controls raise the right arm / left foot's outer edge at negative
+// robot angles. Keep persisted file/package angles in the existing robot
+// convention; this conversion changes only how the controls display them.
 export const toControlAngle = (jointId, angle) => {
   const value = ["arm_positive_x", "foot_negative_x"].includes(jointId) ? -angle : angle;
   return value === 0 ? 0 : value;
