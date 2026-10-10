@@ -1,6 +1,7 @@
 import { pwmDiagnosticText } from "./pwm-diagnostics.js";
 import {
   LiveSession,
+  LOCAL_BRIDGE_AUTH,
   RIGHT_ARM_COMMISSIONING_MODE,
   MOTION_EDITOR_MODE,
   commissioningDeltaLimit,
@@ -213,7 +214,7 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
     return {min:limit?.min ?? joint.min,max:limit?.max ?? joint.max,command,
       target,value:editingJoint === jointId ? target : command,available,numberEditable:true,
       disabled:!available || state.state !== "armed",
-      reason:!available ? "Привод недоступен для Live · только 3D" : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : "Выберите угол · все суставы в одной сессии"};
+      reason:!available ? "Привод недоступен для Live · только 3D" : state.caps.initialization_required ? "Нажмите «Подключить и управлять»" : state.state !== "armed" ? "Нажмите «Подключить и управлять»" : "Выберите угол · все суставы в одной сессии"};
   }
   const view = available ? liveSliderViewModel(state, jointId, activeStep, activeSliderJoint) : null;
   const command = currentCommandedPose(state)?.[jointId] ?? 0;
@@ -225,7 +226,7 @@ export function liveInspectorJointViewModel(state, jointId, activeStep = null, a
     value: ownView ? view.value : command,
     disabled: !available || !ownView || view.disabled,
     available,
-    reason: !state.caps ? "Подключите робота" : !available ? (!limit ? "Отключён в прошивке · настройка доступна в 3D" : "Нет связи с роботом") : state.caps.initialization_required ? "Сначала включите руку" : state.state !== "armed" ? "Откройте сессию слева" : !ownView ? "Нажмите название сустава для переключения" : "Выберите угол · удерживать не нужно",
+    reason: !state.caps ? "Подключите робота" : !available ? (!limit ? "Отключён в прошивке · настройка доступна в 3D" : "Нет связи с роботом") : state.caps.initialization_required ? "Нажмите «Подключить и управлять»" : state.state !== "armed" ? "Нажмите «Подключить и управлять»" : !ownView ? "Нажмите название сустава для переключения" : "Выберите угол · удерживать не нужно",
   };
 }
 
@@ -354,6 +355,11 @@ export function mountLivePanel({
     <div class="live-primary">
       <div class="live-connection-state"><span id="live-dot"></span><strong id="live-state">Не подключён</strong></div>
       <p id="live-reason" class="live-reason">Подключите робота с поддержкой Live.</p>
+      <button id="live-arm" class="button accent">Подключить и управлять</button>
+      <button id="live-connect" class="button quiet" hidden>Отключить</button>
+      <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
+      <small id="live-start-note">Подключение включает удержание приводов. Дальше выберите сустав и двигайте ползунок.</small>
+      <details id="live-settings" class="live-details"><summary>Параметры подключения</summary>
       <div class="live-transport" role="group" aria-label="Транспорт Live"><button id="live-transport-usb" type="button" aria-pressed="true">USB</button><button id="live-transport-wifi" type="button" aria-pressed="false">Wi-Fi</button></div>
       <div id="live-usb-controls" class="live-usb-controls">
         <label class="live-field">USB-порт<select id="live-usb-port"></select></label>
@@ -363,8 +369,10 @@ export function mountLivePanel({
       <div id="live-wifi-controls" hidden>
         <label class="live-field">Адрес робота<input id="live-host" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gosha.local" /></label>
       </div>
-      <button id="live-connect" class="button">Подключить по USB</button>
-      <div id="live-auth" hidden><label class="live-field">Ключ Live<input id="live-key" type="password" autocomplete="off" placeholder="16+ символов" maxlength="128" /></label><button id="live-init-right-arm" class="button accent" hidden>Включить правую руку</button><button id="live-arm" class="button accent">Открыть сессию</button></div>
+      <button id="live-read" class="button quiet">Подключить только для чтения</button>
+      <div id="live-auth"><label class="live-field">Ключ Live<input id="live-key" type="password" autocomplete="off" placeholder="16+ символов" maxlength="128" /></label></div>
+      <small id="live-local-auth" hidden>Ключ настроен на этом компьютере.</small>
+      </details>
     </div>
     <div id="live-joint-picker" class="live-joint-picker" hidden>
       <div class="live-step-title"><h3>Сустав</h3><span>один за сессию</span></div>
@@ -408,7 +416,6 @@ export function mountLivePanel({
       <button id="live-package-refresh" class="button quiet" type="button">Обновить статус</button>
       <small id="live-package-note">Отображается active payload в роботе.</small>
     </details>
-    <button id="live-stop" class="button live-stop" disabled>■ СТОП</button>
     <details class="live-details">
       <summary>Пояснения и режим</summary>
       <p id="live-commissioning-note" class="live-reason" hidden>Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.</p>
@@ -483,11 +490,11 @@ export function mountLivePanel({
   const states = {
     disconnected: "Не подключён",
     connecting: "Проверка связи",
-    init_required: "Нужно включить руку",
-    initializing_right_arm: "Включаем руку",
-    ready: "Готов к сессии",
+    init_required: "Готов к управлению",
+    initializing_right_arm: "Подключаем управление",
+    ready: "Подключён",
     arming: "Проверка доступа",
-    armed: "Сессия открыта",
+    armed: "Управление включено",
     stopping: "Останавливаем",
     hardware_starting: "Запускаем пакет",
     hardware_running: "Пакет выполняется",
@@ -498,6 +505,8 @@ export function mountLivePanel({
   const isRightArmMode = (state) =>
     state.caps?.mode === RIGHT_ARM_COMMISSIONING_MODE;
   const selectedUsbPort = () => byId("live-usb-port").value;
+  const hasLocalKey = () => transport === "usb" && usbPorts.some(port => port.port_id === selectedUsbPort() && port.local_auth);
+  const accessKey = () => hasLocalKey() ? LOCAL_BRIDGE_AUTH : byId("live-key").value;
   const canChangeTransport = (state) =>
     ["disconnected", "fault"].includes(state.state);
   const activeJointIds = (state) =>
@@ -546,7 +555,7 @@ export function mountLivePanel({
       activeStep,
       activeSliderJoint,
     );
-    picker.hidden = !view.visible;
+    picker.hidden = !view.visible || isEditorMode(state);
     details.hidden = !view.visible || isEditorMode(state);
     picker.querySelector(".live-step-title span").textContent = isEditorMode(state) ? "все в одной сессии" : "один за сессию";
     step.hidden = !view.visible;
@@ -569,9 +578,9 @@ export function mountLivePanel({
     byId("live-slider-gate").textContent = state.state === "armed"
       ? "Выберите сустав и задайте угол ползунком справа. Отключённый привод доступен только в 3D."
       : state.state === "ready"
-        ? "Ползунки справа заблокированы. Введите ключ Live выше и нажмите «Начать управление»."
+        ? "Нажмите «Подключить и управлять» — станут доступны все подключённые суставы."
         : state.state === "init_required"
-          ? "Сначала включите правую руку с ключом Live; затем откройте управление."
+          ? "Нажмите «Подключить и управлять». Подготовка приводов выполняется автоматически."
           : "Ползунки станут доступны после открытия сессии управления.";
     if (!view.visible || !view.active.length) {
       activeStep = null;
@@ -656,7 +665,7 @@ export function mountLivePanel({
     try {
       usbPorts = await listUsbBridgePorts();
       usbMessage = usbPorts.length
-        ? "Найденный порт не открывается до нажатия «Подключить по USB»."
+        ? "Робот найден. Нажмите «Подключить и управлять»."
         : "USB 303a:1001 не найден. Проверьте кабель и обновите список.";
     } catch (e) {
       usbPorts = [];
@@ -669,9 +678,12 @@ export function mountLivePanel({
   function render(state) {
     if (["disconnected", "fault"].includes(state.state)) catalogReadAttempted = false;
     if (!catalogReadAttempted && isEditorMode(state) &&
-        ["ready", "init_required"].includes(state.state) && !state.packagePending) {
+        ["ready", "init_required"].includes(state.state) && !state.packagePending && !state.startingControl) {
       catalogReadAttempted = true;
-      Promise.resolve().then(() => session.readStoredPackage()).catch((error) => notify(error.message, true));
+      Promise.resolve().then(() => {
+        if (session.controlStart || !["ready", "init_required"].includes(session.state)) { catalogReadAttempted = false; return; }
+        return session.readStoredPackage();
+      }).catch((error) => notify(error.message, true));
     }
     connectionState = state;
     if (["fault", "disconnected"].includes(state.state)) pendingJoint = null;
@@ -715,9 +727,15 @@ export function mountLivePanel({
       : state.state === "fault"
         ? "fault"
         : "";
-    byId("live-reason").textContent = state.state === "ready" && isEditorMode(state)
-      ? "Робот подключён. Введите ключ Live и нажмите «Начать управление» — затем заработают ползунки справа."
-      : state.reason;
+    byId("live-reason").textContent = state.startingControl
+      ? "Подключаем управление всеми доступными суставами…"
+      : state.state === "ready" && state.reason.includes("Робот подтвердил остановку")
+        ? "Робот подтвердил остановку. Для продолжения нажмите «Подключить и управлять»."
+      : ["ready", "init_required"].includes(state.state)
+        ? "Нажмите «Подключить и управлять», затем выберите любой доступный сустав."
+        : state.state === "disconnected"
+          ? "Подключите робота и управляйте ползунками справа."
+          : state.reason;
     renderUsbPorts();
     byId("live-transport-usb").setAttribute(
       "aria-pressed",
@@ -735,38 +753,22 @@ export function mountLivePanel({
       !canChangeTransport(state) || usbLoading;
     byId("live-usb-port").disabled = !canChangeTransport(state) || usbLoading;
     byId("live-usb-status").textContent = usbMessage;
-    const keyReady = byId("live-key").value.length >= 16;
-    const rightArmInitState = ["init_required", "initializing_right_arm"].includes(
-      state.state,
-    );
-    byId("live-auth").hidden = ![
-      "init_required",
-      "initializing_right_arm",
-      "ready",
-      "arming",
-    ].includes(state.state);
-    byId("live-init-right-arm").hidden = !(
-      rightArmInitState && keyReady
-    );
-    byId("live-init-right-arm").disabled =
-      state.state !== "init_required" || !keyReady || state.packagePending;
-    byId("live-arm").hidden = rightArmInitState;
-    byId("live-arm").textContent = isEditorMode(state) ? "Начать управление" : `Открыть сессию: ${jointById(selectedLiveJoint(state)).label}`;
-    byId("live-arm").disabled = state.state !== "ready" || !keyReady || state.packagePending || state.hardwareRunning;
+    const keyReady = accessKey().length >= 16;
+    const rightArmInitState = ["init_required", "initializing_right_arm"].includes(state.state);
+    const disconnected = ["disconnected", "fault"].includes(state.state);
+    const canStart = ["disconnected", "fault", "ready", "init_required"].includes(state.state);
+    byId("live-auth").hidden = hasLocalKey();
+    byId("live-local-auth").hidden = !hasLocalKey();
+    byId("live-arm").textContent = state.state === "armed" ? "Управление включено"
+      : state.startingControl ? "Подключаем…" : "Подключить и управлять";
+    byId("live-arm").hidden = state.state === "armed";
+    byId("live-start-note").hidden = state.state === "armed";
+    byId("live-arm").disabled = !canStart || state.startingControl || state.packagePending ||
+      state.hardwareRunning || (transport === "usb" && (!selectedUsbPort() || usbLoading));
     byId("live-host").disabled = !canChangeTransport(state);
-    byId("live-connect").textContent = ["disconnected", "fault"].includes(
-      state.state,
-    )
-      ? transport === "usb"
-        ? "Подключить по USB"
-        : "Подключить по Wi-Fi"
-      : "Отключить";
-    byId("live-connect").setAttribute("aria-label", byId("live-connect").textContent);
-    byId("live-connect").disabled =
-      state.state === "stopping" ||
-      (transport === "usb" &&
-        ["disconnected", "fault"].includes(state.state) &&
-        !selectedUsbPort());
+    byId("live-connect").hidden = disconnected;
+    byId("live-connect").disabled = state.state === "stopping";
+    byId("live-read").disabled = !disconnected || (transport === "usb" && !selectedUsbPort());
     byId("live-hold").textContent = isEditorMode(state) ? "Перейти к позе на шкале" : isRightArmMode(state)
       ? "Текущая поза недоступна"
       : "Удерживать → текущая поза";
@@ -776,14 +778,14 @@ export function mountLivePanel({
       ? "Подключите робота, чтобы узнать доступный способ управления."
       : isRightArmMode(state)
         ? rightArmInitState
-          ? "Сначала проверьте положение руки и включите её отдельной кнопкой. Шаги станут доступны после подтверждения включения."
+          ? "Нажмите «Подключить и управлять»."
           : `Выберите угол ползунком справа. Робот дойдёт до него при 1°/с; сессия останется открытой. STOP закрывает сессию.`
         : "Удерживайте пробел, чтобы менять ползунки с движением робота. Отпускание завершает сессию.";
     byId("live-run").disabled = state.state !== "armed" || Boolean(state.caps?.commissioning);
     byId("live-commissioning-note").hidden = !state.caps?.commissioning;
     const rightStep = rightArmStepSize(state);
     byId("live-commissioning-note").textContent = isRightArmMode(state)
-      ? `Проверка правой руки: перед первым тестом рука включается отдельной кнопкой. Текущий диапазон правой руки ${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").min}…${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").max}°; направление модели проверяет оператор.`
+      ? `Проверка правой руки: подключение включает удержание руки. Текущий диапазон правой руки ${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").min}…${state.caps.joint_limits.find((limit) => limit.id === "arm_positive_x").max}°; направление модели проверяет оператор.`
       : "Первичная проверка приводов: один сустав за сессию, только ±1°. Сторона и направление в модели ещё не подтверждены. Поддерживайте корпус и наблюдайте реальный привод.";
     byId("live-copy-pose").hidden =
       !state.caps?.commissioning || state.caps.initialization_required;
@@ -800,7 +802,7 @@ export function mountLivePanel({
       "hardware_starting",
       "hardware_running",
       "hardware_stopping",
-    ].includes(state.state);
+    ].includes(state.state) && !state.startingControl;
     byId("live-speed-value").textContent = `${state.speed}°/с`;
     byId("live-speed").value = state.speed;
     byId("live-speed").disabled = Boolean(state.caps?.commissioning);
@@ -808,7 +810,7 @@ export function mountLivePanel({
     const packageReadable =
       ["ready", "init_required"].includes(state.state) &&
       isEditorMode(state) &&
-      !state.packagePending;
+      !state.packagePending && !state.startingControl;
     const packageWritable = packageReadable;
     byId("live-package-refresh").disabled = !packageReadable;
     const storedPackage = state.storedPackage;
@@ -953,8 +955,8 @@ export function mountLivePanel({
             ? "Live · ждём остановку"
             : state.state === "fault"
               ? "Live · нет подтверждения"
-              : state.state === "init_required"
-                ? "Live · включение руки"
+              : state.startingControl
+                ? "Live · подключение"
               : "Live · ожидание сессии"
         : "3D-предпросмотр",
     );
@@ -1029,17 +1031,20 @@ export function mountLivePanel({
     render(session.snapshot());
   };
   byId("live-usb-refresh").onclick = refreshUsbPorts;
-  byId("live-connect").onclick = () =>
-    guarded(() => {
-      if (!["disconnected", "fault"].includes(session.state))
-        session.requestDisconnect();
-      else if (transport === "usb") session.connectUsb(selectedUsbPort());
-      else session.connect(byId("live-host").value);
-    });
-  byId("live-arm").onclick = () =>
-    guarded(() => session.arm(byId("live-key").value));
-  byId("live-init-right-arm").onclick = () =>
-    guarded(() => session.initializeRightArm(byId("live-key").value));
+  byId("live-connect").onclick = () => guarded(() => session.requestDisconnect());
+  byId("live-read").onclick = () => guarded(() => {
+    if (transport === "usb") session.connectUsb(selectedUsbPort());
+    else session.connect(byId("live-host").value);
+  });
+  byId("live-arm").onclick = () => guarded(() => {
+    if (accessKey().length < 16) {
+      byId("live-settings").open = true;
+      byId("live-key").focus();
+      throw new Error("На этом компьютере ещё не настроен ключ Live. Введите его в параметрах подключения.");
+    }
+    session.startControl({ transport, portId: selectedUsbPort(), host: byId("live-host").value, key: accessKey() });
+  });
+  byId("live-usb-port").onchange = () => render(session.snapshot());
   byId("live-key").oninput = () => render(session.snapshot());
   byId("live-package-refresh").onclick = () =>
     guarded(async () => {
@@ -1055,7 +1060,7 @@ export function mountLivePanel({
       const packageId = byId("live-package-select").value;
       const { storedPackage } = await session.selectStoredPackage(
         packageId,
-        byId("live-key").value,
+        accessKey(),
       );
       notify(`Активный пакет: ${storedPackage.name}.`);
     });
@@ -1069,7 +1074,7 @@ export function mountLivePanel({
       )
         return;
       const { storedPackage } = await session.deleteStoredPackage(
-        byId("live-key").value,
+        accessKey(),
         packageId,
       );
       notify(
@@ -1353,25 +1358,25 @@ export function mountLivePanel({
     },
     play() { if (running) release("Воспроизведение остановлено."); else start(true); },
     uploadPackage(packageDraft) {
-      return session.uploadPackageDraft(packageDraft, byId("live-key").value);
+      return session.uploadPackageDraft(packageDraft, accessKey());
     },
     readStoredPackage() {
       return session.readStoredPackage();
     },
     selectStoredPackage(packageId) {
-      return session.selectStoredPackage(packageId, byId("live-key").value);
+      return session.selectStoredPackage(packageId, accessKey());
     },
     verifyStoredPackage(packageId) {
-      return session.verifyStoredPackage(byId("live-key").value, packageId);
+      return session.verifyStoredPackage(accessKey(), packageId);
     },
     runStoredPackageInHardware(packageId) {
-      return session.runStoredPackageInHardware(byId("live-key").value, { packageId });
+      return session.runStoredPackageInHardware(accessKey(), { packageId });
     },
     deleteStoredPackage(packageId) {
-      return session.deleteStoredPackage(byId("live-key").value, packageId);
+      return session.deleteStoredPackage(accessKey(), packageId);
     },
     deleteSelectedStoredPackage(packageId) {
-      return session.deleteStoredPackage(byId("live-key").value, packageId);
+      return session.deleteStoredPackage(accessKey(), packageId);
     },
     requestJointSelection(id) {
       if (!enabled || id === getJoint()) return true;

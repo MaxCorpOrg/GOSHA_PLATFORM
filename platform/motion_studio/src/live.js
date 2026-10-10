@@ -4,6 +4,8 @@ import { PROFILE, prepareRobotPackageUpload, validatePose } from "./motion.js";
 export const LIVE_PROTOCOL = "gosha.motion.live.v1";
 export const USB_BRIDGE_HTTP_URL = "http://127.0.0.1:5177";
 export const USB_BRIDGE_WS_URL = "ws://127.0.0.1:5177/live";
+// A non-secret marker. Only the local USB bridge owns the actual credential.
+export const LOCAL_BRIDGE_AUTH = "__gosha_local_usb_key__";
 export const RIGHT_ARM_INITIALIZATION_REASON =
   "right_arm_initialization_required";
 export const MOTION_EDITOR_MODE = "motion_editor";
@@ -212,7 +214,8 @@ function normalizeUsbBridgePort(port) {
       !port.label.includes("/") &&
       port.vid === "303a" &&
       port.pid === "1001" &&
-      (port.busy === undefined || typeof port.busy === "boolean"),
+      (port.busy === undefined || typeof port.busy === "boolean") &&
+      (port.local_auth === undefined || typeof port.local_auth === "boolean"),
     "Локальная служба USB вернула неподдерживаемое устройство.",
   );
   return {
@@ -221,6 +224,7 @@ function normalizeUsbBridgePort(port) {
     vid: port.vid,
     pid: port.pid,
     busy: port.busy === true,
+    ...(port.local_auth === true ? { local_auth: true } : {}),
   };
 }
 
@@ -457,6 +461,7 @@ export class LiveSession {
     this.commissioningStartPose = null;
     this.commissioningJoint = null;
     this.commandLog = [];
+    this.controlStart = null;
     this.transport = "wifi";
     this.socketErrorReason =
       "Не удалось соединиться. Проверьте адрес, Wi-Fi и поддержку Live в прошивке.";
@@ -466,6 +471,7 @@ export class LiveSession {
   snapshot() {
     return {
       state: this.state,
+      startingControl: Boolean(this.controlStart),
       reason: this.reason,
       transport: this.transport,
       caps: this.caps,
@@ -503,10 +509,53 @@ export class LiveSession {
     this.state = state;
     this.reason = reason;
     this.onChange(this.snapshot());
+    const intent = this.controlStart;
+    if (intent) queueMicrotask(() => this.advanceControlStart(intent));
+  }
+  startControl({ transport = this.transport, portId, host, key } = {}) {
+    if (this.controlStart) return;
+    assert(["disconnected", "fault", "ready", "init_required"].includes(this.state),
+      "Дождитесь остановки текущего управления.");
+    assert(!this.packageRequest && !this.hardwareRun, "Дождитесь окончания операции пакета.");
+    assert(typeof key === "string" && key.length >= 16 && key.length <= 128,
+      "Настройте ключ Live в параметрах подключения один раз.");
+    assert(key !== LOCAL_BRIDGE_AUTH || transport === "usb",
+      "Локальный ключ доступен только через USB.");
+    if (["disconnected", "fault"].includes(this.state)) {
+      if (transport === "usb") this.connectUsb(portId);
+      else this.connect(host);
+    }
+    if (["disconnected", "fault"].includes(this.state)) return;
+    const intent = { generation: this.generation, key };
+    this.controlStart = intent;
+    // Never apply the editor's old pose when opening control.
+    this.target = null;
+    this.holding = false;
+    this.following = false;
+    this.onChange(this.snapshot());
+    queueMicrotask(() => this.advanceControlStart(intent));
+  }
+  advanceControlStart(intent) {
+    if (this.controlStart !== intent || this.generation !== intent.generation) return;
+    try {
+      if (this.state === "init_required") this.initializeRightArm(intent.key);
+      else if (this.state === "ready") this.arm(intent.key);
+      else if (this.state === "armed") {
+        this.controlStart = null;
+        this.onChange(this.snapshot());
+      }
+    } catch (error) {
+      this.fail(error.message);
+    }
   }
   send(message) {
     assert(this.socket?.readyState === 1, "Соединение с роботом потеряно.");
     assert(this.socket.bufferedAmount < 4096, "Канал управления перегружен.");
+    if (message.access_key === LOCAL_BRIDGE_AUTH) {
+      assert(this.transport === "usb", "Локальный ключ доступен только через USB.");
+      const { access_key, ...rest } = message;
+      message = { ...rest, local_auth: true };
+    }
     this.socket.send(JSON.stringify({ protocol: LIVE_PROTOCOL, ...message }));
     this.appendLog("sent", message.op, summarizeMessage(message));
     this.onChange(this.snapshot());
@@ -1555,7 +1604,7 @@ export class LiveSession {
   }
   release(reason = "Разрешение движения отпущено.") {
     this.holding = false;
-    if (this.state === "armed" || this.hardwareRun) this.stop(reason);
+    if (this.controlStart || this.state === "armed" || this.hardwareRun) this.stop(reason);
   }
   tick() {
     const now = this.now();
@@ -1615,6 +1664,12 @@ export class LiveSession {
     }
   }
   stop(reason = "Остановка запрошена.") {
+    const starting = Boolean(this.controlStart);
+    this.controlStart = null;
+    if (starting && ["connecting", "ready", "init_required"].includes(this.state)) {
+      this.disconnect("Подключение отменено. Для управления нажмите «Подключить и управлять».");
+      return;
+    }
     if (this.hardwareRun) { this.stopHardwareRun(reason); return; }
     this.stopReason = reason;
     this.holding = false;
@@ -1644,6 +1699,7 @@ export class LiveSession {
     }
   }
   fail(reason, emitChange = true) {
+    this.controlStart = null;
     if (this.hardwareRun) this.hardwareRun.cancelled = true;
     const socket = this.socket;
     const sessionId = this.sessionId;
@@ -1680,6 +1736,7 @@ export class LiveSession {
     if (emitChange) this.change("fault", reason);
   }
   requestDisconnect() {
+    this.controlStart = null;
     if (this.hardwareRun) { this.closeAfterStop = true; this.stop("Отключение."); return; }
     if (this.state === "initializing_right_arm") {
       this.fail(
@@ -1697,6 +1754,7 @@ export class LiveSession {
   // Forced teardown is reserved for page disposal and cancelling a pending ARM.
   // User-initiated exits use requestDisconnect and wait for STOP acknowledgement.
   disconnect(reason = "Робот не подключён.") {
+    this.controlStart = null;
     if (this.socket) this.fail("Соединение закрыто.", false);
     this.generation++;
     this.caps = null;

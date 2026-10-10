@@ -9,6 +9,8 @@ import serial
 import termios
 import threading
 import time
+import tempfile
+from pathlib import Path
 import unittest
 from types import SimpleNamespace
 
@@ -386,6 +388,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         serial_writer=None,
         hello_timeout=0.2,
         extra_origins=(),
+        local_keys=None,
     ):
         if infos is None:
             infos = [port_info()]
@@ -400,6 +403,7 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
             serial_factory=serial_factory,
             serial_writer=serial_writer,
             hello_timeout=hello_timeout,
+            local_keys=local_keys,
         )
         server = TestServer(app)
         await server.start_server()
@@ -424,6 +428,33 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
             async with client.options(server.make_url("/ports"), headers={"Origin": "https://foreign.test", "Access-Control-Request-Private-Network": "true"}) as response:
                 self.assertEqual(response.status, 403)
         self.assertEqual(opened, [])
+
+    async def test_local_credential_is_never_returned_to_browser_and_is_injected_only_on_wire(self):
+        info = port_info()
+        port_id = list_allowed_ports(lambda: [info])[0].port_id
+        secret = "synthetic-private-usb-key"
+        fake = FakeSerial()
+        server = await self.start_bridge(infos=[info], serial_factory=lambda _: fake,
+                                         local_keys={port_id: secret})
+        async with ClientSession(headers={"Origin": ORIGIN}) as client:
+            async with client.get(server.make_url("/ports")) as response:
+                body = await response.text()
+                self.assertNotIn(secret, body)
+                self.assertTrue(json.loads(body)["ports"][0]["local_auth"])
+        self.assertEqual(fake.writes, [])
+        ws = await self.ws_connect(server, port_id)
+        await ws.send_json({"protocol": LIVE_PROTOCOL, "op": "hello", "request_id": "hello"})
+        self.assertNotIn(secret, (await ws.receive(timeout=1)).data)
+        await ws.send_json({"protocol": LIVE_PROTOCOL, "op": "arm", "request_id": "arm", "local_auth": True})
+        self.assertTrue(await wait_for_condition(lambda: len(fake.writes) == 2))
+        request = json.loads(fake.writes[-1][len(WIRE_PREFIX):])
+        self.assertEqual(request["access_key"], secret)
+        self.assertNotIn("local_auth", request)
+        await ws.send_json({"protocol": LIVE_PROTOCOL, "op": "pose", "local_auth": True})
+        error = await ws.receive(timeout=1)
+        self.assertNotIn(secret, error.data)
+        self.assertEqual(json.loads(error.data)["code"], "usb_local_auth_unavailable")
+        self.assertEqual(len(fake.writes), 2)
 
     async def ws_connect(self, server: TestServer, port_id: str):
         session = ClientSession(headers={"Origin": ORIGIN})
@@ -704,6 +735,48 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         message = await second.receive(timeout=1)
         self.assertEqual(json.loads(message.data)["code"], "usb_port_busy")
         await first.close()
+
+
+
+class LocalCredentialTests(unittest.TestCase):
+    def test_local_auth_is_port_bound_and_limited_to_authenticated_operations(self):
+        key = 'synthetic-private-usb-key'
+        keys = {'a' * 24: key}
+        for op in bridge.LOCAL_AUTH_OPS:
+            data, line = bridge.apply_local_auth({'protocol': LIVE_PROTOCOL, 'op': op, 'local_auth': True}, 'a' * 24, keys)
+            self.assertEqual(data['access_key'], key)
+            self.assertNotIn('local_auth', data)
+            self.assertIn(key.encode(), line)
+        for patch, port in [({'op': 'hello'}, 'a' * 24), ({'op': 'pose'}, 'a' * 24),
+                            ({}, 'b' * 24), ({'local_auth': False}, 'a' * 24),
+                            ({'access_key': key}, 'a' * 24)]:
+            with self.assertRaises(BridgeError):
+                bridge.apply_local_auth({'protocol': LIVE_PROTOCOL, 'op': 'arm', 'local_auth': True, **patch}, port, keys)
+        data, _ = bridge.apply_local_auth({'protocol': LIVE_PROTOCOL, 'op': 'arm', 'access_key': key}, 'b' * 24, {})
+        self.assertEqual(data['access_key'], key)  # unchanged explicit-key compatibility
+
+    def test_injected_credentials_are_included_in_wire_size_limit(self):
+        request = {'protocol': LIVE_PROTOCOL, 'op': 'arm', 'local_auth': True, 'padding': ''}
+        request['padding'] = 'x' * (bridge.REQUEST_JSON_MAX - len(json.dumps(request, separators=(',', ':'))))
+        bridge._validate_request(json.dumps(request, separators=(',', ':')))
+        with self.assertRaises(BridgeError) as caught:
+            bridge.apply_local_auth(request, 'a' * 24, {'a' * 24: 'x' * 128})
+        self.assertEqual(caught.exception.code, 'usb_bridge_request_too_large')
+
+    def test_config_is_private_and_malformed_keys_fail_closed_without_disclosure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'auth.json'
+            self.assertEqual(bridge.load_local_keys(path), {})
+            secret = 'synthetic-private-usb-key'
+            path.write_text(json.dumps({'port_keys': {'a' * 24: secret}})); path.chmod(0o600)
+            self.assertEqual(bridge.load_local_keys(path), {'a' * 24: secret})
+            for mode, data in [(0o644, {'port_keys': {'a' * 24: secret}}),
+                               (0o600, {'port_keys': {'wrong-port': secret}}),
+                               (0o600, {'port_keys': {'a' * 24: 'short'}})]:
+                path.write_text(json.dumps(data)); path.chmod(mode)
+                with self.assertRaises(ValueError) as caught:
+                    bridge.load_local_keys(path)
+                self.assertNotIn(secret, str(caught.exception))
 
 
 if __name__ == "__main__":

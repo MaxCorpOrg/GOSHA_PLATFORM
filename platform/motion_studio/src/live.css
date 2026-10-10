@@ -59,10 +59,7 @@
 .live-panel.live-connected {
   gap: 8px;
 }
-.live-panel.live-connected .live-heading,
-.live-panel.live-connected .live-transport,
-.live-panel.live-connected .live-usb-controls,
-.live-panel.live-connected #live-wifi-controls {
+.live-panel.live-connected .live-heading {
   display: none;
 }
 .live-panel.live-connected .live-primary {
@@ -510,3 +507,5 @@
 
 .live-row-note { display: block; color: #aab6c6; font-size: 11px; line-height: 1.45; margin-top: 6px; }
 .live-row-note[hidden] { display: none; }
+
+#live-settings > :not(summary) { margin-top: 10px; }

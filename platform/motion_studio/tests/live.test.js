@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIVE_PROTOCOL,
+  LOCAL_BRIDGE_AUTH,
   MOTION_EDITOR_MODE,
   LiveSession,
   RIGHT_ARM_COMMISSIONING_MODE,
@@ -2808,4 +2809,101 @@ test("package upload fails closed if the connection drops before package status"
   assert.equal(h.live.state, "fault");
   assert.equal(socket.sent.some((item) => item.op === "arm"), false);
   assert.equal(socket.sent.some((item) => item.op === "pose"), false);
+});
+
+const microtasks = async () => { await Promise.resolve(); await Promise.resolve(); };
+function startUsbControl(h) {
+  h.live.startControl({ transport: "usb", portId: "a".repeat(24), key: LOCAL_BRIDGE_AUTH });
+  const socket = h.sockets.at(-1);
+  socket.readyState = 1;
+  socket.onopen();
+  return socket;
+}
+const acceptArm = (h, socket) => socket.receive({ protocol: LIVE_PROTOCOL, op: "armed",
+  request_id: h.live.requestId, session_id: "session-00000000001", calibration_id: "a".repeat(64) });
+
+test("one click initializes only when needed and never applies an old editor pose", async () => {
+  for (const initialized of [true, false]) {
+    const h = harness(() => editorCaps(initialized));
+    h.live.target = { ...zeroPose(), foot_positive_x: 25 };
+    const socket = startUsbControl(h);
+    socket.receive({ ...editorCaps(initialized), request_id: h.live.requestId });
+    await microtasks();
+    if (!initialized) {
+      assert.equal(socket.sent.at(-1).op, "initialize_right_arm");
+      h.live.startControl({ key: LOCAL_BRIDGE_AUTH }); // repeated click does not duplicate
+      socket.receive({ ...editorCaps(true), request_id: h.live.requestId });
+      await microtasks();
+    }
+    assert.equal(socket.sent.at(-1).op, "arm");
+    acceptArm(h, socket); await microtasks(); h.advance(100);
+    assert.deepEqual(socket.sent.map(m => m.op), initialized
+      ? ["hello", "arm", "keepalive"] : ["hello", "initialize_right_arm", "arm", "keepalive"]);
+    assert.equal(h.live.snapshot().startingControl, false);
+    assert.equal(h.live.target, null);
+    assert.equal(h.live.holding, false);
+    assert.ok(socket.sent.filter(m => ["arm", "initialize_right_arm"].includes(m.op))
+      .every(m => m.local_auth === true && !Object.hasOwn(m, "access_key")));
+    assert.equal(JSON.stringify(h.live.snapshot()).includes(LOCAL_BRIDGE_AUTH), false);
+    h.live.disconnect();
+  }
+});
+
+test("STOP, disconnect and blur cancel every one-click stage and ignore late replies", async () => {
+  for (const action of ["stop", "release", "requestDisconnect"]) {
+    for (const stage of ["hello", "init-ready", "initializing", "arm-ready", "arming"]) {
+      const h = harness(editorCaps); const socket = startUsbControl(h);
+      if (stage !== "hello") socket.receive({ ...editorCaps(stage === "arm-ready" || stage === "arming"), request_id: h.live.requestId });
+      if (["initializing", "arming"].includes(stage)) await microtasks();
+      const lastId = h.live.requestId;
+      h.live[action]();
+      const sent = socket.sent.length;
+      socket.receive({ ...editorCaps(true), request_id: lastId });
+      acceptArm(h, socket); await microtasks(); h.advance(500);
+      assert.equal(socket.sent.length, sent, `${action}/${stage}`);
+      assert.equal(h.live.snapshot().startingControl, false);
+      assert.notEqual(h.live.state, "armed");
+    }
+  }
+});
+
+test("faults and timeouts never retry or re-arm; only a new explicit click resumes after STOP", async () => {
+  for (const failure of ["timeout", "auth"]) {
+    const h = harness(editorCaps); const socket = startUsbControl(h);
+    socket.receive({ ...editorCaps(true), request_id: h.live.requestId }); await microtasks();
+    if (failure === "timeout") h.advance(2001);
+    else socket.receive({ protocol: LIVE_PROTOCOL, op: "error", request_id: h.live.requestId, code: "auth_failed" });
+    const n = socket.sent.length; acceptArm(h, socket); await microtasks();
+    assert.equal(h.live.state, "fault"); assert.equal(socket.sent.length, n);
+  }
+  const h = harness(editorCaps), socket = startUsbControl(h);
+  socket.receive({ ...editorCaps(true), request_id: h.live.requestId }); await microtasks(); acceptArm(h, socket); await microtasks();
+  h.live.stop();
+  socket.receive({ protocol: LIVE_PROTOCOL, op: "stopped", session_id: h.live.sessionId,
+    commanded_pose: zeroPose(), measured_pose: null, tilt: null });
+  await microtasks(); assert.equal(h.live.state, "ready");
+  assert.equal(socket.sent.filter(m => m.op === "arm").length, 1);
+  h.live.startControl({ key: LOCAL_BRIDGE_AUTH }); await microtasks();
+  assert.equal(socket.sent.filter(m => m.op === "arm").length, 2);
+  h.live.disconnect();
+});
+
+test("read-only capabilities never open control and local credential cannot be sent over Wi-Fi", async () => {
+  const h = harness(editorCaps), socket = h.ready();
+  await microtasks(); assert.deepEqual(socket.sent.map(m => m.op), ["hello"]);
+  assert.throws(() => h.live.startControl({ key: LOCAL_BRIDGE_AUTH }), /только через USB/);
+  assert.equal(socket.sent.length, 1); h.live.disconnect();
+});
+
+test("local credential availability is metadata, not a secret, and package auth uses the USB bridge", async () => {
+  const ports = await listUsbBridgePorts({ fetchImpl: async () => ({ ok:true, json:async () => ({
+    protocol:LIVE_PROTOCOL, ports:[{port_id:"a".repeat(24),label:"Gosha USB",vid:"303a",pid:"1001",local_auth:true}]
+  }) }) });
+  assert.equal(ports[0].local_auth, true);
+  const h=harness(editorCaps45); h.live.connectUsb("a".repeat(24));
+  const s=h.sockets.at(-1); s.readyState=1; s.onopen(); s.receive({...editorCaps45(),request_id:h.live.requestId});
+  const p=h.live.verifyPackageSoftwareRun("test-package",LOCAL_BRIDGE_AUTH,true);
+  assert.equal(s.sent.at(-1).op,"package_run_start");
+  assert.equal(s.sent.at(-1).local_auth,true); assert.equal(s.sent.at(-1).access_key,undefined);
+  h.live.disconnect(); await assert.rejects(p);
 });

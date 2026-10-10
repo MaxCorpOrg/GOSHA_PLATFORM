@@ -11,9 +11,11 @@ import logging
 import os
 import re
 import select
+import stat
 import termios
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from aiohttp import WSMsgType, web
@@ -39,6 +41,47 @@ DEFAULT_PORT = 5177
 DEFAULT_ORIGIN = "http://127.0.0.1:5176"
 PORT_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 LOGGER = logging.getLogger("gosha_motion_studio.usb_bridge")
+LOCAL_AUTH_OPS = frozenset((
+    "initialize_right_arm", "arm", "package_select", "package_run_start",
+    "package_hardware_run_start", "package_delete", "package_upload_begin",
+    "package_upload_finish",
+))
+
+
+def load_local_keys(path: Path) -> dict[str, str]:
+    """Private, explicitly configured credentials bound to an opaque USB ID."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return {}
+    try:
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.getuid():
+            raise ValueError()
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or set(data) != {"port_keys"}:
+            raise ValueError()
+        keys = data["port_keys"]
+        if not isinstance(keys, dict) or not all(
+            isinstance(port, str) and PORT_ID_RE.fullmatch(port)
+            and isinstance(key, str) and 16 <= len(key) <= 128
+            and all(32 <= ord(char) < 127 for char in key)
+            for port, key in keys.items()
+        ):
+            raise ValueError()
+        return keys
+    except Exception:
+        raise ValueError("Invalid private USB Live configuration") from None
+
+
+def apply_local_auth(data: dict, port_id: str, keys: dict[str, str]) -> tuple[dict, bytes]:
+    if "local_auth" in data:
+        if (data["local_auth"] is not True or data.get("op") not in LOCAL_AUTH_OPS
+                or "access_key" in data or port_id not in keys):
+            raise BridgeError("usb_local_auth_unavailable")
+        data = {key: value for key, value in data.items() if key != "local_auth"}
+        data["access_key"] = keys[port_id]
+    # Includes the credential in the existing wire-size/protocol checks.
+    return _validate_request(json.dumps(data, separators=(",", ":")))
 RETRY_WRITE_ERRNOS = {
     errno.EAGAIN,
     errno.EALREADY,
@@ -453,6 +496,7 @@ class BridgeController:
         serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
         hello_timeout: float = 2.5,
         logger: logging.Logger = LOGGER,
+        local_keys: dict[str, str] | None = None,
     ) -> None:
         self.allowed_origin = allowed_origin
         self.allowed_origins = frozenset((allowed_origin, *extra_origins))
@@ -461,6 +505,7 @@ class BridgeController:
         self.serial_writer = serial_writer
         self.hello_timeout = hello_timeout
         self.logger = logger
+        self.local_keys = dict(local_keys or {})
         self._active = False
         self._owner_lock = asyncio.Lock()
 
@@ -503,7 +548,10 @@ class BridgeController:
     async def handle_ports(self, request: web.Request) -> web.Response:
         self.check_origin(request)
         return web.json_response(
-            {"protocol": LIVE_PROTOCOL, "ports": [port.public() for port in self.ports()]},
+            {"protocol": LIVE_PROTOCOL, "ports": [
+                {**port.public(), **({"local_auth": True} if port.port_id in self.local_keys else {})}
+                for port in self.ports()
+            ]},
             headers=self.cors_headers(request),
         )
 
@@ -672,6 +720,7 @@ class BridgeController:
                 try:
                     data, line = _validate_request(message.data)
                     request_id = data.get("request_id")
+                    data, line = apply_local_auth(data, port_id, self.local_keys)
                     if serial_obj is None and data.get("op") != "hello":
                         raise BridgeError("usb_bridge_invalid_request")
                     if not await ensure_serial(request_id):
@@ -764,6 +813,7 @@ def create_app(
     serial_factory: Callable[[str], Any] | None = None,
     serial_writer: Callable[[Any, bytes, float, Callable[[], bool]], int] = _write_frame_bounded,
     hello_timeout: float = 2.5,
+    local_keys: dict[str, str] | None = None,
 ) -> web.Application:
     controller = BridgeController(
         allowed_origin=allowed_origin,
@@ -772,6 +822,7 @@ def create_app(
         serial_factory=serial_factory,
         serial_writer=serial_writer,
         hello_timeout=hello_timeout,
+        local_keys=local_keys,
     )
     app = web.Application(client_max_size=REQUEST_JSON_MAX + 1024)
     app.router.add_get("/health", controller.handle_health)
@@ -788,6 +839,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--origin", default=DEFAULT_ORIGIN)
     parser.add_argument("--extra-origin", action="append", default=[])
     parser.add_argument("--log-level", default="WARNING")
+    parser.add_argument("--auth-file", type=Path,
+                        default=Path.home() / ".config/gosha-motion-studio/usb-live-auth.json")
     return parser.parse_args(argv)
 
 
@@ -796,7 +849,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.host != DEFAULT_HOST:
         raise SystemExit("USB bridge must bind to 127.0.0.1")
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.WARNING))
-    app = create_app(allowed_origin=args.origin, extra_origins=tuple(args.extra_origin))
+    try:
+        local_keys = load_local_keys(args.auth_file)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    app = create_app(allowed_origin=args.origin, extra_origins=tuple(args.extra_origin),
+                     local_keys=local_keys)
     web.run_app(app, host=args.host, port=args.port, access_log=None)
     return 0
 
