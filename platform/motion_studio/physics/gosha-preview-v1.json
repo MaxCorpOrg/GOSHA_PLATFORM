@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "id": "gosha-physics-estimated-v1",
+  "profile_id": "gosha-preview-v1",
+  "geometry_source_sha256": "208bb99daed400921ab14fb5c21c1cbb3f1f798b78f952ca11447c59a709372e",
+  "parameter_status": "assumed",
+  "hardware_validated": false,
+  "units": "metres_kg_seconds_radians",
+  "frame": {
+    "up": "Z",
+    "front": "-Y",
+    "left": "+X",
+    "cad_to_m": 0.001,
+    "floor_z_m": -0.09
+  },
+  "assumptions": [
+    "Масса и её распределение не измерены.",
+    "Коробки столкновений приближены по габаритам CAD.",
+    "Усилие, скорость, жёсткость и демпфирование приводов расчётные.",
+    "Столкновения и трение требуют сравнения с реальным роботом."
+  ],
+  "mass_fractions": {
+    "torso": 0.6,
+    "arm_each": 0.06,
+    "leg_each": 0.06,
+    "foot_each": 0.08
+  },
+  "joints": [
+    {
+      "id": "arm_negative_x",
+      "label": "Левая рука",
+      "pivot": [
+        50,
+        0,
+        -7
+      ],
+      "axis": "y",
+      "modelDirection": -1,
+      "min": -55,
+      "max": 70
+    },
+    {
+      "id": "arm_positive_x",
+      "label": "Правая рука",
+      "pivot": [
+        -50,
+        0,
+        -7
+      ],
+      "axis": "y",
+      "modelDirection": -1,
+      "min": -70,
+      "max": 55
+    },
+    {
+      "id": "leg_negative_x",
+      "label": "Левая нога",
+      "pivot": [
+        25.5,
+        0,
+        -40
+      ],
+      "axis": "z",
+      "modelDirection": -1,
+      "min": -35,
+      "max": 35
+    },
+    {
+      "id": "leg_positive_x",
+      "label": "Правая нога",
+      "pivot": [
+        -25.5,
+        0,
+        -40
+      ],
+      "axis": "z",
+      "modelDirection": -1,
+      "min": -35,
+      "max": 35
+    },
+    {
+      "id": "foot_negative_x",
+      "label": "Левая стопа",
+      "pivot": [
+        25.5,
+        0,
+        -71.5
+      ],
+      "axis": "y",
+      "modelDirection": 1,
+      "parent": "leg_negative_x",
+      "min": -30,
+      "max": 30
+    },
+    {
+      "id": "foot_positive_x",
+      "label": "Правая стопа",
+      "pivot": [
+        -25.5,
+        0,
+        -71.5
+      ],
+      "axis": "y",
+      "modelDirection": 1,
+      "parent": "leg_positive_x",
+      "min": -30,
+      "max": 30
+    }
+  ]
+}

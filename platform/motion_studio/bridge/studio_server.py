@@ -28,11 +28,11 @@ async def local_headers(request, handler):
     return response
 
 
-def create_app(dist_dir: Path) -> web.Application:
+def create_app(dist_dir: Path, *, configure=None, client_max_size=2 * 1024 * 1024) -> web.Application:
     dist_dir = dist_dir.resolve()
     if not (dist_dir / "index.html").is_file() or not (dist_dir / "models/gosha.glb").is_file():
         raise ValueError("Built Motion Studio and its full robot model are required.")
-    app = web.Application(middlewares=[local_headers], client_max_size=2 * 1024 * 1024)
+    app = web.Application(middlewares=[local_headers], client_max_size=client_max_size)
 
     async def index(_request):
         return web.FileResponse(dist_dir / "index.html")
@@ -67,6 +67,8 @@ def create_app(dist_dir: Path) -> web.Application:
 
     app.router.add_get("/", index)
     app.router.add_post("/api/export", export)
+    if configure is not None:
+        configure(app)
     app.router.add_static("/", dist_dir, show_index=False, follow_symlinks=False)
     return app
 

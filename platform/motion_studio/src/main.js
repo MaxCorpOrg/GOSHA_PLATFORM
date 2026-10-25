@@ -1,5 +1,7 @@
 import "./style.css";
 import "./live.css";
+import "./physics.css";
+import { mountPhysicsPanel } from "./physics.js";
 import { mountLivePanel, canSeekLiveTimeline } from "./live-panel.js";
 import {
   PROFILE,
@@ -72,9 +74,11 @@ let undo = [];
 let redo = [];
 let scene;
 let live;
+let physics;
 let disposed = false;
 let toastTimer;
 let robotActionPending = false;
+const timelineDuration = () => physics?.enabled && physics.result ? physics.result.duration_ms : motion.duration_ms;
 
 document.querySelector("#app").innerHTML = `
   <header class="topbar">
@@ -108,7 +112,7 @@ document.querySelector("#app").innerHTML = `
         <div class="scene-heading"><div><span class="eyebrow">РЕДАКТОР ДВИЖЕНИЯ</span><input id="motion-name" maxlength="80" aria-label="Название движения" /></div><span class="preview-badge"><span></span>3D-предпросмотр</span></div>
         <div id="viewport" class="viewport"></div>
         <div class="model-note"><span class="model-chip">ГОША <span>01</span></span><span id="model-status">Загружаем вашу модель…</span></div>
-        <div class="view-controls"><button id="view-home" title="Вернуть вид" aria-label="Вернуть вид">${icon("cube")}</button><button id="view-front">Спереди</button><button id="view-grid" aria-pressed="true">Сетка</button></div>
+        <div class="view-controls"><button id="view-home" title="Вернуть вид" aria-label="Вернуть вид">${icon("cube")}</button><button id="view-iso">Изометрия</button><button id="view-front">Спереди</button><button id="view-grid" aria-pressed="true">Сетка</button></div>
         <div class="view-help">Потяните для вращения · колесо для масштаба · нажмите на деталь</div>
         <div class="axis-key"><span class="axis-x">X</span><span class="axis-y">Y</span><span class="axis-z">Z ↑</span></div>
         <div id="model-error" class="model-error" hidden></div>
@@ -194,7 +198,7 @@ function updateRobotInstallStatus() {
   $("upload-robot-package").innerHTML =
     `${icon("upload")}${record || onRobot ? "Обновить в роботе" : "Записать в робота"}`;
   const busy = robotActionPending || live?.snapshot?.packagePending;
-  const readable = freshCatalog && !busy;
+  const readable = freshCatalog && !busy && !physics?.enabled;
   $("export-robot-package").disabled = !readable;
   $("upload-robot-package").disabled = !readable;
   $("verify-robot-package").disabled = !readable || !onRobot;
@@ -209,6 +213,7 @@ function installedPackageId() {
 }
 function robotAction(action) {
   return attempt(async () => {
+    if (physics?.enabled) throw new Error("В режиме физики доступен только виртуальный робот.");
     if (robotActionPending) throw new Error("Предыдущая операция робота ещё не завершена.");
     robotActionPending = true;
     updateRobotInstallStatus();
@@ -281,16 +286,16 @@ function setPlaying(value) {
   $("play").innerHTML = icon(playing ? "pause" : "play");
   $("play").setAttribute(
     "aria-label",
-    playing ? "Пауза" : "Воспроизвести в 3D",
+    playing ? "Пауза" : physics?.enabled ? "Воспроизвести результат физики" : "Воспроизвести в 3D",
   );
-  $("play").title = playing ? "Пауза" : "Воспроизвести в 3D";
+  $("play").title = playing ? "Пауза" : physics?.enabled ? "Воспроизвести результат физики" : "Воспроизвести в 3D";
 }
 function seek(value) {
   if (!Number.isFinite(value)) throw new Error("Введите время в секундах.");
   if (!live?.enabled || !canSeekLiveTimeline(live.snapshot))
     live?.stop("Позиция на шкале изменена.");
   setPlaying(false);
-  time = Math.max(0, Math.min(motion.duration_ms, Math.round(value)));
+  time = Math.max(0, Math.min(timelineDuration(), Math.round(value)));
   pose = poseAt(motion, time);
   renderPosition();
 }
@@ -382,7 +387,7 @@ function renderTimeline() {
   for (let i = 0; i <= 8; i++) {
     const label = document.createElement("span");
     label.style.left = `${i * 12.5}%`;
-    label.textContent = `${+(((motion.duration_ms / 1000) * i) / 8).toFixed(2)}с`;
+    label.textContent = `${+(((timelineDuration() / 1000) * i) / 8).toFixed(2)}с`;
     $("ruler").append(label);
   }
   $("tracks").replaceChildren();
@@ -392,7 +397,7 @@ function renderTimeline() {
     for (const frame of motion.keyframes) {
       const key = document.createElement("button");
       key.className = "keyframe";
-      key.style.left = `${(frame.time_ms / motion.duration_ms) * 100}%`;
+      key.style.left = `${(frame.time_ms / timelineDuration()) * 100}%`;
       key.dataset.time = frame.time_ms;
       key.title = `${joint.label}: ${toControlAngle(joint.id, frame.pose[joint.id])}° · ${seconds(frame.time_ms)} с`;
       key.setAttribute("aria-label", key.title);
@@ -405,19 +410,30 @@ function renderTimeline() {
     }
     $("tracks").append(track);
   }
-  $("frame-count").textContent = `${motion.keyframes.length} поз`;
-  $("scrubber").max = motion.duration_ms;
-  $("time-input").max = motion.duration_ms / 1000;
+  $("frame-count").textContent = `${motion.keyframes.length} ${physics?.enabled ? "целевых поз" : "поз"}`;
+  $("scrubber").max = timelineDuration();
+  $("time-input").max = timelineDuration() / 1000;
 }
 function renderPosition() {
-  scene?.setPose(live?.displayPose(pose) ?? pose);
+  if (physics?.enabled) {
+    const frame = physics.frame(time);
+    scene?.setPose(frame?.pose ?? pose);
+    scene?.setPhysicsFrame(frame);
+    physics.showFrame(frame);
+  } else {
+    scene?.clearPhysicsFrame();
+    scene?.setPose(live?.displayPose(pose) ?? pose);
+  }
   $("time-output").innerHTML =
-    `${seconds(time)} <span>/ ${seconds(motion.duration_ms)} с</span>`;
+    `${seconds(time)} <span>/ ${seconds(timelineDuration())} с</span>`;
   $("time-input").value = seconds(time);
   $("scrubber").value = time;
-  $("playhead").style.left = `${(time / motion.duration_ms) * 100}%`;
+  $("playhead").style.left = `${(time / timelineDuration()) * 100}%`;
   const atFrame = motion.keyframes.some((f) => f.time_ms === time);
-  $("delete-frame").disabled = !atFrame || time === 0;
+  $("delete-frame").disabled = physics?.enabled || !atFrame || time === 0;
+  $("add-frame").disabled = Boolean(physics?.enabled);
+  $("loop").disabled = Boolean(physics?.enabled);
+  $("play").disabled = Boolean(physics?.enabled && !physics.result);
   $("add-frame").innerHTML =
     `${icon("plus")}${atFrame ? "Обновить позу" : "Записать позу"}`;
   document
@@ -450,6 +466,8 @@ function renderVersions() {
   select.disabled = !installed?.motion_snapshot && !library.revisions[motion.id]?.length;
 }
 function render() {
+  physics?.syncMotion();
+  time = Math.min(time, timelineDuration());
   $("motion-name").value = motion.name;
   $("duration").value = motion.duration_ms / 1000;
   $("interpolation").value = motion.interpolation;
@@ -461,6 +479,7 @@ function render() {
   selectJoint(selectedJoint);
   renderPosition();
   updateRobotInstallStatus();
+  physics?.render();
 }
 function addMotion(value) {
   if (library.motions.length >= 100)
@@ -479,6 +498,7 @@ function addMotion(value) {
   render();
 }
 function recordPose() {
+  if (physics?.enabled) throw new Error("Для изменения позы переключитесь в 3D.");
   setPlaying(false);
   pose = validatePose(live?.recordPose?.(pose) ?? pose);
   const next = putPose(motion, time, pose);
@@ -550,12 +570,18 @@ $("interpolation").onchange = () =>
     commit({ ...motion, interpolation: $("interpolation").value });
   });
 $("play").onclick = () => {
+  if (physics?.enabled) {
+    if (!physics.result) return;
+    if (time >= timelineDuration()) seek(0);
+    setPlaying(!playing);
+    return;
+  }
   if (live?.editorMode) { live.play(); return; }
   live?.stop("Запущен отдельный 3D-предпросмотр.");
   if (time >= motion.duration_ms) seek(0);
   setPlaying(!playing);
 };
-$("stop").onclick = () => seek(0);
+$("stop").onclick = () => { if (physics?.busy) void physics.cancel(); seek(0); };
 $("speed").onchange = () => {
   speed = Number($("speed").value);
 };
@@ -573,7 +599,7 @@ $("time-input").onchange = () =>
   });
 $("tracks-area").onclick = (e) => {
   const rect = $("tracks-area").getBoundingClientRect();
-  seek(((e.clientX - rect.left) / rect.width) * motion.duration_ms);
+  seek(((e.clientX - rect.left) / rect.width) * timelineDuration());
 };
 document.querySelectorAll("[data-select]").forEach((el) => {
   el.onclick = () => selectJoint(el.dataset.select);
@@ -866,6 +892,7 @@ function updateLiveView() {
   $("neutral").disabled = $("mirror").disabled = Boolean(live?.enabled);
   renderPosition();
   if (typeof updateRobotInstallStatus === "function") updateRobotInstallStatus();
+  physics?.render();
 }
 live = mountLivePanel({
   getPose: () => pose,
@@ -896,6 +923,34 @@ panelEmbed = mountPanelEmbed({
   signal: lifecycle.signal,
 });
 
+physics = mountPhysicsPanel({
+  getMotion: () => motion,
+  liveEnabled: () => live.enabled,
+  pause: () => setPlaying(false),
+  onMode: (enabled) => {
+    time = 0;
+    pose = poseAt(motion, 0);
+    if (enabled) scene?.resetView("isometric");
+    else {
+      scene?.clearPhysicsFrame();
+      document.querySelector(".preview-badge").innerHTML = "<span></span>3D-предпросмотр";
+    }
+    render();
+  },
+  onResult: (result) => {
+    time = 0;
+    pose = poseAt(motion, 0);
+    setPlaying(false);
+    render();
+    if (result) setPlaying(true);
+  },
+  onDownload: result => downloadJsonFile(safeMotionFileName(".physics.json"), JSON.stringify(result), true),
+  notify,
+});
+$("physics-step").onclick = () => seek(time + 20);
+for (const id of ["mode-preview", "mode-live"])
+  $(id).addEventListener("click", () => physics.leave(), { capture: true, signal: lifecycle.signal });
+
 async function loadScene() {
   try {
     const { createScene } = await import("./scene.js");
@@ -917,6 +972,7 @@ async function loadScene() {
 }
 loadScene();
 $("view-home").onclick = () => scene?.resetView();
+$("view-iso").onclick = () => scene?.resetView("isometric");
 $("view-front").onclick = () => scene?.resetView(true);
 $("view-grid").onclick = () =>
   $("view-grid").setAttribute("aria-pressed", scene?.toggleGrid() ?? false);
@@ -927,15 +983,16 @@ function tick(now) {
   previous = now;
   if (playing) {
     time += elapsed * (live?.running ? live.playbackScale : speed);
-    if (time >= motion.duration_ms) {
+    if (time >= timelineDuration()) {
       if (live?.running) {
         time = motion.duration_ms;
         pose = poseAt(motion, time);
         live.updateTarget();
         live.endTimeline();
       } else {
-        time = loop ? time % motion.duration_ms : motion.duration_ms;
-        if (!loop) setPlaying(false);
+        const repeat = loop && !physics?.enabled;
+        time = repeat ? time % timelineDuration() : timelineDuration();
+        if (!repeat) setPlaying(false);
       }
     }
     pose = poseAt(motion, time);
@@ -957,9 +1014,13 @@ registerPreviewTools(
       id: motion.id,
       name: motion.name,
       profile_id: motion.profile_id,
-      duration_ms: motion.duration_ms,
+      duration_ms: timelineDuration(),
+      motion_duration_ms: motion.duration_ms,
       time_ms: Math.round(time),
-      pose: { ...pose },
+      mode: physics?.enabled ? "physics" : "3d",
+      pose: { ...(physics?.enabled ? physics.frame(time)?.pose ?? pose : pose) },
+      ...(physics?.enabled ? { physics_frame: physics.frame(time), parameter_status: "assumed",
+        hardware_validated: false } : {}),
       playing,
       preview_only: true,
       hardware_connected: [
@@ -995,4 +1056,5 @@ if (import.meta.hot)
     clearTimeout(toastTimer);
     cancelAnimationFrame(animation);
     scene?.dispose();
+    physics?.dispose();
   });

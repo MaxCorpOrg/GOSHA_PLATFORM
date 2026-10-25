@@ -7,7 +7,7 @@ export function createScene(container, onSelect, onStatus) {
   const scene = new THREE.Scene();
   let dirty = true;
   scene.background = new THREE.Color("#20262e");
-  const camera = new THREE.PerspectiveCamera(
+  let camera = new THREE.PerspectiveCamera(
     36, container.clientWidth / container.clientHeight, 1, 2000,
   );
   camera.up.set(0, 0, 1);
@@ -33,6 +33,27 @@ export function createScene(container, onSelect, onStatus) {
   grid.rotation.x = Math.PI / 2;
   grid.position.z = -90;
   scene.add(grid);
+  const robotRoot = new THREE.Group();
+  scene.add(robotRoot);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000),
+    new THREE.MeshStandardMaterial({ color: "#252d34", roughness: .9, side: THREE.DoubleSide }));
+  floor.position.z = -90.1;
+  floor.visible = false;
+  scene.add(floor);
+  const contacts = new THREE.Group();
+  scene.add(contacts);
+  const contactMaterial = new THREE.MeshBasicMaterial({ color: "#8ce3bb", depthTest: false });
+  const contactGeometry = new THREE.SphereGeometry(1.3, 10, 8);
+  for (let i = 0; i < 24; i++) {
+    const marker = new THREE.Mesh(contactGeometry, contactMaterial);
+    marker.visible = false;
+    marker.renderOrder = 2;
+    contacts.add(marker);
+  }
+  let physicsFrame;
+  let physicsEnabled = false;
+  let preferredView = false;
+  let orthoSize = 260;
   scene.add(new THREE.HemisphereLight("#e6efff", "#393546", 2.5));
   const key = new THREE.DirectionalLight("#fff3dc", 4);
   key.position.set(-140, -220, 240);
@@ -60,13 +81,26 @@ export function createScene(container, onSelect, onStatus) {
     }
   }
   const resetView = (front = false) => {
+    preferredView = front;
     const sphere = modelBounds?.getBoundingSphere(new THREE.Sphere())
       ?? new THREE.Sphere(new THREE.Vector3(0, 0, -27), 119);
-    const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
-    const limitingFov = Math.min(halfFov, Math.atan(Math.tan(halfFov) * camera.aspect));
-    const distance = Math.min(controls.maxDistance,
-      Math.max(controls.minDistance, sphere.radius / Math.sin(limitingFov) * 1.08));
-    const direction = new THREE.Vector3(...(front ? [0, -1, 0] : [155, -260, 122])).normalize();
+    const aspect = container.clientWidth / container.clientHeight;
+    if (front === "isometric") {
+      orthoSize = sphere.radius * 2.35 / Math.min(1, aspect);
+      camera = new THREE.OrthographicCamera(-orthoSize*aspect/2, orthoSize*aspect/2, orthoSize/2, -orthoSize/2, 1, 3000);
+    } else if (camera.isOrthographicCamera) {
+      camera = new THREE.PerspectiveCamera(36, aspect, 1, 2000);
+    }
+    camera.up.set(0, 0, 1);
+    controls.object = camera;
+    let distance = 400;
+    if (!camera.isOrthographicCamera) {
+      const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+      const limitingFov = Math.min(halfFov, Math.atan(Math.tan(halfFov) * camera.aspect));
+      distance = Math.min(controls.maxDistance,
+        Math.max(controls.minDistance, sphere.radius / Math.sin(limitingFov) * 1.08));
+    }
+    const direction = new THREE.Vector3(...(front === "isometric" ? [1, -1, 1] : front ? [0, -1, 0] : [155, -260, 122])).normalize();
     controls.target.copy(sphere.center);
     camera.position.copy(sphere.center).addScaledVector(direction, distance);
     controls.update();
@@ -75,7 +109,7 @@ export function createScene(container, onSelect, onStatus) {
   resetView();
 
   function attachModel(named, label) {
-    rig = buildRig(scene, named);
+    rig = buildRig(robotRoot, named);
     scene.updateMatrixWorld(true);
     modelBounds = new THREE.Box3();
     for (const mesh of named.values()) modelBounds.expandByObject(mesh);
@@ -100,7 +134,8 @@ export function createScene(container, onSelect, onStatus) {
     }
     if (currentPose) setPose(currentPose);
     select(selected);
-    resetView();
+    resetView(preferredView);
+    if (physicsEnabled) setPhysicsFrame(physicsFrame);
     dirty = true;
     onStatus(true, label);
   }
@@ -130,6 +165,29 @@ export function createScene(container, onSelect, onStatus) {
     currentPose = pose;
     rig?.setPose(pose);
   }
+  function setPhysicsFrame(frame) {
+    physicsEnabled = true;
+    physicsFrame = frame;
+    floor.visible = true;
+    robotRoot.position.set(...(frame?.base.position_m ?? [0, 0, 0]).map(n => n*1000));
+    robotRoot.quaternion.set(...(frame?.base.quaternion_xyzw ?? [0, 0, 0, 1]));
+    contacts.children.forEach((marker, i) => {
+      const contact = frame?.contacts[i];
+      marker.visible = Boolean(contact);
+      if (contact) marker.position.set(...contact.position_m.map(n => n*1000));
+    });
+    dirty = true;
+  }
+  function clearPhysicsFrame() {
+    if (!physicsEnabled) return;
+    physicsEnabled = false;
+    physicsFrame = undefined;
+    robotRoot.position.set(0, 0, 0);
+    robotRoot.quaternion.identity();
+    floor.visible = false;
+    contacts.children.forEach(marker => { marker.visible = false; });
+    dirty = true;
+  }
   const ray = new THREE.Raycaster();
   let down;
   const pointerDown = (e) => {
@@ -157,7 +215,12 @@ export function createScene(container, onSelect, onStatus) {
     const w = container.clientWidth;
     const h = container.clientHeight;
     if (!w || !h) return;
-    camera.aspect = w / h;
+    if (camera.isOrthographicCamera) {
+      camera.left = -orthoSize*(w/h)/2;
+      camera.right = orthoSize*(w/h)/2;
+      camera.top = orthoSize/2;
+      camera.bottom = -orthoSize/2;
+    } else camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     dirty = true;
@@ -172,6 +235,8 @@ export function createScene(container, onSelect, onStatus) {
   });
   return {
     setPose,
+    setPhysicsFrame,
+    clearPhysicsFrame,
     select,
     resetView,
     toggleGrid() {

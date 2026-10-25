@@ -39,6 +39,7 @@ function editor() {
     time: 0,
     selectedJoint: PROFILE.joints[0].id,
     playing: true,
+    physics: null,
     commits: [],
     errors: [],
     seconds: (value) => value / 1000,
@@ -60,6 +61,7 @@ function editor() {
   });
   context.scene = {
     select() {},
+    clearPhysicsFrame() {},
     setPose: (pose) => { context.scenePose = structuredClone(pose); },
   };
   context.live = {
@@ -72,6 +74,7 @@ function editor() {
     inspectorView: () => null,
     updateTarget() {},
   };
+  context.timelineDuration = () => context.motion.duration_ms;
   context.notify = (message) => context.errors.push(message);
   context.render = () => context.renderPosition();
   context.commit = (next) => {
