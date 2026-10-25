@@ -378,6 +378,17 @@ class UsbBridgeUnitTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "usb_bridge_request_too_large")
 
+    def test_six_axis_pose_preserves_individual_targets_and_shared_speed_on_wire(self):
+        target = dict.fromkeys(capabilities("r1")["commanded_pose"], 0)
+        target.update(arm_negative_x=15, arm_positive_x=-15, foot_negative_x=-12)
+        request = {"protocol": LIVE_PROTOCOL, "op": "pose", "seq": 1,
+                   "session_id": "synthetic-six-axis-session", "target": target,
+                   "speed_dps": 120}
+        validated, wire = _validate_request(json.dumps(request))
+        self.assertEqual(validated, request)
+        self.assertEqual(json.loads(wire[len(WIRE_PREFIX):]), request)
+        self.assertEqual(len(validated["target"]), 6)
+
 
 class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
     async def start_bridge(
@@ -488,6 +499,28 @@ class UsbBridgeNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(fake.writes[0].startswith(WIRE_PREFIX))
         self.assertIn(b'"op":"hello"', fake.writes[0])
         self.assertFalse(fake.flush_called)
+        await ws.close()
+        self.assertTrue(await wait_for_condition(lambda: fake.closed))
+
+    async def test_explicit_six_axis_capabilities_are_forwarded_without_dropping_left(self):
+        fake = FakeSerial(auto_reply=False)
+        port_id = list_allowed_ports(lambda: [port_info()])[0].port_id
+        server = await self.start_bridge(serial_factory=lambda _device: fake)
+        ws = await self.ws_connect(server, port_id)
+        await ws.send_json({"protocol": LIVE_PROTOCOL, "op": "hello", "request_id": "six"})
+        self.assertTrue(await wait_for_condition(lambda: bool(fake.writes)))
+        caps = capabilities("six")
+        caps.update(mode="motion_editor", calibrated=False, right_arm_initialized=True,
+                    speed_profile="working-v1")
+        caps["joint_limits"] = [
+            {"id": joint, "min": 0 if joint == "arm_negative_x" else -10,
+             "max": 15 if joint == "arm_negative_x" else 10,
+             "max_speed_dps": 5 if joint == "arm_negative_x" else 120}
+            for joint in caps["commanded_pose"]]
+        fake.incoming.put(WIRE_PREFIX + json.dumps(caps).encode() + b"\n")
+        message = await ws.receive(timeout=1)
+        self.assertEqual(message.type, WSMsgType.TEXT)
+        self.assertEqual(json.loads(message.data), caps)
         await ws.close()
         self.assertTrue(await wait_for_condition(lambda: fake.closed))
 

@@ -113,6 +113,19 @@ const ROBOT_MOTION_ACTIVE_JOINT_IDS = Object.freeze([
   "foot_negative_x",
   "foot_positive_x",
 ]);
+export const LEFT_ARM_LIVE_ID = "arm_negative_x";
+// A sixth actuator is available only when firmware explicitly advertises the
+// bounded left-arm profile. Preview geometry never grants hardware access.
+export function validateMotionEditorJointSet(jointLimits) {
+  const ids = new Set(jointLimits.map((limit) => limit.id));
+  const left = jointLimits.find((limit) => limit.id === LEFT_ARM_LIVE_ID);
+  const expectedCount = ROBOT_MOTION_ACTIVE_JOINT_IDS.length + (left ? 1 : 0);
+  if (ids.size !== expectedCount || jointLimits.length !== expectedCount ||
+      !ROBOT_MOTION_ACTIVE_JOINT_IDS.every((id) => ids.has(id)))
+    fail("Live-профиль не совпадает с текущим набором подключённых приводов Гоши.");
+  if (left && (left.min !== 0 || left.max !== 15 || left.max_speed_dps !== 5))
+    fail("Live-профиль не совпадает с текущим набором подключённых приводов Гоши: левая рука допускает только 0…15° при 5°/с.");
+}
 const ROBOT_PACKAGE_ANGLE_EPSILON = 0.1;
 export const zeroPose = () =>
   Object.fromEntries(PROFILE.joints.map((j) => [j.id, 0]));
@@ -262,11 +275,7 @@ export function validateRobotMotionCapabilities(value) {
     };
   });
   const commanded_pose = validatePose(value.commanded_pose);
-  if (
-    ids.size !== ROBOT_MOTION_ACTIVE_JOINT_IDS.length ||
-    !ROBOT_MOTION_ACTIVE_JOINT_IDS.every((id) => ids.has(id))
-  )
-    fail("Live-профиль не совпадает с текущим набором подключённых приводов Гоши.");
+  validateMotionEditorJointSet(joint_limits);
   for (const limit of joint_limits)
     if (
       commanded_pose[limit.id] < limit.min ||

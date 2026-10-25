@@ -2823,6 +2823,48 @@ function startUsbControl(h) {
 const acceptArm = (h, socket) => socket.receive({ protocol: LIVE_PROTOCOL, op: "armed",
   request_id: h.live.requestId, session_id: "session-00000000001", calibration_id: "a".repeat(64) });
 
+test("unhealthy boot blocks one-click control before ARM or initialization on USB and Wi-Fi", async () => {
+  const failures = [
+    { last_reset_reason: "panic", panic_diagnostics: { valid: true } },
+    { last_reset_reason: "panic", panic_diagnostics: { valid: false } },
+    ...["startup_left_failed", "startup_right_failed", "startup_base_not_ready", "startup_profile_unavailable"]
+      .map(startup_neutral_reason => ({ startup_neutral_commanded: false, startup_neutral_reason })),
+  ];
+  for (const transport of ["usb", "wifi"]) for (const initialized of [true, false]) {
+    for (const failure of failures) {
+      const h = harness(editorCaps);
+      h.live.startControl(transport === "usb"
+        ? { transport, portId: "a".repeat(24), key: LOCAL_BRIDGE_AUTH }
+        : { transport, host: "192.168.1.123", key: "synthetic-test-key-only" });
+      const socket = h.sockets.at(-1);
+      socket.readyState = 1; socket.onopen();
+      socket.receive({ ...editorCaps(initialized), ...failure, request_id: h.live.requestId });
+      await microtasks(); h.advance(500);
+      assert.equal(h.live.state, "fault");
+      assert.match(h.live.reason, /Live недоступен до проверки робота/);
+      assert.equal(h.live.snapshot().startingControl, false);
+      assert.equal(socket.closed, true);
+      assert.deepEqual(socket.sent.map(m => m.op), ["hello"]);
+      assert.equal(h.live.caps, null);
+    }
+  }
+});
+
+test("healthy boot and legacy profiles remain compatible despite historical crash record", () => {
+  for (const diagnostic of [
+    {},
+    { startup_neutral_commanded: false, startup_neutral_reason: "startup_neutral_disabled" },
+    { last_reset_reason: "poweron", panic_diagnostics: { valid: true },
+      startup_neutral_commanded: true, startup_neutral_reason: "startup_neutral_commanded" },
+  ]) {
+    const h = harness(() => ({ ...editorCaps(true), ...diagnostic }));
+    const socket = h.ready();
+    assert.equal(h.live.state, "ready");
+    assert.equal(socket.closed, false);
+    h.live.disconnect();
+  }
+});
+
 test("one click initializes only when needed and never applies an old editor pose", async () => {
   for (const initialized of [true, false]) {
     const h = harness(() => editorCaps(initialized));

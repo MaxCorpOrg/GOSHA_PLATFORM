@@ -182,7 +182,7 @@ test("extra, transformed or duplicate parts fail before changing the scene graph
 });
 test("actual private GLB parses through the same Three.js loader and preserves neutral bounds", async (t) => {
   const file = new URL(
-    "../local_only/public/models/gosha.glb",
+    "../local_only/public/models/gosha-30092026-208bb99d.glb",
     import.meta.url,
   );
   try {
@@ -192,6 +192,10 @@ test("actual private GLB parses through the same Three.js loader and preserves n
     return;
   }
   const bytes = await readFile(file);
+  const served = await readFile(new URL("../local_only/public/models/gosha.glb", import.meta.url));
+  assert.deepEqual(served, bytes, "Authenticated route must serve the same new assembly");
+  const sceneSource = await readFile(new URL("../src/scene.js", import.meta.url), "utf8");
+  assert.match(sceneSource, /models\/gosha\.glb\?v=208bb99d/);
   const model = await new GLTFLoader().parseAsync(
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     "",
@@ -200,8 +204,17 @@ test("actual private GLB parses through the same Three.js loader and preserves n
   model.scene.traverse((o) => {
     if (o.isMesh) meshes.set(o.name, o);
   });
-  assert.ok([10, 11, 12].includes(meshes.size));
+  assert.equal(meshes.size, 12);
+  assert.equal(model.parser.json.extras.sha256, "208bb99daed400921ab14fb5c21c1cbb3f1f798b78f952ca11447c59a709372e");
+  const manifest = JSON.parse(await readFile(new URL("../local_only/public/models/gosha-30092026-208bb99d.json", import.meta.url), "utf8"));
+  assert.deepEqual([...meshes.keys()].sort(), manifest.parts.slice().sort());
+  for (const mesh of meshes.values()) {
+    assert.equal(mesh.geometry.getAttribute("color").count, mesh.geometry.getAttribute("position").count);
+    assert.equal(mesh.material.vertexColors, true);
+  }
   const before = new THREE.Box3().setFromObject(model.scene);
+  assert.ok(before.min.distanceTo(new THREE.Vector3(-95.39, -36.51, -89)) < .02);
+  assert.ok(before.max.distanceTo(new THREE.Vector3(95.19, 36.5, 36.09)) < .02);
   const root = new THREE.Group();
   const rig = buildRig(root, meshes);
   rig.setPose(zeroPose());
@@ -213,8 +226,16 @@ test("actual private GLB parses through the same Three.js loader and preserves n
       (sum, mesh) => sum + mesh.geometry.index.count / 3,
       0,
     ),
-    567818 + (meshes.has("button_boot") ? 10748 : 0) + (meshes.has("power_switch") ? 10812 : 0),
+    manifest.triangles,
   );
+  assert.ok(manifest.triangles < 60000, "Keep the phone geometry budget");
+  for (const side of ["negative_x", "positive_x"]) {
+    const sign = side === "negative_x" ? -1 : 1;
+    for (const part of ["arm", "hand", "leg", "foot"]) {
+      const position = meshes.get(`${part}_${side}`).geometry.getAttribute("position");
+      for (let i = 0; i < position.count; i++) assert.ok(position.getX(i) * sign > 0, `${part}: no crossed limbs`);
+    }
+  }
   rig.setPose({ ...zeroPose(), arm_positive_x: -45, foot_negative_x: 20 });
   root.updateMatrixWorld(true);
   for (const mesh of meshes.values())

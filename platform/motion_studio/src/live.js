@@ -1,6 +1,6 @@
 import { advertisedSpeedCeiling, liveSpeedLimit } from "./motion-speed.js";
 import { normalizePwmDiagnostics } from "./pwm-diagnostics.js";
-import { PROFILE, prepareRobotPackageUpload, validatePose } from "./motion.js";
+import { PROFILE, prepareRobotPackageUpload, validatePose, validateMotionEditorJointSet } from "./motion.js";
 
 export const LIVE_PROTOCOL = "gosha.motion.live.v1";
 export const USB_BRIDGE_HTTP_URL = "http://127.0.0.1:5177";
@@ -299,6 +299,20 @@ export function validateCapabilities(data) {
     data && data.protocol === LIVE_PROTOCOL && data.op === "capabilities",
     "Прошивка не поддерживает протокол Live.",
   );
+  // A valid profile/pose alone does not establish a healthy boot. In particular,
+  // a failed left startup can still advertise the other five joints as allowed.
+  // Historical crash records may survive a later healthy boot: use reset reason.
+  assert(
+    data.last_reset_reason !== "panic",
+    "Робот сообщил об аварийной перезагрузке. Live недоступен до проверки робота.",
+  );
+  assert(
+    !(data.startup_neutral_commanded === false &&
+      typeof data.startup_neutral_reason === "string" &&
+      data.startup_neutral_reason.startsWith("startup_") &&
+      data.startup_neutral_reason !== "startup_neutral_disabled"),
+    "Робот не завершил начальную установку приводов. Live недоступен до проверки робота.",
+  );
   const mode = data.mode ?? "verified";
   const commissioning = data.commissioning === true;
   const editorMode = mode === MOTION_EDITOR_MODE;
@@ -389,9 +403,10 @@ export function validateCapabilities(data) {
   });
   const commanded_pose = validatePose(data.commanded_pose);
   if (editorMode) {
-    assert(data.watchdog_ms === 300 && joint_limits.length === RIGHT_ARM_COMMISSIONING_JOINTS.length &&
-      joint_limits.every((limit) => RIGHT_ARM_COMMISSIONING_JOINTS.includes(limit.id) && limit.max_speed_dps >= 1 && limit.max_speed_dps <= advertisedSpeedCeiling(data, 10)),
-      "Профиль редактора должен содержать подключённую правую руку, ноги и стопы, скорость в пределах объявленного профиля.");
+    validateMotionEditorJointSet(joint_limits);
+    assert(data.watchdog_ms === 300 &&
+      joint_limits.every((limit) => limit.max_speed_dps >= 1 && limit.max_speed_dps <= advertisedSpeedCeiling(data, 10)),
+      "Профиль редактора должен содержать подключённые приводы, скорость в пределах объявленного профиля.");
   }
   if (commissioning) {
     validateCommissioningLimits(mode, joint_limits, data.watchdog_ms);
@@ -1650,7 +1665,8 @@ export class LiveSession {
       );
       message.speed_dps = Math.min(
         this.speed,
-        ...this.caps.joint_limits.map((joint) => joint.max_speed_dps),
+        this.caps.mode === MOTION_EDITOR_MODE ? liveSpeedLimit(this.caps) :
+          Math.min(...this.caps.joint_limits.map((joint) => joint.max_speed_dps)),
       );
     }
     this.pending = { seq, sentAt: now, op, target: op === "pose" ? sentTarget : null };

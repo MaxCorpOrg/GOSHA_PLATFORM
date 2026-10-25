@@ -80,7 +80,8 @@ export function createScene(container, onSelect, onStatus) {
     modelBounds = new THREE.Box3();
     for (const mesh of named.values()) modelBounds.expandByObject(mesh);
     for (const [name, mesh] of named) {
-      const baseColor = name.startsWith("foot")
+      const hasSourceColours = Boolean(mesh.geometry.getAttribute("color"));
+      const baseColor = hasSourceColours ? "#ffffff" : name.startsWith("foot")
         ? "#687381"
         : ["button_boot", "power_switch"].includes(name)
           ? "#323943"
@@ -89,8 +90,9 @@ export function createScene(container, onSelect, onStatus) {
           : "#e5e7e9";
       mesh.material = new THREE.MeshStandardMaterial({
         color: baseColor,
+        vertexColors: hasSourceColours,
         roughness: 0.54,
-        metalness: 0.08,
+        metalness: hasSourceColours ? 0.25 : 0.08,
         side: THREE.DoubleSide,
       });
       mesh.userData.baseColor = baseColor;
@@ -107,7 +109,9 @@ export function createScene(container, onSelect, onStatus) {
     onStatus(false, "Полная модель Гоши недоступна. Восстановите модель и перезапустите Motion Studio.");
   };
   new GLTFLoader().load(
-    `${import.meta.env.BASE_URL}models/gosha.glb`,
+    // The authenticated panel route serves only this model filename. Keep the
+    // route stable; the source digest invalidates caches for the new assembly.
+    `${import.meta.env.BASE_URL}models/gosha.glb?v=208bb99d`,
     (gltf) => {
       if (disposed) return;
       try {

@@ -334,6 +334,25 @@ export function livePlaybackScale(motion, caps, speed) {
   return scale;
 }
 
+export function liveSpeedViewModel(state, selectedJoint) {
+  const connected = Boolean(state.caps) &&
+    !["disconnected", "connecting", "fault"].includes(state.state);
+  const joint = state.caps?.joint_limits.find((limit) => limit.id === selectedJoint) ??
+    state.caps?.joint_limits[0];
+  const max = liveSpeedLimit(state.caps, joint?.id ?? null);
+  const value = Math.min(state.speed, max);
+  return {
+    connected,
+    max,
+    value,
+    disabled: !connected || Boolean(state.caps?.commissioning),
+    label: connected ? `${value}°/с` : "—",
+    range: !connected ? "Диапазон появится после подключения робота."
+      : state.caps.commissioning ? "Фиксированная скорость: 1°/с."
+        : `Диапазон: 1–${max}°/с${joint?.id === "arm_negative_x" ? " · Левая рука" : ""}`,
+  };
+}
+
 export function mountLivePanel({
   getPose,
   getMotion,
@@ -804,17 +823,13 @@ export function mountLivePanel({
       "hardware_running",
       "hardware_stopping",
     ].includes(state.state) && !state.startingControl;
-    const speedConnected = Boolean(state.caps) &&
-      !["disconnected", "connecting", "fault"].includes(state.state);
-    byId("live-speed-value").textContent = speedConnected ? `${state.speed}°/с` : "—";
-    byId("live-speed").max = liveSpeedLimit(state.caps);
-    byId("live-speed").value = state.speed;
-    byId("live-speed").hidden = !speedConnected;
-    byId("live-speed").disabled = !speedConnected || Boolean(state.caps?.commissioning);
-    byId("live-speed-range").textContent = !speedConnected
-      ? "Диапазон появится после подключения робота."
-      : state.caps.commissioning ? "Фиксированная скорость: 1°/с."
-        : `Диапазон: 1–${liveSpeedLimit(state.caps)}°/с`;
+    const speedView = liveSpeedViewModel(state, getJoint());
+    byId("live-speed-value").textContent = speedView.label;
+    byId("live-speed").max = speedView.max;
+    byId("live-speed").value = speedView.value;
+    byId("live-speed").hidden = !speedView.connected;
+    byId("live-speed").disabled = speedView.disabled;
+    byId("live-speed-range").textContent = speedView.range;
     const packageReadable =
       ["ready", "init_required"].includes(state.state) &&
       isEditorMode(state) &&
@@ -1097,7 +1112,10 @@ export function mountLivePanel({
   });
   byId("live-speed").oninput = () =>
     guarded(() => {
-      session.setSpeed(Number(byId("live-speed").value));
+      const value = Number(byId("live-speed").value);
+      const view = liveSpeedViewModel(session.snapshot(), getJoint());
+      if (value > view.max) throw new Error(`Скорость выбранного сустава должна быть не выше ${view.max}°/с.`);
+      session.setSpeed(value);
       if (running)
         playbackScale = livePlaybackScale(
           getMotion(),

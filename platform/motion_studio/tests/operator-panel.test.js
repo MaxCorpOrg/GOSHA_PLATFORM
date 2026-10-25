@@ -17,19 +17,30 @@ const movements = [
   { motion_id: 'stored/small-greeting', name: 'Малое приветствие', source: 'stored' },
 ];
 
-function panel({ apiGet, apiPost } = {}) {
+function panel({ apiGet, apiPost, robotId = 'gosha-main', studio = false } = {}) {
   let nodes = {};
+  const posts = [];
+  let studioMessage;
+  const frame = { contentWindow: { postMessage: (data, origin) => posts.push({ data, origin }) } };
+  const studioNodes = { robotMotionStudioFrame: frame, robotMotionStudioHost: { hidden: true },
+    robotMotionStudioState: {}, robotMotionStudioHelp: {}, robotMotionStudioRetry: {} };
   const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
   const context = vm.createContext({
-    document: { getElementById: id => nodes[id] || null },
-    robotWorkspaceId: 'gosha-main', escapeHtml,
+    document: { getElementById: id => nodes[id] || (studio ? studioNodes[id] : null) || null },
+    robotWorkspaceId: robotId, escapeHtml,
     isRobotStudioConnected: () => false,
     requestRobotStudioDisconnect() {},
     operatorUrl: path => path, apiGet, apiPost,
-    notify() {}, setTimeout, Date,
+    window: { location: { origin: 'https://gosha.website' }, addEventListener: (_type, fn) => { studioMessage = fn; } },
+    notify() {}, setTimeout: studio ? () => 1 : setTimeout, clearTimeout() {}, Date,
   });
   vm.runInContext(html.slice(start, end), context);
+  if (studio) {
+    const studioStart = html.indexOf('    // Motion Studio lives outside');
+    const studioEnd = html.indexOf('    function renderRobotWorkspace()', studioStart);
+    vm.runInContext(html.slice(studioStart, studioEnd), context);
+  }
   function selectElement(fragment) {
     const node = { _html: '', value: '' };
     Object.defineProperty(node, 'innerHTML', {
@@ -44,7 +55,7 @@ function panel({ apiGet, apiPost } = {}) {
     return node;
   }
   function render() {
-    const fragment = context.renderRobotMotionPanel('gosha-main');
+    const fragment = context.renderRobotMotionPanel(context.robotWorkspaceId);
     nodes = {
       robotMotionStatus: { textContent: fragment.match(/id="robotMotionStatus">([^<]*)</)[1] },
       robotMotionSelect: selectElement(fragment.match(/<select[^>]*>(.*?)<\/select>/s)[1]),
@@ -53,7 +64,9 @@ function panel({ apiGet, apiPost } = {}) {
     return nodes;
   }
   render();
-  return { context, render, get nodes() { return nodes; } };
+  return { context, render, posts, frame, get nodes() { return nodes; },
+    studioStatus(state) { studioMessage({ origin: 'https://gosha.website', source: frame.contentWindow,
+      data: { type: 'gosha-motion-studio:status', state } }); } };
 }
 
 test('ordinary catalog survives runtime redraw during the pending response and afterward', async () => {
@@ -136,4 +149,35 @@ test('embedded USB blocks ordinary play and routes STOP to the existing editor',
   ui.context.isRobotStudioConnected = () => false;
   ui.context.paintRobotMotionView('gosha-main');
   assert.equal(ui.nodes.robotMotionPlay.disabled, false);
+});
+
+test('actual shared Studio state blocks both supported cards and waits for disconnect before ordinary play', async () => {
+  for (const [from, to] of [['gosha-main', 'gosha-test'], ['gosha-test', 'gosha-main'], ['gosha-main', 'other-robot']]) {
+    const calls = [];
+    const ui = panel({ studio: true, robotId: from,
+      apiGet: async () => ({ ok: true, data: { movements } }),
+      apiPost: async (_url, payload) => { calls.push(payload.action); return { ok: true, data: { status: 'finished' } }; } });
+    await ui.context.loadRobotMovements(from);
+    ui.context.syncRobotMotionStudio(from, 'motion');
+    ui.studioStatus('armed'); ui.render();
+    assert.equal(ui.nodes.robotMotionPlay.disabled, true);
+    await ui.context.playRobotMovement(from, { disabled: false });
+    assert.deepEqual(calls, []);
+    ui.context.robotWorkspaceId = to;
+    ui.context.syncRobotMotionStudio(to, 'overview');
+    await ui.context.loadRobotMovements(to); ui.render();
+    assert.equal(ui.nodes.robotMotionPlay.disabled, true);
+    await ui.context.playRobotMovement(to, { disabled: false });
+    assert.deepEqual(calls, []);
+    await ui.context.stopRobotMovement(to);
+    assert.deepEqual(calls, [], 'ordinary STOP must go to the actual shared Studio first');
+    assert.ok(ui.posts.length >= 1);
+    assert.ok(ui.posts.every(post => post.data.action === 'disconnect'));
+    ui.studioStatus('stopping'); ui.render();
+    assert.equal(ui.nodes.robotMotionPlay.disabled, true);
+    ui.studioStatus('disconnected'); ui.render();
+    assert.equal(ui.nodes.robotMotionPlay.disabled, false);
+    await ui.context.playRobotMovement(to, ui.nodes.robotMotionPlay);
+    assert.deepEqual(calls, ['play']);
+  }
 });

@@ -10,9 +10,16 @@ export function advertisedSpeedCeiling(caps, legacyCeiling = 30) {
   return MAX_WORKING_SPEED_DPS;
 }
 
-export function liveSpeedLimit(caps) {
+export function liveSpeedLimit(caps, jointId = null) {
   if (caps?.commissioning) return 1;
   if (caps?.mode !== "motion_editor") return 15;
-  return Math.min(advertisedSpeedCeiling(caps, 10),
-    ...caps.joint_limits.map(joint => joint.max_speed_dps));
+  const speeds = caps.joint_limits.map(joint => joint.max_speed_dps);
+  // Six-axis firmware enforces each actuator's speed independently. Keep the
+  // legacy five-axis scalar contract until that firmware advertises LEFT.
+  const sharedLimit = Math.min(advertisedSpeedCeiling(caps, 10),
+    caps.joint_limits.some(joint => joint.id === "arm_negative_x")
+      ? Math.max(...speeds) : Math.min(...speeds));
+  if (jointId === null) return sharedLimit;
+  const joint = caps.joint_limits.find(joint => joint.id === jointId);
+  return joint ? Math.min(sharedLimit, joint.max_speed_dps) : 0;
 }
