@@ -1,0 +1,226 @@
+--- a/platform/motion_studio/bridge/physics_server.py
++++ b/platform/motion_studio/bridge/physics_server.py
+@@ -15,6 +15,7 @@
+ from physics.model import DEFAULT_SETTINGS, PROFILE, SETTING_LIMITS, fingerprint, validate_request
+ 
+ STUDIO = Path(__file__).resolve().parents[1]
++MAX_MOTION_BODY_BYTES = 2 * 1024 * 1024
+ ENGINE_VERSIONS = {"newton": "1.6.1", "warp-lang": "1.17.0", "mujoco": "3.12.0"}
+ 
+ 
+@@ -29,6 +30,24 @@
+ def check_origin(request):
+     if request.headers.get("Origin") != f"{request.scheme}://{request.host}":
+         raise web.HTTPForbidden(text="Запрос разрешён только из этого редактора.")
++
++
++async def read_motion_json(request):
++    """Bound decoded body bytes before JSON parsing, including unknown lengths."""
++    if request.content_length is not None and request.content_length > MAX_MOTION_BODY_BYTES:
++        raise web.HTTPRequestEntityTooLarge(
++            max_size=MAX_MOTION_BODY_BYTES, actual_size=request.content_length)
++    body = bytearray()
++    while True:
++        # Read at most the limit plus one byte, never the entire oversized body.
++        chunk = await request.content.read(min(64 * 1024, MAX_MOTION_BODY_BYTES - len(body) + 1))
++        if not chunk:
++            break
++        actual_size = len(body) + len(chunk)
++        if actual_size > MAX_MOTION_BODY_BYTES:
++            raise web.HTTPRequestEntityTooLarge(max_size=MAX_MOTION_BODY_BYTES, actual_size=actual_size)
++        body.extend(chunk)
++    return json.loads(body.decode(request.charset or "utf-8"))
+ 
+ 
+ class PhysicsJobs:
+@@ -103,10 +122,8 @@
+             raise web.HTTPServiceUnavailable(text="Окружение физики не готово. Установите requirements-physics.txt.")
+         if request.content_type != "application/json":
+             raise web.HTTPUnsupportedMediaType(text="Нужен JSON движения.")
+-        if request.content_length and request.content_length > 2 * 1024 * 1024:
+-            raise web.HTTPRequestEntityTooLarge(max_size=2 * 1024 * 1024, actual_size=request.content_length)
+         try:
+-            payload = validate_request(await request.json())
++            payload = validate_request(await read_motion_json(request))
+         except (ValueError, TypeError) as exc:
+             raise web.HTTPBadRequest(text=str(exc))
+         return web.json_response(await jobs.start(payload), status=202)
+--- /dev/null
++++ b/platform/motion_studio/tests/test_physics_body_limit.py
+@@ -0,0 +1,176 @@
++"""Loopback regressions for the physics route; no engine, subprocess or robot."""
++import asyncio
++import json
++from pathlib import Path
++from tempfile import TemporaryDirectory
++from types import SimpleNamespace
++import unittest
++from unittest.mock import patch
++
++from aiohttp import web
++from aiohttp.test_utils import TestClient, TestServer
++from bridge import physics_server
++from physics.model import JOINTS, PROFILE
++
++LIMIT = 2 * 1024 * 1024
++
++
++def document():
++    pose = {joint["id"]: (joint["min"] + joint["max"]) / 2 for joint in JOINTS}
++    return {"motion": {
++        "schema_version": 1, "profile_id": PROFILE["profile_id"], "profile_version": 1,
++        "units": "relative_degrees", "preview_only": True, "hardware_validated": False,
++        "name": "Проверка границы", "duration_ms": 500, "interpolation": "linear",
++        "keyframes": [{"time_ms": 0, "pose": pose}],
++    }}
++
++
++def body_at(size):
++    value = json.dumps(document(), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
++    assert len(value) <= size
++    return b" " * (size - len(value)) + value
++
++
++async def chunks(body, block=16381):
++    for start in range(0, len(body), block):
++        yield body[start:start + block]
++        await asyncio.sleep(0)
++
++
++class PhysicsBodyLimitTests(unittest.IsolatedAsyncioTestCase):
++    async def asyncSetUp(self):
++        self.temp = TemporaryDirectory()
++        root = Path(self.temp.name)
++        (root / "models").mkdir()
++        (root / "index.html").write_text("Synthetic HTTP fixture", encoding="utf-8")
++        (root / "models/gosha.glb").write_bytes(b"not-a-real-model")
++        self.started = []
++
++        async def worker(manager, job, payload):
++            self.started.append(job["id"])
++            job.update(status="completed", result={"synthetic": True})
++
++        self.engines = patch.object(physics_server, "engine_status", return_value=(physics_server.ENGINE_VERSIONS, True))
++        self.worker = patch.object(physics_server.PhysicsJobs, "run", worker)
++        self.engines.start()
++        self.worker.start()
++        self.client = TestClient(TestServer(physics_server.physics_app(root, simulation_only=True)))
++        await self.client.start_server()
++        self.origin = str(self.client.make_url("/")).rstrip("/")
++        self.headers = {"Origin": self.origin, "Content-Type": "application/json"}
++
++    async def asyncTearDown(self):
++        await self.client.close()
++        self.worker.stop()
++        self.engines.stop()
++        self.temp.cleanup()
++
++    async def submit(self, body, *, chunked=False, expected):
++        before = len(self.started)
++        response = await self.client.post("/api/physics/jobs", data=chunks(body) if chunked else body,
++                                          headers=self.headers, timeout=10)
++        await response.read()
++        await asyncio.sleep(0)
++        self.assertEqual(response.status, expected)
++        sent = response.request_info.headers
++        if chunked:
++            self.assertIsNone(sent.get("Content-Length"))
++            self.assertEqual(sent.get("Transfer-Encoding"), "chunked")
++        else:
++            self.assertEqual(int(sent["Content-Length"]), len(body))
++        self.assertEqual(len(self.started) - before, 1 if expected == 202 else 0)
++        return response
++
++    async def test_fixed_limit_minus_one(self):
++        await self.submit(body_at(LIMIT - 1), expected=202)
++
++    async def test_fixed_exact_limit(self):
++        await self.submit(body_at(LIMIT), expected=202)
++
++    async def test_fixed_limit_plus_one(self):
++        await self.submit(body_at(LIMIT + 1), expected=413)
++
++    async def test_chunked_limit_minus_one(self):
++        await self.submit(body_at(LIMIT - 1), chunked=True, expected=202)
++
++    async def test_chunked_exact_limit(self):
++        await self.submit(body_at(LIMIT), chunked=True, expected=202)
++
++    async def test_chunked_limit_plus_one(self):
++        await self.submit(body_at(LIMIT + 1), chunked=True, expected=413)
++
++    async def test_small_multibyte_document_fixed_and_chunked(self):
++        value = json.dumps(document(), ensure_ascii=False).encode("utf-8")
++        for chunked in (False, True):
++            with self.subTest(chunked=chunked):
++                await self.submit(value, chunked=chunked, expected=202)
++
++    async def test_small_malformed_json_is_400_without_work(self):
++        for chunked in (False, True):
++            with self.subTest(chunked=chunked):
++                await self.submit(b"{", chunked=chunked, expected=400)
++
++    async def test_over_limit_rejected_before_json_or_model_parsing(self):
++        # No response.json() inside this patch: it deliberately forbids JSON parsing.
++        for chunked in (False, True):
++            with self.subTest(chunked=chunked), patch.object(physics_server.json, "loads", side_effect=AssertionError("JSON must not be parsed")), patch.object(physics_server, "validate_request", side_effect=AssertionError("model must not be parsed")):
++                await self.submit(b"x" * (LIMIT + 1), chunked=chunked, expected=413)
++
++    async def test_chunked_overflow_replies_without_waiting_for_end_of_body(self):
++        # An unfinished sender must receive 413 after byte LIMIT+1, not hang until EOF.
++        before = len(self.started)
++        async def unfinished():
++            yield b" " * (LIMIT + 1)
++            await asyncio.Event().wait()
++        response = await self.client.post("/api/physics/jobs", data=unfinished(), headers=self.headers, timeout=5)
++        await response.read()
++        self.assertEqual(response.status, 413)
++        self.assertIsNone(response.request_info.headers.get("Content-Length"))
++        self.assertEqual(response.request_info.headers.get("Transfer-Encoding"), "chunked")
++        await asyncio.sleep(0)
++        self.assertEqual(len(self.started), before)
++
++    async def test_large_report_export_unchanged_for_fixed_and_chunked_form(self):
++        from urllib.parse import urlencode
++        report = '{"preview_only":true,"frames":"' + "x" * (LIMIT + 1) + '"}'
++        encoded = urlencode({"name": "physics.json", "json": report, "raw": "1"}).encode("ascii")
++        for chunked in (False, True):
++            with self.subTest(chunked=chunked):
++                response = await self.client.post("/api/export", data=chunks(encoded) if chunked else encoded,
++                    headers={"Origin": self.origin, "Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
++                self.assertEqual(response.status, 200)
++                self.assertEqual(await response.text(), report)
++        self.assertEqual(self.started, [])
++
++    async def test_report_export_keeps_application_limit(self):
++        # Route-specific fix must not remove the application's 16 MiB export bound.
++        from urllib.parse import urlencode
++        encoded = urlencode({"name": "physics.json", "json": "x" * (16 * 1024 * 1024 + 1), "raw": "1"}).encode("ascii")
++        for chunked in (False, True):
++            with self.subTest(chunked=chunked):
++                response = await self.client.post("/api/export", data=chunks(encoded) if chunked else encoded,
++                    headers={"Origin": self.origin, "Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
++                await response.read()
++                self.assertEqual(response.status, 413)
++        self.assertEqual(self.started, [])
++
++    async def test_stream_reader_stops_at_limit_plus_one_bytes(self):
++        class CountingStream:
++            def __init__(self):
++                self.consumed = 0
++                self.requests = []
++            async def read(self, amount):
++                self.requests.append(amount)
++                self.consumed += amount
++                return b" " * amount
++        stream = CountingStream()
++        request = SimpleNamespace(content_length=None, content=stream, charset="utf-8")
++        with self.assertRaises(web.HTTPRequestEntityTooLarge):
++            await physics_server.read_motion_json(request)
++        self.assertEqual(stream.consumed, LIMIT + 1)
++        self.assertLessEqual(max(stream.requests), 64 * 1024)
++        self.assertGreater(min(stream.requests), 0)
++
++
++if __name__ == "__main__":
++    unittest.main()
