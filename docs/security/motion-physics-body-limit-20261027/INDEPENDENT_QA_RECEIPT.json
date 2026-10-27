@@ -1,0 +1,85 @@
+{
+  "finalized_at": "2026-10-27T08:01:12.115003+00:00",
+  "reviewer": "Семён",
+  "qa_task_id": "57e20f8f-c213-4fa2-866b-7641b8c5be99",
+  "parent_task_id": "9bbd224c-f9f8-45bc-8e5f-ab91563ea76f",
+  "existing_issue": "review:3ca655840dbda9b44361e849",
+  "candidate_commit": "1683572d9ff036a29be4f3571d8e6ea3f4acf3f1",
+  "patch_sha256": "afbdf3dac0c22a0ec6b35163c73bd81ff96ab46e7cfe81561fbfbd5c915d9bb9",
+  "corrected_server_sha256": "05117b88a1e11ee0dfdad9b1be029a07bc914fb2cc007237911d9df3661f8cc8",
+  "packet_4_of_4_unchanged": {
+    "README_RU.md": true,
+    "source_manifest.json": true,
+    "motion-physics-body-limit.patch": true,
+    "verify_patch.py": true
+  },
+  "source_6_of_6_unchanged": {
+    "bridge/physics_server.py": true,
+    "bridge/studio_server.py": true,
+    "physics/model.py": true,
+    "physics/gosha-preview-v1.json": true,
+    "tests/test_physics_model.py": true,
+    "tests/test_physics_server.py": true
+  },
+  "five_other_candidate_files_unchanged_by_patch": {
+    "bridge/studio_server.py": true,
+    "physics/model.py": true,
+    "physics/gosha-preview-v1.json": true,
+    "tests/test_physics_model.py": true,
+    "tests/test_physics_server.py": true
+  },
+  "static_delta": {
+    "unchanged_top_level_functions_and_classes": [
+      "engine_status",
+      "check_origin",
+      "PhysicsJobs",
+      "main"
+    ],
+    "physics_app_except_submit_unchanged": true,
+    "submit_only_declared_length_check_replaced_by_bounded_reader": true,
+    "new_regression_methods": 13
+  },
+  "own_runs": {
+    "own_packet_application_baseline_and_21_tests": {
+      "call_id": "call_UiRP693KxAaIjplcSXze8NpH",
+      "state": "done",
+      "exit_code": 0,
+      "started_at": "2026-10-27T07:52:33.725785+00:00",
+      "finished_at": "2026-10-27T07:52:37.540048+00:00"
+    },
+    "own_independent_baseline": {
+      "call_id": "call_cWefwhuM5pB1EpGn2NNrkQjc",
+      "state": "done",
+      "exit_code": 0,
+      "started_at": "2026-10-27T07:56:56.853018+00:00",
+      "finished_at": "2026-10-27T07:56:56.996945+00:00"
+    },
+    "own_independent_corrected": {
+      "call_id": "call_lyAyJk9c8te1kp7NomLHDSTO",
+      "state": "done",
+      "exit_code": 0,
+      "started_at": "2026-10-27T07:57:10.674456+00:00",
+      "finished_at": "2026-10-27T07:57:11.106123+00:00"
+    }
+  },
+  "results": {
+    "packet_baseline_chunked_overflow": "FAIL as required: 202 != 413, not an import/environment error",
+    "packet_corrected_tests": 21,
+    "independent_baseline_raw_chunked_overflow": "FAIL as required: 202 != 413",
+    "independent_corrected_tests": 8,
+    "total_corrected_methods_passed": 29
+  },
+  "warnings": [
+    "Packet run includes aiohttp deprecation warning for pre-existing middleware returning an HTTPException, large raw-byte payload ResourceWarning and debug slow-task notices. No errors/failures; warnings were not suppressed or fixed in this review."
+  ],
+  "limitations": [
+    "Patch package only, no commit/push/PR/merge/install by this QA task and no issue closure.",
+    "Exact six-file candidate fixture with minimal safe package initializers; not the full accepted application or production deployment.",
+    "Real physics.runner was not imported/executed; environment readiness and worker were artificial. Independent probes enforced loopback-only sockets and forbade subprocesses.",
+    "2 MiB + 1 is the explicit helper's maximum read, not a proof that aiohttp/TCP/decompression buffering or concurrent server memory never exceeds that amount.",
+    "No stress test, request-timeout/decompression-memory audit, browser, phone, USB, robot, firmware, accepted conversation or Gosha service operation.",
+    "No confirmation of vulnerability/fix in installed Studio, remote exploitation or damage; does not exclude other vulnerabilities.",
+    "Integration target/provenance and preserved accepted source changes remain Mark and Egor's separate work; disabled merge/unconfigured full tests are not bypassed."
+  ],
+  "verdict": "READY AS NARROW PATCH TO THE EXACT CANDIDATE; NO BLOCKER FOUND IN TESTED SCOPE. NOT AN INSTALLED FIX."
+}

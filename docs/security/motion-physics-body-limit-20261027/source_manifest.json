@@ -1,0 +1,14 @@
+{
+  "candidate_commit": "1683572d9ff036a29be4f3571d8e6ea3f4acf3f1",
+  "configured_base_commit": "1ac889c615eaf62f94b4e7db45e20b5c2b75b99c",
+  "expected_github_blobs": {
+    "bridge/physics_server.py": "9518257dc5434165214eb35019f37e7a6e4c9054",
+    "bridge/studio_server.py": "b4fd5539d9f6a6a85b45cfd33db26a83d0e72265",
+    "physics/model.py": "c8024230f041bfe61e1629a66f561f421675608c",
+    "physics/gosha-preview-v1.json": "1fbec85f9d9b0bc53aaa4b0af041f9b393dc7ba1",
+    "tests/test_physics_model.py": "91ea8a377425d149ccf1f904211491df2b49b89a",
+    "tests/test_physics_server.py": "afe8af8ec7b9458f6e3d605709d80b79d9573beb"
+  },
+  "fixed_server_sha256": "05117b88a1e11ee0dfdad9b1be029a07bc914fb2cc007237911d9df3661f8cc8",
+  "patch_sha256": "afbdf3dac0c22a0ec6b35163c73bd81ff96ab46e7cfe81561fbfbd5c915d9bb9"
+}
